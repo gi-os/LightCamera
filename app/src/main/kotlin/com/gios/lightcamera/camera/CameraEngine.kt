@@ -196,6 +196,7 @@ class CameraEngine(private val context: Context) {
             }
             if (rotation == lastRotation) return
             lastRotation = rotation
+            _previewRotation.value = previewRotationDegrees()
             imageCapture?.targetRotation = rotation
             // Not while recording: the rotation is written into the file's metadata when the
             // recording starts, and changing it mid-take is ignored at best.
@@ -204,6 +205,16 @@ class CameraEngine(private val context: Context) {
     }
 
     @Volatile private var lastRotation = Surface.ROTATION_0
+
+    /**
+     * [previewRotationDegrees] as state, so the viewfinder can follow it.
+     *
+     * The number itself has been here all along for the shutter's benefit; the overlay needs it too,
+     * because it has to be drawn the way up the *photograph* will be rather than the way up the panel
+     * is, or the preview stops matching the file the moment you turn the phone on its side.
+     */
+    private val _previewRotation = MutableStateFlow(0)
+    val previewRotation: StateFlow<Int> = _previewRotation.asStateFlow()
 
     /** Read from the camera callback thread, written from the UI. */
     @Volatile private var viewWidth = 0

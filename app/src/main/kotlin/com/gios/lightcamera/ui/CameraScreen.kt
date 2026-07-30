@@ -42,6 +42,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -57,6 +58,7 @@ import com.gios.lightcamera.Colour
 import com.gios.lightcamera.camera.AfState
 import com.gios.lightcamera.camera.FaceMapper
 import com.gios.lightcamera.camera.FlashMode
+import com.gios.lightcamera.filter.FaceQuad
 import com.gios.lightcamera.filter.FaceQuads
 import com.gios.lightcamera.camera.PuriArt
 import com.gios.lightcamera.camera.PuriStrip
@@ -202,6 +204,8 @@ fun CameraScreen(
     val puriDates by vm.prefs.puriDate.collectAsState()
     val puriStripId by vm.prefs.puriStrip.collectAsState()
     val puriSeed by vm.puriSeed.collectAsState()
+    // Which way up the photograph will be, from the same number the shutter uses.
+    val turn by vm.engine.previewRotation.collectAsState()
     LaunchedEffect(liveFilter, seed, frameWidth, frameHeight, faceQuads) {
         previewView.setRenderEffect(
             ShaderRuntime.effectFor(liveFilter, frameWidth, frameHeight, seed, faceQuads),
@@ -216,14 +220,17 @@ fun CameraScreen(
     // digital crop was a dial spent on nothing; a dial that changes what the photograph looks
     // like earns every notch. Unarmed, because each notch has to count, and None is three notches
     // wide on the track so a stray one lands somewhere harmless.
-    WheelTurns(active = active && wheelEnabled && !evOpen, armed = false) { notches ->
+    // **Nothing scrolls while the Purikura menu is open.** The menu is a list of five things you are
+    // reading; a wheel that walked the filters underneath it would change the picture behind the menu
+    // and take Purikura away, closing the menu you were using.
+    WheelTurns(active = active && wheelEnabled && !evOpen && !puriOpen, armed = false) { notches ->
         vm.stepFilter(if (notches > 0) 1 else -1)
     }
     // Exposure keeps both of its routes: the strip while it is open, and hold-and-turn always.
-    WheelTurns(active = active && wheelEnabled && evOpen, armed = true) { notches ->
+    WheelTurns(active = active && wheelEnabled && evOpen && !puriOpen, armed = true) { notches ->
         engine.stepEv(notches)
     }
-    WheelTurns(active = active && wheelEnabled, armed = true, pressed = true) { notches ->
+    WheelTurns(active = active && wheelEnabled && !puriOpen, armed = true, pressed = true) { notches ->
         engine.stepEv(notches)
         vm.showNotice("EV ${engine.evLabel()}")
     }
@@ -360,7 +367,7 @@ fun CameraScreen(
                             vm.onViewSized(it.width, it.height)
                         }
                         .viewfinderGestures(
-                            enabled = active,
+                            enabled = active && !puriOpen,
                             onTapFocus = { x, y ->
                                 // A buzz for the *ask*. The buzz and beep for the lens landing
                                 // come off the camera's own AF result, in the view model.
@@ -388,6 +395,13 @@ fun CameraScreen(
                     val settled = faceQuads.map { q ->
                         listOf(q.cx, q.cy, q.hw, q.hh).map { (it * 50f).toInt() }
                     }
+                    // **Drawn the way up the photograph will be, then turned back to face you.**
+                    // Hold the phone sideways and the file comes out landscape, so the frame's bands
+                    // run along its long edges and the date reads horizontally across the bottom of
+                    // it. Drawing the overlay in the panel's portrait space instead would put the date
+                    // up the side of the finished photograph — and, worse, would show you one thing
+                    // and save another.
+                    val sideways = turn == 90 || turn == 270
                     val overlay = remember(
                         puriFrameId,
                         puriSeed,
@@ -397,9 +411,13 @@ fun CameraScreen(
                         settled,
                         frameWidth,
                         frameHeight,
+                        turn,
                     ) {
-                        val ow = (frameWidth / 2).coerceAtLeast(1)
-                        val oh = (frameHeight / 2).coerceAtLeast(1)
+                        // Half resolution: this is redrawn whenever a face moves, and a full-panel
+                        // ARGB bitmap fifteen times a second is not a thing to do to a phone.
+                        val half = { n: Int -> (n / 2).coerceAtLeast(1) }
+                        val ow = if (sideways) half(frameHeight) else half(frameWidth)
+                        val oh = if (sideways) half(frameWidth) else half(frameHeight)
                         val bitmap = createBitmap(ow, oh)
                         PuriArt.draw(
                             canvas = AndroidCanvas(bitmap),
@@ -408,7 +426,8 @@ fun CameraScreen(
                             frame = PuriArt.frameById(puriFrameId),
                             plan = PuriArt.plan(
                                 seed = puriSeed,
-                                faces = faceQuads,
+                                // Faces are in panel space, so they turn with everything else.
+                                faces = faceQuads.map { FaceQuads.rotated(it, turn) },
                                 faceStickers = puriFaceStickers,
                                 marginStickers = puriMarginStickers,
                                 withDate = puriDates,
@@ -417,12 +436,16 @@ fun CameraScreen(
                         )
                         bitmap.asImageBitmap()
                     }
-                    Image(
-                        bitmap = overlay,
-                        contentDescription = null,
-                        contentScale = ContentScale.FillBounds,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                    // Undo the turn for display: the photograph will be rotated by `turn`, so showing
+                    // the same thing on an unrotated panel means rotating the overlay the other way.
+                    RotatedToDevice((360 - turn) % 360) {
+                        Image(
+                            bitmap = overlay,
+                            contentDescription = null,
+                            contentScale = ContentScale.FillBounds,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
 
                 FrameOverlay(
@@ -513,6 +536,7 @@ fun CameraScreen(
         // frame, and a menu should never cost you your framing.
         if (puriOpen) {
             PuriMenu(
+                seed = puriSeed,
                 frame = PuriArt.frameById(puriFrameId),
                 faceStickers = puriFaceStickers,
                 marginStickers = puriMarginStickers,
@@ -524,7 +548,6 @@ fun CameraScreen(
                 onDate = { vm.prefs.setPuriDate(!puriDates) },
                 onStrip = { vm.stepPuriStrip() },
                 onClose = { puriOpen = false },
-                modifier = Modifier.padding(start = BAND),
             )
         }
 
@@ -661,11 +684,16 @@ private fun ModeStrip(
 }
 
 /**
- * Everything a Purikura is made of, in one panel.
+ * Everything a Purikura is made of, on one screen, with a sample of it in the corner.
  *
- * Rows you tap to cycle, which is how LightOS does settings and how the rest of this app already
- * does them — no switches, no dialogs, nothing to get lost in. It opens out of the band like the mode
- * picker does, and it is sideways for the same reason: you are holding the phone like a camera.
+ * **The whole screen, not a strip beside the band.** Five rows would not fit in a panel the width of
+ * the chrome, and a menu you have to scroll to reach the bottom of — on a 3.92" phone, sideways, with
+ * five items — is a menu that hides two of its five options. So this covers the viewfinder while it is
+ * open, and nothing scrolls underneath it.
+ *
+ * The sample is drawn by the same `PuriArt.draw` the photograph uses, onto a grey stand-in with a face
+ * where a face would be, so tapping a row shows you what the row does. It is the only honest way to
+ * choose between fourteen frames whose names are one word each.
  *
  * Face stickers and margin stickers are separate switches because they fail differently. The
  * face-anchored ones depend on the detector finding a face and can land wrong when it drifts; the
@@ -673,6 +701,7 @@ private fun ModeStrip(
  */
 @Composable
 private fun PuriMenu(
+    seed: Long,
     frame: PuriArt.Frame,
     faceStickers: Boolean,
     marginStickers: Boolean,
@@ -689,37 +718,113 @@ private fun PuriMenu(
     val colours = LightThemeTokens.colors
     Box(
         modifier = modifier
-            .width(BAND + 128.dp)
-            .fillMaxHeight()
-            .background(colours.background),
+            .fillMaxSize()
+            .background(colours.background)
+            // Eats every touch, which is the other half of "nothing scrolls while this is open": the
+            // swipe down to the roll is a drag on a pager two levels up, and a background does not
+            // stop one.
+            .swallowTaps(),
     ) {
         HeldSideways {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+            Row(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 12.dp),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    LightText("PURIKURA", LightTextVariant.Detail)
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        LightText("PURIKURA", LightTextVariant.Detail)
+                        Spacer(Modifier.weight(1f))
+                        ChromeIcon(icon = LightIcons.Close, lighten = true, onClick = onClose)
+                    }
+                    PuriRow("Frame", frame.label, onFrame)
+                    PuriRow("Face stickers", if (faceStickers) "On" else "Off", onFaceStickers)
+                    PuriRow("Margin stickers", if (marginStickers) "On" else "Off", onMarginStickers)
+                    PuriRow("Date", if (date) "Random" else "Off", onDate)
+                    PuriRow("Four-shot", strip.label, onStrip)
                     Spacer(Modifier.weight(1f))
-                    ChromeIcon(icon = LightIcons.Close, lighten = true, onClick = onClose)
-                }
-                Spacer(Modifier.height(4.dp))
-                PuriRow("Frame", frame.label, onFrame)
-                PuriRow("Face stickers", if (faceStickers) "On" else "Off", onFaceStickers)
-                PuriRow("Margin stickers", if (marginStickers) "On" else "Off", onMarginStickers)
-                PuriRow("Date", if (date) "Random" else "Off", onDate)
-                PuriRow("Four-shot strip", strip.label, onStrip)
-                if (strip.id != "off") {
                     LightText(
-                        "The shutter takes four, three seconds apart. The strip goes on the roll; the four frames are kept behind it.",
-                        LightTextVariant.Superfine,
+                        text = if (strip.id == "off") {
+                            "Every one of these is picked at random when the app starts."
+                        } else {
+                            "The shutter takes four, three seconds apart. The strip goes on the roll; the four frames are kept behind it."
+                        },
+                        variant = LightTextVariant.Superfine,
                         lighten = true,
-                        modifier = Modifier.padding(top = 6.dp),
                     )
                 }
+                Spacer(Modifier.width(16.dp))
+                PuriSample(
+                    seed = seed,
+                    frame = frame,
+                    faceStickers = faceStickers,
+                    marginStickers = marginStickers,
+                    date = date,
+                    modifier = Modifier.align(Alignment.CenterVertically),
+                )
             }
         }
+    }
+}
+
+/**
+ * A thumbnail of what you are about to get.
+ *
+ * Not the live viewfinder — a stand-in, because the point of it is the *furniture*, and a moving
+ * picture behind a menu is a distraction. The grey blocks are shaped like a person so the ears land on
+ * a head and the blush on cheeks, which is the only way to tell what those two rows do.
+ */
+@Composable
+private fun PuriSample(
+    seed: Long,
+    frame: PuriArt.Frame,
+    faceStickers: Boolean,
+    marginStickers: Boolean,
+    date: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val density = LocalDensity.current
+    val wPx = with(density) { 108.dp.roundToPx() }
+    val hPx = with(density) { 144.dp.roundToPx() }
+    val sample = remember(seed, frame.id, faceStickers, marginStickers, date, wPx, hPx) {
+        val bitmap = createBitmap(wPx, hPx)
+        val canvas = AndroidCanvas(bitmap)
+        canvas.drawColor(android.graphics.Color.rgb(0x3A, 0x3A, 0x38))
+        val paint = android.graphics.Paint().apply {
+            isAntiAlias = true
+            color = android.graphics.Color.rgb(0x8C, 0x86, 0x80)
+        }
+        // A head and a pair of shoulders, at the same place the face quad below says they are.
+        canvas.drawCircle(wPx * 0.5f, hPx * 0.4f, wPx * 0.22f, paint)
+        canvas.drawOval(
+            wPx * 0.16f,
+            hPx * 0.66f,
+            wPx * 0.84f,
+            hPx * 1.3f,
+            paint,
+        )
+        PuriArt.draw(
+            canvas = canvas,
+            w = wPx,
+            h = hPx,
+            frame = frame,
+            plan = PuriArt.plan(
+                seed = seed,
+                faces = listOf(FaceQuad(cx = 0.5f, cy = 0.4f, hw = 0.22f, hh = 0.165f)),
+                faceStickers = faceStickers,
+                marginStickers = marginStickers,
+                withDate = date,
+            ),
+            millis = System.currentTimeMillis(),
+        )
+        bitmap.asImageBitmap()
+    }
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Image(
+            bitmap = sample,
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.width(108.dp).height(144.dp),
+        )
+        LightText("EXAMPLE", LightTextVariant.Micro, lighten = true, modifier = Modifier.padding(top = 4.dp))
     }
 }
 
