@@ -124,6 +124,18 @@ private fun ShellContent(vm: CameraViewModel, captureRequest: Boolean) {
 
     val pager = rememberPagerState(initialPage = PAGE_CAMERA, pageCount = { 2 })
 
+    // Back to the viewfinder when the camera key brings the app forward — and back *out* of whatever was
+    // over it, since a photograph or the settings covering the picture is the same problem as being on the
+    // wrong page. Collecting a shared flow rather than keying an effect on state: this must fire on the
+    // second press and must not fire on composition.
+    LaunchedEffect(Unit) {
+        vm.goToCamera.collect {
+            viewing = null
+            settingsOpen = false
+            if (pager.currentPage != PAGE_CAMERA) pager.scrollToPage(PAGE_CAMERA)
+        }
+    }
+
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (captureRequest) {
             // One photo for somebody else. No roll, no settings, no way to wander off.

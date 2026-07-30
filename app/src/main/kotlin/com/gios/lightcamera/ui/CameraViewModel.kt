@@ -88,6 +88,27 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private val _shooting = MutableStateFlow(false)
     val shooting: StateFlow<Boolean> = _shooting.asStateFlow()
 
+    /**
+     * Ticks when the app is launched or brought forward — go back to the viewfinder.
+     *
+     * **A `SharedFlow`, not a `StateFlow`, and that is the whole design.** The activity is `singleTop`, so
+     * the camera key does not create a new instance: it resumes the existing one, which comes back on
+     * whatever page it was left on. Leave Roll looking at the roll, press the shutter key later, and you
+     * arrive at the roll — which is not what a camera button means.
+     *
+     * A shared flow only fires on emission, never on composition, and never replays. That matters twice
+     * over: a second press has to re-fire (a boolean already true would not), and it must *not* fire on
+     * first composition — an effect that ran at startup is exactly what made tapping a photograph open the
+     * newest one in v2.11.
+     */
+    private val _goToCamera = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val goToCamera: SharedFlow<Unit> = _goToCamera.asSharedFlow()
+
+    /** Called from the activity when it is launched or resumed by an intent. */
+    fun onCameraKeyLaunch() {
+        _goToCamera.tryEmit(Unit)
+    }
+
     /** Ticks once per captured frame, for the viewfinder blink. */
     private val _shutterTick = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
     val shutterTick: SharedFlow<Unit> = _shutterTick.asSharedFlow()

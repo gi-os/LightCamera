@@ -43,6 +43,18 @@ class MainActivity : ComponentActivity() {
     private var controls: LightControls? = null
     private var viewModel: CameraViewModel? = null
 
+    /**
+     * Launched, or brought forward by the camera key.
+     *
+     * `singleTop` means the second press lands here rather than in [onCreate], with the activity still
+     * showing whatever was on screen when you left. The viewfinder is what a camera button asks for.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        viewModel?.onCameraKeyLaunch()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
