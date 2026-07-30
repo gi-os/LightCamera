@@ -130,12 +130,28 @@ fun rememberDeviceQuarter(active: Boolean = true): Int {
  * occupy after rotating; 180 keeps them.
  */
 @Composable
-fun RotatedToDevice(quarter: Int, content: @Composable () -> Unit) {
+fun RotatedToDevice(
+    quarter: Int,
+    /**
+     * Whether to fill the box behind the content with black.
+     *
+     * True for a photograph, which needs something behind the letterboxing. **False for anything laid
+     * over the viewfinder** — an opaque background here turned the live Purikura overlay into a black
+     * rectangle the moment the phone tilted past 45°, which is a good reminder that a helper written
+     * for full-screen pictures is not automatically right for a transparent layer.
+     */
+    opaque: Boolean = true,
+    content: @Composable () -> Unit,
+) {
     if (quarter == 0) {
         content()
         return
     }
-    BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .then(if (opaque) Modifier.background(Color.Black) else Modifier),
+    ) {
         val sideways = quarter == 90 || quarter == 270
         val w = if (sideways) maxHeight else maxWidth
         val h = if (sideways) maxWidth else maxHeight

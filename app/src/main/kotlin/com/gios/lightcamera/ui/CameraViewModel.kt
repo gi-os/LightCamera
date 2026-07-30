@@ -241,7 +241,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         if (now < dialHeldUntil) return
         val next = Filters.step(filter.value, by)
         prefs.setFilter(next.id)
-        if (next.id == Filters.none.id) dialHeldUntil = now + Filters.NONE_DWELL_MS
+        dialHeldUntil = now + Filters.dwellMs(next)
         // **No name flashed on screen.** The viewfinder is already showing you the filter — a
         // label naming what you can plainly see is a label in the way of it. The buzz says the
         // dial moved; the picture says where to.
@@ -312,26 +312,17 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         _puriSeed.value = Random.nextLong()
     }
 
-    /** The frame the chip is showing, resolved from the stored id. */
-    fun puriFrame(): PuriArt.Frame = PuriArt.frameById(prefs.puriFrame.value)
+    /**
+     * The frame this photograph will have, Random resolved from the seed.
+     *
+     * The seed is the one held still between shots, so the answer is stable while you compose and
+     * changes when you shoot — which is what makes Random honest rather than a surprise.
+     */
+    fun puriFrame(): PuriArt.Frame = PuriArt.resolveFrame(prefs.puriFrame.value, _puriSeed.value)
 
-    /** Walk to the next frame, and reshuffle, because a new border wants new decoration. */
-    fun stepPuriFrame(by: Int = 1) {
-        val all = PuriArt.frames
-        val at = all.indexOfFirst { it.id == prefs.puriFrame.value }.coerceAtLeast(0)
-        val next = all[((at + by) % all.size + all.size) % all.size]
-        prefs.setPuriFrame(next.id)
-        reshufflePuri()
-        showNotice("Frame: ${next.label}")
-    }
-
-    /** Walk to the next strip layout. Off is one of them, so this also switches the feature off. */
-    fun stepPuriStrip(by: Int = 1) {
-        val all = PuriStrip.layouts
-        val at = all.indexOfFirst { it.id == prefs.puriStrip.value }.coerceAtLeast(0)
-        val next = all[((at + by) % all.size + all.size) % all.size]
-        prefs.setPuriStrip(next.id)
-    }
+    /** The strip this press will take, Random resolved the same way. */
+    fun puriStripLayout(): PuriStrip.Layout =
+        PuriStrip.resolveLayout(prefs.puriStrip.value, _puriSeed.value)
 
     /** The four frames behind a strip, for the viewer's button. Empty for an ordinary photograph. */
     suspend fun framesBehind(photo: Photo): List<Photo> =
@@ -353,6 +344,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         val frame = puriFrame()
         val faceStickers = prefs.puriFaceStickers.value
         val marginStickers = prefs.puriMarginStickers.value
+        val dateId = if (withDate) prefs.puriDate.value else PuriArt.OFF
         val seed = _puriSeed.value
         return { canvas, w, h, faces ->
             PuriArt.draw(
@@ -360,7 +352,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 w = w,
                 h = h,
                 frame = frame,
-                plan = PuriArt.plan(seed, faces, faceStickers, marginStickers, withDate),
+                plan = PuriArt.plan(seed, faces, faceStickers, marginStickers, dateId),
                 millis = millis,
             )
         }
@@ -400,9 +392,8 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         // Four shots and a strip, if that is what the menu says. Its own routine, because a booth
         // sequence is not a photograph taken four times: it counts you in, it cannot be stopped
         // halfway, and what it produces is one print.
-        val strip = PuriStrip.layoutById(prefs.puriStrip.value)
-        if (strip.id != "off" && filter.value.facesAware && !videoMode()) {
-            shootStrip(strip)
+        if (PuriStrip.enabled(prefs.puriStrip.value) && filter.value.facesAware && !videoMode()) {
+            shootStrip(puriStripLayout())
             return
         }
         val loadedRoll = roll.value
@@ -461,7 +452,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     // random by design.
                     val puri = puriOverlay(
                         filter = activeFilter,
-                        withDate = prefs.puriDate.value,
+                        withDate = prefs.puriDate.value != PuriArt.OFF,
                         millis = System.currentTimeMillis(),
                     )
                     val processed = withContext(Dispatchers.Default) {
@@ -554,7 +545,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     val faces = FaceQuads.of(engine.faces.value, grabbed.width, grabbed.height)
                     val puri = puriOverlay(
                         filter = activeFilter,
-                        withDate = prefs.puriDate.value,
+                        withDate = prefs.puriDate.value != PuriArt.OFF,
                         millis = takenAt,
                     )
                     val processed = withContext(Dispatchers.Default) {

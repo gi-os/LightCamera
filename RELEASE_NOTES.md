@@ -1,26 +1,39 @@
-## Roll v2.10 — the menu is a screen, and it shows you what it does
+## Roll v2.11 — pick from a list, and the sample shows the strip
 
-**One screen, with an example in the corner**
+**The black viewfinder is fixed**
 
-Five rows would not fit in a panel the width of the chrome, and a menu you have to scroll on a 3.92"
-screen held sideways is a menu that hides two of its five options. So the Purikura menu covers the
-viewfinder while it is open, and beside the rows there is a small sample — a grey head and shoulders
-with the frame, the stickers and the date drawn on it by the same code the photograph uses. Tap a row
-and the sample changes. It is the only honest way to choose between fourteen frames whose names are one
-word each.
+v2.10's overlay was wrapped in the helper that rotates a photograph to the phone — and that helper
+paints black behind its content, which is right for a picture and completely wrong for a transparent
+layer. Tilt the phone past 45° and the viewfinder went black. It now asks for a transparent box.
 
-**Nothing scrolls while it is open**
+**Frame, Date and Four-shot are lists**
 
-The wheel is off, the sideways swipe that walks the filters is off, and the panel eats every touch so
-the swipe down to the roll cannot fire either. Before, a stray notch would change the filter behind the
-menu — taking Purikura away and closing the menu you were using.
+Fourteen frames and eight dates are too many to walk one tap at a time. Each row opens a list with the
+current choice filled in, and the first item is **Random** — which is the default, not a novelty. Random
+resolves from the seed the app holds still between shots, so it is stable while you compose and different
+on every photograph, and the sample in the corner is showing you the one you are about to get.
 
-**The date reads horizontally when you shoot horizontally**
+The frame, the date and the layout are salted separately, so Random is a combination of choices rather
+than a handful of presets.
 
-The overlay is now drawn the way up the *photograph* will be rather than the way up the panel is, and
-then turned back to face you. Hold the phone on its side and the frame's bands run along the long edges
-and the date sits across the bottom, in the viewfinder as well as in the file. Drawing it in the panel's
-portrait space put the date up the side of the finished photograph, and — worse — showed you one thing
-and saved another.
+**The sample shows the strip**
 
-The faces are turned with it, so the ears and the blush follow.
+Turn four-shot on and the example becomes an actual strip: four cells, each decorated separately, run
+through the same `PuriStrip.compose` the shutter uses. With Framed selected the cells lose their own
+borders, because the point of that layout is one border around all four.
+
+**Margin stickers are bigger**
+
+Half again. At a tenth of the short edge a heart in the corner of a 4:3 frame read as a speck of dust.
+
+**The level lies along the horizon**
+
+Hold the phone sideways and the world's horizon runs *down* the screen, but the level was drawn across
+the panel in every pose — at 90° to the thing it was reporting on. It now turns with the same number the
+photograph is rotated by, so the level and the file agree by construction.
+
+**The dial catches on Purikura**
+
+Half a second, where None gets a second and a half. Purikura is the other filter you aim *for* rather than
+pass through — there is a menu behind it — so the wheel should hesitate there too. Shorter than None's,
+because None is the way back to an ordinary photograph and this is somewhere you went on purpose.

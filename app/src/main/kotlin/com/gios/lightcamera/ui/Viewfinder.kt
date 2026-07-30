@@ -59,6 +59,8 @@ fun FrameOverlay(
     tilt: Float,
     /** True while the phone has been crooked recently enough for the level to be useful. */
     levelVisible: Boolean,
+    /** Which way up the photograph will be, so the horizon can lie along it. */
+    turn: Int = 0,
     modifier: Modifier = Modifier,
 ) {
     val colours = LightThemeTokens.colors
@@ -113,7 +115,7 @@ fun FrameOverlay(
         }
 
         if (levelVisible) {
-            drawLevel(tilt, colours.content, colours.contentSecondary, hair)
+            drawLevel(tilt, turn, colours.content, colours.contentSecondary, hair)
         }
     }
 }
@@ -192,12 +194,25 @@ private fun DrawScope.drawThirds(colour: Color, stroke: Float) {
  * only way a level is any use while you are looking at the picture. It is drawn only when it
  * has something to say; see [rememberLevelVisible].
  */
-private fun DrawScope.drawLevel(tilt: Float, level: Color, off: Color, stroke: Float) {
+private fun DrawScope.drawLevel(
+    tilt: Float,
+    turn: Int,
+    level: Color,
+    off: Color,
+    stroke: Float,
+) {
     val centre = Offset(size.width / 2f, size.height / 2f)
-    val half = size.width * 0.20f
+    // Measured off the short edge, because sideways the line runs down the long one and a fifth of
+    // the *width* would be a fifth of the wrong number.
+    val half = size.minDimension * 0.20f
     val square = abs(tilt) < 1f
-    val gap = if (square) 0f else size.width * 0.07f
-    rotate(degrees = -tilt, pivot = centre) {
+    val gap = if (square) 0f else size.minDimension * 0.07f
+    // **Turned with the phone.** The line is a horizon, and a horizon is horizontal in the world, not
+    // on the panel: hold the phone sideways and the world's horizon runs *down* the screen. Drawing it
+    // along the panel's x axis in every pose put it across the picture at 90° to the thing it was
+    // reporting on. `turn` is the same number the photograph is rotated by, so this is the one place
+    // the level and the file agree by construction.
+    rotate(degrees = -tilt + turn, pivot = centre) {
         val colour = if (square) level else off.copy(alpha = 0.7f)
         if (gap == 0f) {
             drawLine(

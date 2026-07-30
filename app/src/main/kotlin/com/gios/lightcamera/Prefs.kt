@@ -239,17 +239,16 @@ class Prefs(context: Context) {
      * Everything about a Purikura that is not the shader: the frame, the two kinds of sticker, its
      * own date, and whether the shutter takes four.
      *
-     * **Rolled at random every time the app starts, and not written down.** A booth does not remember
-     * what you chose last week; you sit down and it hands you something. So each launch picks a frame
-     * and flips the stickers and the date for you, and the menu is there to overrule it — which is
-     * kept for the rest of the session, but only in memory. Four-shot always starts off: a strip is
-     * something you decide to do, not something that happens to you on the first photograph of the
-     * day.
+     * **Random by default, and none of it written down.** A booth does not remember what you chose
+     * last week; you sit down and it hands you something. So the frame and the date both start on
+     * Random — which is resolved per photograph from the seed, so it changes when you shoot rather
+     * than while you compose — and the stickers start on a coin flip. The menu overrules any of it for
+     * the rest of the session, in memory only.
      *
-     * The one thing this costs is that turning a sticker off does not stick past a restart, which for
-     * a feature whose whole character is "surprise me" is the right way round.
+     * Four-shot always starts off: a strip is something you decide to do, not something that happens
+     * to you on the first photograph of the day.
      */
-    private val _puriFrame = MutableStateFlow(PuriArt.frames.drop(1).random().id)
+    private val _puriFrame = MutableStateFlow(PuriArt.RANDOM)
     val puriFrame: StateFlow<String> = _puriFrame.asStateFlow()
 
     private val _puriFaceStickers = MutableStateFlow(Random.nextBoolean())
@@ -258,10 +257,10 @@ class Prefs(context: Context) {
     private val _puriMarginStickers = MutableStateFlow(Random.nextBoolean())
     val puriMarginStickers: StateFlow<Boolean> = _puriMarginStickers.asStateFlow()
 
-    private val _puriDate = MutableStateFlow(Random.nextBoolean())
-    val puriDate: StateFlow<Boolean> = _puriDate.asStateFlow()
+    private val _puriDate = MutableStateFlow(PuriArt.RANDOM)
+    val puriDate: StateFlow<String> = _puriDate.asStateFlow()
 
-    private val _puriStrip = MutableStateFlow(PuriStrip.layouts.first().id)
+    private val _puriStrip = MutableStateFlow(PuriStrip.OFF)
     val puriStrip: StateFlow<String> = _puriStrip.asStateFlow()
 
     /** The digicam focus beep and the shutter tick. */
@@ -317,7 +316,7 @@ class Prefs(context: Context) {
 
     fun setPuriMarginStickers(value: Boolean) { _puriMarginStickers.value = value }
 
-    fun setPuriDate(value: Boolean) { _puriDate.value = value }
+    fun setPuriDate(value: String) { _puriDate.value = value }
 
     fun setPuriStrip(value: String) { _puriStrip.value = value }
 

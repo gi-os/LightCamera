@@ -126,7 +126,35 @@ object PuriStrip {
         Layout("grid", "Grid", columns = 2, gutter = 0.035f, margin = 0.045f, footer = 0.1f),
     )
 
+    const val OFF = "off"
+
+    /**
+     * Mixed into the seed before choosing a layout.
+     *
+     * The frame, the date and the layout all resolve Random from the same seed, so each needs its own
+     * salt — otherwise the same seed would tie them together and "random" would only ever produce
+     * fourteen combinations instead of fourteen times eight times six.
+     */
+    private const val STRIP_SALT = 0x5731_9000L
+
     fun layoutById(id: String?): Layout = layouts.firstOrNull { it.id == id } ?: layouts.first()
+
+    /**
+     * [layoutById], except that [PuriArt.RANDOM] picks one — never Off, since you asked for a strip.
+     *
+     * From the seed, like the frame and the date, so the four-shot you are about to take is the one the
+     * menu was showing you.
+     */
+    fun resolveLayout(id: String?, seed: Long): Layout =
+        if (id == PuriArt.RANDOM) {
+            val real = layouts.drop(1)
+            real[kotlin.random.Random(seed xor STRIP_SALT).nextInt(real.size)]
+        } else {
+            layoutById(id)
+        }
+
+    /** True when a press of the shutter should take four rather than one. */
+    fun enabled(id: String?): Boolean = id != null && id != OFF
 
     private const val PAPER = 0xFFFFFDF9.toInt()
     private const val RAIL = 0xFF2C2A28.toInt()

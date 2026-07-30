@@ -406,7 +406,39 @@ object PuriArt {
         },
     )
 
+    /**
+     * The id that means "surprise me", for a frame, a date or a strip layout.
+     *
+     * **Resolved from the seed, not from a fresh coin.** The viewfinder and the shutter both ask what
+     * the frame is, and they have to get the same answer or the preview is a lie — so Random is a
+     * *deterministic* choice made from the same seed the stickers come from, which the view model holds
+     * still between shots and rolls once after each. The effect is a different frame every photograph
+     * and a stable one while you are composing.
+     */
+    const val RANDOM = "random"
+
     fun frameById(id: String?): Frame = frames.firstOrNull { it.id == id } ?: frames.first()
+
+    /** [frameById], except that [RANDOM] picks one — never None, since you asked for a frame. */
+    fun resolveFrame(id: String?, seed: Long): Frame =
+        if (id == RANDOM) {
+            val real = frames.drop(1)
+            real[(Random(seed xor 0x5EED_F5A3L).nextInt(real.size))]
+        } else {
+            frameById(id)
+        }
+
+    fun dateById(id: String?): DateStyle? = dates.firstOrNull { it.id == id }
+
+    /** Null for off, one of the eight for [RANDOM] or for a named style. */
+    fun resolveDate(id: String?, seed: Long): DateStyle? = when (id) {
+        null, OFF -> null
+        RANDOM -> dates[Random(seed xor 0x0A7E_5EEDL).nextInt(dates.size)]
+        else -> dateById(id)
+    }
+
+    /** The id that means no date at all. */
+    const val OFF = "off"
 
     /* ---------------- stickers ---------------- */
 
@@ -598,10 +630,14 @@ object PuriArt {
 
     /* ---------------- dates ---------------- */
 
-    class DateStyle(val id: String, val draw: (Canvas, Float, Float, Float, Calendar) -> Unit)
+    class DateStyle(
+        val id: String,
+        val label: String,
+        val draw: (Canvas, Float, Float, Float, Calendar) -> Unit,
+    )
 
     val dates: List<DateStyle> = listOf(
-        DateStyle("capsule") { c, w, h, u, cal ->
+        DateStyle("capsule", "Capsule") { c, w, h, u, cal ->
             val text = "${cal.get(Calendar.MONTH) + 1}·${cal.get(Calendar.DAY_OF_MONTH)}·${yy(cal)}"
             val paint = Paint().apply {
                 isAntiAlias = true
@@ -623,7 +659,7 @@ object PuriArt {
             c.drawText(text, cx, cy + u * 1.6f, paint)
         },
 
-        DateStyle("marker") { c, w, h, u, cal ->
+        DateStyle("marker", "Marker") { c, w, h, u, cal ->
             val text = "${cal.get(Calendar.MONTH) + 1}/${cal.get(Calendar.DAY_OF_MONTH)}/${yy(cal)}"
             val paint = Paint().apply {
                 isAntiAlias = true
@@ -638,7 +674,7 @@ object PuriArt {
             c.restore()
         },
 
-        DateStyle("ticket") { c, w, h, u, cal ->
+        DateStyle("ticket", "Ticket") { c, w, h, u, cal ->
             val text = "${month(cal)} ${cal.get(Calendar.DAY_OF_MONTH)} '${yy(cal)}"
             val paint = Paint().apply {
                 isAntiAlias = true
@@ -665,7 +701,7 @@ object PuriArt {
             c.drawText(text, r.centerX(), r.centerY() + u * 1.4f, paint)
         },
 
-        DateStyle("sticker") { c, w, h, u, cal ->
+        DateStyle("sticker", "Sticker") { c, w, h, u, cal ->
             val text = "%02d.%02d.%02d".format(
                 cal.get(Calendar.MONTH) + 1,
                 cal.get(Calendar.DAY_OF_MONTH),
@@ -692,7 +728,7 @@ object PuriArt {
             c.restore()
         },
 
-        DateStyle("serial") { c, w, h, u, cal ->
+        DateStyle("serial", "Serial") { c, w, h, u, cal ->
             val text = "%02d.%02d.%02d · PURI".format(
                 yy(cal),
                 cal.get(Calendar.MONTH) + 1,
@@ -718,7 +754,7 @@ object PuriArt {
             )
         },
 
-        DateStyle("cloud") { c, w, h, u, cal ->
+        DateStyle("cloud", "Cloud") { c, w, h, u, cal ->
             val text = "${cal.get(Calendar.MONTH) + 1}.${cal.get(Calendar.DAY_OF_MONTH)}"
             val cx = w - u * 13f
             val cy = h - u * 12f
@@ -737,7 +773,7 @@ object PuriArt {
             c.drawText(text, cx, cy + u * 1.4f, paint)
         },
 
-        DateStyle("startag") { c, w, h, u, cal ->
+        DateStyle("startag", "Star") { c, w, h, u, cal ->
             val cx = w - u * 12f
             val cy = h - u * 12f
             val r = u * 9f
@@ -767,7 +803,7 @@ object PuriArt {
             )
         },
 
-        DateStyle("diary") { c, w, h, u, cal ->
+        DateStyle("diary", "Diary") { c, w, h, u, cal ->
             val top = Paint().apply {
                 isAntiAlias = true
                 color = 0xFF6B5670.toInt()
@@ -832,7 +868,8 @@ object PuriArt {
         faces: List<FaceQuad>,
         faceStickers: Boolean,
         marginStickers: Boolean,
-        withDate: Boolean,
+        /** [OFF], [RANDOM] or the id of one of [dates]. */
+        dateId: String,
     ): Plan {
         val rnd = Random(seed)
         val out = ArrayList<Placed>()
@@ -891,14 +928,18 @@ object PuriArt {
                     free.random(rnd),
                     cx,
                     cy,
-                    0.1f + rnd.nextFloat() * 0.07f,
+                    // Bigger than they were. At a tenth of the short edge a heart in the corner of a
+                    // 4:3 frame reads as a speck of dust; a booth's are the size of a thumbnail.
+                    0.15f + rnd.nextFloat() * 0.09f,
                     rnd.nextFloat() * 40f - 20f,
                 )
                 made++
             }
         }
-        val date = if (withDate) dates[rnd.nextInt(dates.size)] else null
-        return Plan(out, date)
+        // Resolved from the seed rather than from `rnd`, so that switching a sticker off does not
+        // silently change which date you get: the two decisions are independent and should read that
+        // way.
+        return Plan(out, resolveDate(dateId, seed))
     }
 
     /**

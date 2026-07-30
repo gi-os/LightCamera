@@ -629,4 +629,21 @@ half4 main(float2 xy) {
      * does exactly this.
      */
     const val NONE_DWELL_MS = 1_500L
+
+    /**
+     * The same catch on Purikura, half as long.
+     *
+     * Purikura is the other filter you are aiming *for* rather than passing through — it has a menu
+     * behind it and four-shot strips behind that — so the dial should hesitate there as well. Shorter
+     * than None's, because None is the way back to an ordinary photograph and this is a place you went
+     * looking for on purpose.
+     */
+    const val PURIKURA_DWELL_MS = 500L
+
+    /** How long the dial should stop dead on [filter], or zero for the ones you scroll past. */
+    fun dwellMs(filter: Filter): Long = when {
+        filter.id == none.id -> NONE_DWELL_MS
+        filter.facesAware -> PURIKURA_DWELL_MS
+        else -> 0L
+    }
 }
