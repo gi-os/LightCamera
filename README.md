@@ -3,9 +3,10 @@
 A camera for the Light Phone III.
 
 The roll sits **above** the viewfinder. Pull down on the camera and your photographs come
-into view, newest one first, hanging against the top edge of the frame with older ones
-running up behind it. Flick up from anywhere and you are back at the shutter. That is the
-whole navigation model, and everything else in the app is arranged around it.
+into view — every photo on the phone, newest one first, hanging against the top edge of the
+frame with older ones running up behind it. Flick up from anywhere and you are back at the
+shutter. That is the whole navigation model, and everything else in the app is arranged
+around it.
 
 It replaces both the stock Camera and the stock Album, and it can be set as the phone's
 default camera, so the hardware camera button opens this instead.
@@ -32,8 +33,25 @@ The two keys arrive in an unpredictable order, so the release is a state machine
 that matter.
 
 Faces come from the **camera's own hardware detector**, read out of each capture result over
-Camera2 interop, not from a bundled ML model. The focus bracket follows `CONTROL_AF_STATE`,
-so it snaps when the lens snaps.
+Camera2 interop, not from a bundled ML model. Every face gets a box; the one the lens is
+working on gets the focus mark.
+
+## The focus marks are LightOS's own
+
+The stock camera ships two drawables — `ic_camera_focus_locking`, four corner brackets, and
+`ic_camera_focus_locked`, a closed square. That is its entire focus vocabulary, so it is this
+app's too: **brackets while the lens hunts, closing into a box the moment it locks**, tweened
+over the 90 ms the lens actually takes. `AF-S`/`AF-C` sits in the top bar and inverts on lock,
+so autofocus is visibly on rather than something you infer.
+
+And it beeps. Two short blips and a buzz when the lens lands, one lower note when it gives
+up — synthesised PCM rather than shipped audio, on the sonification stream, silent when the
+phone is. It fires off the camera's own `CONTROL_AF_STATE`, so it means the lens has it, not
+that a request was sent.
+
+The viewfinder is otherwise empty: preview edge to edge, chrome floating in the system-bar
+insets over a gradient that fades out before it reaches the picture, and a horizon line that
+appears only while the phone is crooked.
 
 ## Filters are AGSL, and the photo matches the frame
 
@@ -77,19 +95,17 @@ sheet of twenty-four photographs you have not seen yet.
 
 The point isn't nostalgia. Checking the screen after every shot changes what you photograph.
 
-The viewfinder dresses for it: sprocket strips above and below the frame, a mechanical frame
-counter, a rangefinder patch in the middle, and a square shutter release instead of a round
-one so a glance tells you the photograph is going onto film.
+A loaded roll shows itself in the black band under the picture — a strip of sprocket holes
+that steps along with each frame, and the counter — and the shutter release turns from a
+circle into a square, so a glance tells you the photograph is going onto film.
 
-## What you see is what is saved
+## The frame
 
-The frame is a box in the exact aspect ratio the photo will be written in — 4:3, 3:2, 16:9 or
-1:1 — with the controls in the margins around it, not on top of the picture. The preview
-fills that box and the capture is centre-cropped to the same ratio. There is no third
-interpretation of where the edges are.
-
-There is also a horizon level, because it costs one accelerometer and saves every other
-photograph.
+4:3, 3:2, 16:9 or 1:1, applied as a centre crop when the photograph is written. The viewfinder
+does **not** letterbox itself to match: it fills the screen, so the file keeps a little more
+than you saw at the top and bottom of the frame. An earlier version did draw the exact save
+aspect as a bordered box with the controls in the margins, which was honest about cropping and
+horrible to look through.
 
 ## Setting it as the default camera
 

@@ -1,61 +1,47 @@
-## Roll v1.0 — first release
+## Roll v1.1 — an unobstructed viewfinder
 
-A camera and an album in one app for the Light Phone III, arranged vertically: the roll sits
-above the viewfinder, and you pull it down.
+This release is almost entirely about what is *not* on the screen.
 
-**Navigation**
+**The frame box is gone**
 
-- Swipe down on the camera for the roll; the newest photograph hangs against the top edge of
-  the frame and older ones run upwards. Flick up from anywhere to get back to the shutter.
-- The roll is the device's real camera roll (all of `DCIM`), not a second album. Toggle it to
-  every image on the phone from the header.
-- Full-screen viewer with the wheel advancing frames, share, and binning through the system
-  trash dialog.
+- The preview now fills the panel, edge to edge, like the stock Light camera. No letterbox, no
+  mattes, no borders, no sprocket strips around the picture.
+- Chrome floats in the system-bar insets over a gradient that fades to nothing before it
+  reaches the image: invisible against a dark scene, and the only reason the icons are legible
+  against a bright one.
+- Aspect (4:3, 3:2, 16:9, 1:1) is now purely a crop applied when the photograph is written.
+  Because the viewfinder fills the screen and the sensor is 4:3, the file keeps a little more
+  than you saw — the settings screen says so.
+- The rule-of-thirds grid is still there if you want it; nothing else draws on the picture.
+- The horizon level only appears while the phone is crooked, and lingers a beat after you
+  straighten up so you actually see it close.
 
-**A two-stage shutter release**
+**Focus you can see, and hear**
 
-- Half press the camera button to autofocus and lock on the nearest face; press through to
-  fire. The two keys arrive in an unpredictable order and that is handled.
-- Faces come from the camera's own hardware detector over Camera2 interop — no bundled ML
-  model — and the focus bracket follows the real `CONTROL_AF_STATE`.
-- Single or continuous AF; continuous re-acquires only when the subject actually moves.
-- Tap anywhere in the frame to focus there. Press and hold the on-screen shutter for the same
-  two-stage behaviour.
+- The focus mark is now LightOS's own, taken from the drawables the stock camera ships: four
+  corner brackets while the lens hunts, closing into a solid box the moment it locks, tweened
+  over the 90 ms the lens really takes.
+- **Every face the camera detects gets a box.** The one the lens is working on gets the focus
+  mark instead, squared off around the same centre.
+- `AF-S` / `AF-C` sits in the top bar and inverts — white on black becomes black on white — as
+  soon as focus locks. Tap it to switch modes.
+- **A digicam beep.** Two short high blips and a buzz when the lens lands, one lower note when
+  it gives up, and a tick for the shutter. Synthesised PCM rather than bundled audio, on the
+  sonification stream, silent when the ringer is. It fires off the camera's own
+  `CONTROL_AF_STATE`, so it means the lens has it — not that a request went out.
+- Tapping to focus buzzes immediately for the ask, separately from the confirmation.
+- Switch the sounds off under Settings → Shutter.
 
-**The wheel is a lens ring**
+**The roll shows all your photos**
 
-- Turn to zoom, geometrically, so the framing changes by the same proportion at 1x and 8x.
-- Hold it in and turn for exposure compensation in thirds of a stop.
-- Click for the torch.
+- Default scope is now every image on the device rather than only `DCIM`, which had been
+  hiding screenshots and anything saved by another app. The header still toggles back to just
+  the camera roll.
 
-**Fifteen filters, as AGSL shaders**
+**Other**
 
-- Film (moving grain, halation, vignette), Mono, Dither 16 (EGA palette, Bayer dither),
-  1-Bit, Halftone, Comic, Thermal, X-Ray, Glow, and the Photo Booth distortions: Twirl,
-  Bulge, Mirror, Kaleido, Tunnel.
-- The same shader runs on the live preview and on the captured photograph, so the file
-  matches the frame. Patterns are sized to the image, so a dithered 12MP photo looks like the
-  preview did.
-- Tap the filter name for a live grid of all fifteen at once.
-
-**Film-roll mode**
-
-- Load 12, 24 or 36 frames. Photographs go to private storage with no preview and no review —
-  just a counter — until the roll is developed.
-- Developing writes every frame into `DCIM/Camera` keeping the time each was taken, then
-  shows a contact sheet.
-- The viewfinder dresses for it: sprocket strips, a mechanical frame counter, a rangefinder
-  patch, and a square shutter release.
-
-**Frames**
-
-- 4:3, 3:2, 16:9 and 1:1, shown as a box in exactly that ratio with the controls in the
-  margins rather than over the picture. What is inside the box is what is saved.
-- Horizon level, rule-of-thirds, self timer.
-
-**Installing it as the phone's camera**
-
-- Claims `STILL_IMAGE_CAMERA`, `IMAGE_CAPTURE`, `CAMERA_BUTTON` and the lock-screen `_SECURE`
-  variants, and honours `EXTRA_OUTPUT`, so other apps' "take a photo" lands here properly.
+- A loaded roll now shows its sprocket strip and counter in the black band under the picture
+  rather than around the frame, and the shutter release is still square while film is loaded.
+- Zoom, EV and self-timer readouts moved into the top bar next to the flash.
 
 Requires Android 13 or newer — AGSL does.
