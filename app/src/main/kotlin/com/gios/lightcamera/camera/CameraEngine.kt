@@ -571,74 +571,17 @@ class CameraEngine(private val context: Context) {
         val video = VideoCapture.withOutput(recorder).also { it.targetRotation = lastRotation }
         this.videoCapture = video
 
-        // **The live stream, for Simple.** Measured: `takePicture` costs 1.8 seconds on this camera and
-        // nothing an app can set moves it — the still pipeline is a burst, stacked and denoised, and the
-        // fast-mode request keys changed it by three percent. So Simple stops using the still pipeline. An
-        // analysis stream delivers frames continuously; the newest one is always already in memory, and a
-        // press is a copy rather than a capture.
+        // **The live-stream experiment is gone, and this is the note it leaves behind.**
         //
-        // **Bound instead of `ImageCapture`, not alongside it.** This camera is LEVEL_3 and will not give
-        // three streams at once — preview plus stills plus analysis fails to bind. Simple never calls
-        // `takePicture`, so it does not need the stills unit at all.
-        liveComplaints = 0
-        val analysis = if (mode.isSimple) {
-            ImageAnalysis.Builder()
-                .setResolutionSelector(
-                    ResolutionSelector.Builder()
-                        .setResolutionStrategy(
-                            // Ask for 12MP and take the closest the camera will give. An analysis stream is
-                            // often capped far lower than the sensor, so what arrives may be 1080p — which
-                            // is why the achieved size is reported in the timing readout rather than
-                            // assumed. Whatever it is, it is instant.
-                            // **2560x1920 rather than 4000x3000.** A 12MP analysis stream is a lot to ask:
-                            // the format is uncompressed YUV, so every frame is 18MB moving through memory
-                            // thirty times a second, and a camera that will not do it can simply decline —
-                            // which is one candidate for why the first attempt delivered no frames at all.
-                            // Five megapixels is a real photograph, is closer to what analysis streams
-                            // actually support, and the readout reports whatever arrives.
-                            ResolutionStrategy(
-                                Size(2560, 1920),
-                                ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER,
-                            ),
-                        )
-                        .build(),
-                )
-                // Keep only the newest: this is a shutter, not a queue. An old frame is not a photograph
-                // anybody asked for.
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
-                .setTargetRotation(lastRotation)
-                .build()
-                .also { unit ->
-                    unit.setAnalyzer(captureExecutor) { image ->
-                        // **Logged, not swallowed.** The first version of this wrapped the conversion in a
-                        // `runCatching` that discarded the reason, so a converter that threw on every frame
-                        // looked exactly like a camera that had not started: "nothing on the viewfinder yet",
-                        // for ever, with no clue why.
-                        // Converted here rather than at the press, on the camera's own executor: NV21 out
-                        // of three planes is a few milliseconds and doing it now means the shutter is a
-                        // reference assignment. The previous frame is simply dropped.
-                        val converted = runCatching { LiveFrame.from(image) }
-                            .onFailure {
-                                if (liveComplaints++ < 3) {
-                                    Log.e(TAG, "live frame ${image.width}x${image.height} failed", it)
-                                }
-                            }
-                            .getOrNull()
-                        if (converted != null) {
-                            latestFrame = converted
-                        } else if (liveComplaints++ < 3) {
-                            Log.w(TAG, "live frame ${image.width}x${image.height} format ${image.format} unusable")
-                        }
-                        image.close()
-                    }
-                }
-        } else {
-            latestFrame = null
-            null
-        }
-        this.imageAnalysis = analysis
-
+        // v2.21 bound a high-resolution `ImageAnalysis` in place of the stills unit, on the reasoning that a
+        // continuous stream makes a shutter free. The reasoning was sound and the camera would not do it:
+        // no frame ever arrived, at 12MP or at 5MP, with the converter fixed and the failure logged. This
+        // phone will not give a usable second stream, and three releases of chasing it was two too many.
+        //
+        // So Simple uses the stills pipeline like everything else. What survives from the attempt is
+        // everything that measured: the fast post-processing keys, zero shutter lag once the buffer is warm,
+        // no auto-flash metering, the save off the critical path, and the date printed afterwards. The
+        // shutter is 1.8 s on this hardware, and the instant option below is the honest way around it.
         val cameraSelector = CameraSelector.Builder()
             .requireLensFacing(_lensFacing.value)
             .build()
@@ -646,11 +589,7 @@ class CameraEngine(private val context: Context) {
         runCatching {
             provider.unbindAll()
             preview.setSurfaceProvider(view.surfaceProvider)
-            val second = when {
-                mode == CaptureMode.Video -> video
-                analysis != null -> analysis
-                else -> capture
-            }
+            val second = if (mode == CaptureMode.Video) video else capture
             val bound = provider.bindToLifecycle(owner, cameraSelector, preview, second)
             camera = bound
             readCameraLimits(bound)

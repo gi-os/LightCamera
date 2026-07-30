@@ -1,31 +1,27 @@
-## Roll v2.23 — "nothing on the viewfinder yet"
+## Roll v2.24 — the live-stream experiment is over
 
-Three faults, and the first one is why you saw nothing at all.
+No frames arrived, at 12MP or 5MP, with the converter fixed and the failure logged. This camera will not
+give a usable second stream, and I said I would revert rather than keep guessing on a phone I cannot hold.
 
-**The converter threw on every frame, silently**
+**Simple is back on the stills pipeline — and starts on the instant shutter**
 
-The YUV→NV21 luma copy indexed with `rowStride` and `remaining()` in a way that walks off the end of a
-padded plane — and the call site wrapped it in a `runCatching` that discarded the reason. So a converter
-failing on every single frame looked exactly like a camera that had not started yet: no frames, no clue.
-Everything is clamped to what the buffer actually holds now, a short plane is refused rather than encoded as
-green, and the failure logs three lines to logcat instead of nothing.
+The one path that is genuinely immediate and demonstrably works is the panel frame: the picture is already on
+the screen, so there is nothing to capture. It is what the coarse filters have always used. Simple now
+defaults to it.
 
-**The shutter gave up instantly**
+That is **about 2.5MP** — a real photograph for sending and for looking at, not one for cropping or printing.
+The trade is explicit rather than hidden: change Size in Settings and Simple takes a real still instead, with
+the 1.8 s that costs on this hardware. The readout tells you which you got, in megapixels.
 
-Pressing within a moment of the camera binding — which is what happens when you open straight into a
-photograph — can beat the analyser's first delivery. It now waits up to half a second for a frame before
-complaining, and complains differently: "the live stream gave nothing — see logcat" rather than blaming the
-viewfinder.
+**What survived the three releases of chasing this**
 
-**12MP was probably too much to ask of an analysis stream**
+Everything that measured, and it all applies to the real-still path too: fast post-processing keys, zero
+shutter lag once the buffer is warm, no auto-flash metering, the save off the critical path, and the date
+printed onto the file after it lands. Plus the reason 1.8 s exists, written down in the engine so the next
+person — probably me — does not spend another three releases rediscovering it.
 
-That format is uncompressed YUV: 18MB per frame, thirty times a second. A camera that will not do it can
-simply decline, which is a strong candidate for why nothing arrived. It now asks for 2560×1920 — five
-megapixels, a genuine photograph, and much closer to what analysis streams actually support. The readout
-still reports what actually arrived, so you can see it.
+**The honest summary**
 
-**If it still says nothing**
-
-Then this camera will not give a usable second stream and the approach is wrong for this phone. Say so and I
-will put Simple back on the stills pipeline — 1.8 s, but reliable — and we can spend the speed budget on
-making the wait feel deliberate instead.
+The camera in this phone takes about 1.8 seconds to produce a still and no application can change that. You
+can have that photograph, or you can have the panel frame instantly. Roll now offers both, defaults to the
+fast one in the mode called Simple, and says which it gave you.

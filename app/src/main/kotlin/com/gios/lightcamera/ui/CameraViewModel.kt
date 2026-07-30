@@ -8,8 +8,10 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.gios.lightcamera.CaptureMode
+import com.gios.lightcamera.PhotoSize
 import com.gios.lightcamera.Prefs
 import com.gios.lightcamera.camera.CameraEngine
+import com.gios.lightcamera.camera.CapturedFrame
 import com.gios.lightcamera.camera.DateStamp
 import com.gios.lightcamera.camera.FaceBox
 import com.gios.lightcamera.camera.FlashMode
@@ -301,6 +303,11 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             showNotice("Stop recording first")
             return
         }
+        // **Simple starts on the instant shutter.** It is the mode whose argument is speed, and on this
+        // camera a still costs 1.8 s no matter what is asked of it — so the default is the panel frame, which
+        // is immediate. Choose any other size in Settings and Simple takes a real still instead, with the
+        // wait that comes with it. The timing readout shows which you got, in megapixels.
+        if (next.isSimple && !prefs.photoSize.value.isPreviewGrab) prefs.setPhotoSize(PhotoSize.Screen)
         // **Simple drops Auto flash.** Auto is not free even when it decides not to fire: the HAL runs a
         // precapture metering sequence — often a preflash — before it will start the frame you asked for,
         // which is most of a second that a mode whose whole argument is speed should not be spending. Off
@@ -582,33 +589,42 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         _shooting.value = true
         viewModelScope.launch {
             try {
-                // **The size setting is not consulted here, and must not be.** Simple's resolution comes
-                // from the live stream, not from a still request — and the old code set the size before each
-                // shot and put it back after, which *rebinds the camera*. Rebind while a capture is in
-                // flight and the HAL answers "camera is closed", which is exactly what changing the
-                // megapixels in Simple used to produce. Size is a Pro setting; here it is ignored.
+                // The size is read but never *written* here. An earlier version set it to 12MP before
+                // each shot and put it back after — which rebinds the camera, and a rebind mid-capture is
+                // what made changing the megapixels in Simple answer "camera is closed".
 
-                // **The frame is already in memory; this is a copy, not a capture.** Measured at 1815 ms
-                // for `takePicture` on this camera against 1877 before asking the HAL for fast
-                // post-processing — a three percent difference, which is to say the still pipeline is a
-                // fixed cost an app cannot reach. So Simple reads the live stream instead. `grabLive`
-                // includes our own JPEG encode, which is the only part of this with any weight.
+                // **Screen size is the instant option, and it is the one that works.** It is the path the
+                // coarse filters already use: the frame is on the panel, so there is nothing to capture.
+                // Panel resolution, about 2.5MP — a real photograph for sending and for the screen, not one
+                // for cropping or printing.
+                //
+                // Any other size takes a still, which on this camera is the 1.8 s the measurements found and
+                // which no app-side change has moved.
                 val startedAt = System.nanoTime()
-                // **Wait briefly for the first frame.** Pressing the shutter within a moment of the camera
-                // binding — which is exactly what happens when you launch straight into a photograph — can
-                // beat the analyser's first delivery. Half a second of patience turns "nothing on the
-                // viewfinder yet" into a photograph; longer than that and something is genuinely wrong and
-                // saying so is the right answer.
-                var frame = engine.grabLive(quality = 88)
-                var waited = 0
-                while (frame == null && waited < 500) {
-                    delay(50)
-                    waited += 50
-                    frame = engine.grabLive(quality = 88)
-                }
-                if (frame == null) {
-                    showNotice("The live stream gave nothing — see logcat")
-                    return@launch
+                val frame = if (prefs.photoSize.value.isPreviewGrab) {
+                    val grabbed = engine.previewFrame()
+                    if (grabbed == null) {
+                        showNotice("Nothing on the viewfinder yet")
+                        return@launch
+                    }
+                    val made = withContext(Dispatchers.Default) {
+                        Frames.fromPreview(
+                            preview = grabbed,
+                            rotationDegrees = engine.previewRotationDegrees(),
+                            filter = Filters.none,
+                            aspect = FrameAspect.Full,
+                            seed = 0f,
+                        )
+                    }
+                    CapturedFrame(jpeg = made.jpeg, rotationDegrees = 0, mirrored = false)
+                } else {
+                    val attempt = runCatching { engine.capture() }
+                        .onFailure { Log.e(TAG, "simple capture failed", it) }
+                    attempt.getOrNull() ?: run {
+                        val why = attempt.exceptionOrNull()?.message?.take(48)
+                        showNotice(if (why.isNullOrBlank()) "Shutter failed" else "Shutter: $why")
+                        return@launch
+                    }
                 }
                 val captureMs = (System.nanoTime() - startedAt) / 1_000_000
                 _shutterTick.tryEmit(Unit)
@@ -631,14 +647,13 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                         height = size.second,
                     )
                     val saveMs = (System.nanoTime() - savedAt) / 1_000_000
-                    val live = engine.liveSize()
-                    Log.i(TAG, "simple: grab ${captureMs}ms, save ${saveMs}ms, ${live?.first}x${live?.second}")
+                    Log.i(TAG, "simple: shot ${captureMs}ms, save ${saveMs}ms, ${size.first}x${size.second}")
                     // The achieved resolution is reported rather than assumed: an analysis stream is often
                     // capped well below the sensor, and what this camera actually hands over is a fact
                     // about the phone rather than something the code gets to decide.
                     if (reportTimings) {
-                        val mp = live?.let { (it.first.toLong() * it.second / 100_000) / 10.0 }
-                        showNotice("${captureMs}ms shot · ${saveMs}ms save · ${mp ?: "?"}MP")
+                        val mp = (size.first.toLong() * size.second / 100_000) / 10.0
+                        showNotice("${captureMs}ms shot · ${saveMs}ms save · ${mp}MP")
                     }
                     if (uri == null) {
                         showNotice("Couldn't save")
