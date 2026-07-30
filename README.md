@@ -96,29 +96,43 @@ up — synthesised PCM rather than shipped audio, on the sonification stream, si
 phone is. It fires off the camera's own `CONTROL_AF_STATE`, so it means the lens has it, not
 that a request was sent.
 
-## Held like a camera
+## Sideways chrome, upright picture
 
-The whole app is drawn **a quarter turn round inside a portrait-locked window**, which is what
-the stock camera does. Nothing reflows, there is no landscape layout. Turn the phone
-anticlockwise the way you'd pick up a compact camera and everything is upright: the picture
-fills the width, the control band runs along the bottom, and the phone's camera key comes round
-to the top edge exactly where a shutter release belongs. Held in portrait, that band runs down
-the left-hand side.
+The stock camera makes a split that isn't obvious until you look at a screengrab of it: the
+control band is **written sideways** down the left edge, with `PHOTO ⌄` reading down it, while the
+viewfinder image stays **upright in the phone's own frame**. That is the right division. The band
+is sideways because you hold the phone like a camera to shoot — turn it anticlockwise and the band
+is along the bottom with the camera key up top, where a shutter release belongs. The image is
+upright because it is the image.
 
-Three things fall out of it. Nothing moves while you shoot, because a layout that reflowed would
-swap the band from one edge to another as you turned the camera to frame something. Every
-spatial idea survives — the roll is still above the viewfinder and still arrives with a downward
-pull, because "down" in there is down in your hand. And a 4:3 sensor nearly fills a screen
-turned on its side, so almost nothing is cropped away; portrait was throwing out a third of it.
+So only the strips of chrome are rotated (`HeldSideways` in `ui/Common.kt`), and every other
+screen — the roll, the viewer, the settings — is an ordinary portrait screen. An earlier version
+rotated the whole app: the picture spun with it, and the swipe down to the roll became a sideways
+one.
 
 The band is the stock four — **album, the mode slot, flash, brightness** — in the stock order and
-spacing, measured off a photograph of the real thing. The mode slot does the job "PHOTO ⌄" does
-there: it names what the camera is set to and opens the picker. Here that is the filter. The lens
-switch is a **double tap on the image**, which is where every other phone camera keeps it.
+spacing, measured off photographs of the real thing. Nothing floats over the picture: the strips
+take their own width out of the left-hand side, which is why there is not a gradient anywhere in
+this app.
+
+### The mode slot
+
+`PHOTO ⌄` / `VIDEO ⌄` / `SELFIE ⌄`, and the chevron opens the picker, as it does there.
+
+- **Selfie** is the front lens and nothing else, which is what it is on the stock camera too. A
+  double tap on the image switches as well.
+- **Video** records at HD into `DCIM/Camera` through CameraX's `VideoCapture`, bound *instead of*
+  `ImageCapture` rather than alongside it — all three use cases at once is only guaranteed on
+  `LEVEL_3` hardware. Audio when the permission is there, asked for on entering the mode rather
+  than at the moment you press record. Filters are forced off: a `RenderEffect` belongs to the
+  view and never reaches the recorded stream, so a filtered preview would be promising something
+  the file wouldn't deliver.
+- Filters and settings live on the end of the same strip, so the band stays at four items.
 
 The system bars are hidden, so the picture starts at the panel's edge. On the image itself there
-is only the focus mark, the `AF-S`/`AF-C` badge and a horizon line that appears while the phone
-is crooked.
+is only the focus mark, the `AF-S`/`AF-C` badge (a record dot and timer while filming), and a
+horizon line that appears while the phone is crooked — measured off the **nearest quarter turn**,
+so it is square whether you are holding the phone upright or sideways.
 
 ## The viewfinder is in colour
 
@@ -161,8 +175,11 @@ Patterns are sized in design pixels rather than device pixels, which is why the 
 4000px photograph looks like the dither in the 340px preview instead of dissolving into
 noise.
 
-Tap the filter name for the **grid**: every filter running live on what the camera is
-pointed at, all at once, the way Photo Booth used to do it.
+The mode strip's **Filters** entry opens the grid: every filter running live on what the camera is
+pointed at, all at once, the way Photo Booth used to do it. Sideways swipes on the image and the
+wheel walk through them too — and on the wheel's track **None is three notches wide**, so the most
+common setting is the easy one to land on and a deliberate three notches to leave. Treating it as
+one position among fifteen made it the one you always spun past.
 
 ### Applying a shader to a still is not three lines
 

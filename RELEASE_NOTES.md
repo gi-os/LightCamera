@@ -1,61 +1,55 @@
-## Roll v1.4 — held like a camera, and in colour
+## Roll v1.5 — sideways chrome, upright picture, and a mode picker
 
-**The whole app is drawn a quarter turn round**
+**The layout is now the split the stock camera actually makes**
 
-This is how LightOS's own camera works, and it takes a moment to see why. The window stays
-locked to portrait — nothing reflows, there is no landscape layout — and the interface is
-*drawn* rotated inside it. Turn the phone anticlockwise, the way you'd pick up a compact
-camera, and everything is upright: the picture fills the width, the control band runs along the
-bottom, and the phone's camera key has come round to the top edge exactly where a shutter
-release belongs. Held in portrait, that band runs down the left-hand side.
+A screengrab of the real thing settled it: the control band is written **sideways** down the left
+edge, and the viewfinder image is **upright** in the phone's own frame. v1.4 rotated both, which
+spun the picture the moment you held the phone normally and turned the swipe down to the roll
+into a sideways one.
 
-Rotating rather than supporting landscape is deliberate:
+So only the strips of chrome are rotated. The roll, the viewer and the settings are ordinary
+portrait screens, and **swipe down for photos is a swipe down again**. Turn the phone
+anticlockwise to shoot and the band is along the bottom with the camera key up top, where a
+shutter release belongs.
 
-- **Nothing moves while you shoot.** A layout that reflowed would swap the band from one edge
-  to another as you turned the camera to frame something.
-- **Every spatial idea survives.** The roll is still above the viewfinder and still arrives
-  with a downward pull, because "down" in there is down in your hand.
-- **The framing comes out right for free.** A 4:3 sensor nearly fills a screen turned on its
-  side, so almost nothing is cropped — portrait was throwing away a third of it.
+**Camera / Video / Selfie**
 
-**The band is the stock four**
+The chevron beside the mode now opens a picker with those three, out of the same slot the stock
+app puts `PHOTO ⌄` in.
 
-Album, the mode slot, flash, brightness — the stock camera's own order and spacing, measured
-off a photograph of the real thing rather than guessed. The mode slot does the job "PHOTO ⌄"
-does there: it names what the camera is set to and opens the picker. Here that is the filter.
+- **Selfie** is the front lens, exactly as it is there. Double-tapping the image still switches.
+- **Video records for real** — CameraX `VideoCapture` at HD into `DCIM/Camera`, with audio when
+  the permission is granted. It's asked for when you switch into video, never at the moment you
+  press record, because a dialog in front of the thing you were filming is worse than silent
+  footage. The camera button and the volume keys start and stop it, and a record dot and timer
+  replace the AF badge.
+- `VideoCapture` is bound *instead of* `ImageCapture`, not alongside it: all three use cases at
+  once is only guaranteed on `LEVEL_3` hardware.
+- **Filters are off in video.** A `RenderEffect` belongs to the view, so it never reaches the
+  recorded stream — a filtered preview would promise something the file wouldn't deliver.
+- Filters and settings moved onto the end of the same strip, so the band stays at the stock four.
 
-The lens switch moved to a **double tap on the image**, which is where every other phone camera
-keeps it, so the band stays at four items.
+**None is three notches wide**
 
-**The viewfinder is in colour**
+On the wheel's filter track, "None" now occupies three positions instead of one. Treating the
+most common setting as one of fifteen made it the hardest to find — you spin past, come back, and
+spin past the other way. Now it's a detent: easy to land on, a deliberate three notches to leave.
 
-The panel is a full-colour AMOLED; Light's black and white is the accessibility daltonizer
-pinned to monochromacy. Roll lifts it while the camera or a photograph is on screen and puts it
-back the moment you leave the app — the rest of LightOS stays grey, because that is your
-setting and not the camera's. Half the filters are about colour, and a viewfinder showing a grey
-version of the photograph it is about to save was misrepresenting the picture.
+**The level was 90° out**
 
-One adb grant, once:
+It was measuring roll against portrait. It now reads off the **nearest quarter turn**, so it's
+square in every pose you'd actually shoot from — upright or held sideways like a camera — and
+lands in ±45° by construction.
+
+**Colour says why it isn't working**
+
+The viewfinder stays grey until one adb grant, and the grant only became possible in v1.4.5 when
+the permission was first declared. The viewfinder now says so instead of looking broken:
 
 ```sh
 adb shell pm grant com.gios.lightcamera android.permission.WRITE_SECURE_SETTINGS
 ```
 
-Without it the write is simply refused and everything stays grey. Settings → Colour switches
-between the viewfinder only, the whole app, and off.
-
-**Photographs come out the way you held the phone**
-
-With the window locked to portrait, CameraX was baking upright into every file, so a photograph
-taken with the phone held horizontally arrived on its side. Only the capture's target rotation
-now follows the accelerometer; the preview's is deliberately left alone, because the face mapper
-reads it.
-
-**Also**
-
-- Roll now names LightControl when it is the reason the camera key is doing nothing, rather than
-  looking broken — and the version that fixed it.
-- The wheel scrolls the roll the way it's turned; `reverseLayout` had been reversing the scroll
-  axis with it.
+Force-stop the app once afterwards, then Settings → Colour.
 
 Requires Android 13 or newer — AGSL does.
