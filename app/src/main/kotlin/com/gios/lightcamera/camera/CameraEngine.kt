@@ -1,6 +1,7 @@
 package com.gios.lightcamera.camera
 
 import android.annotation.SuppressLint
+import android.content.ContentValues
 import android.content.Context
 import android.graphics.Rect
 import android.hardware.camera2.CameraCaptureSession
@@ -11,6 +12,7 @@ import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.TotalCaptureResult
 import android.hardware.camera2.params.Face
+import android.provider.MediaStore
 import android.util.Log
 import android.view.OrientationEventListener
 import android.view.Surface
@@ -27,8 +29,17 @@ import androidx.camera.core.Preview
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.video.FallbackStrategy
+import androidx.camera.video.MediaStoreOutputOptions
+import androidx.camera.video.Quality
+import androidx.camera.video.QualitySelector
+import androidx.camera.video.Recorder
+import androidx.camera.video.Recording
+import androidx.camera.video.VideoCapture
+import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import com.gios.lightcamera.CaptureMode
 import androidx.lifecycle.LifecycleOwner
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +48,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
@@ -125,12 +139,28 @@ class CameraEngine(private val context: Context) {
     private val _ready = MutableStateFlow(false)
     val ready: StateFlow<Boolean> = _ready.asStateFlow()
 
+    private val _recording = MutableStateFlow(false)
+    val recording: StateFlow<Boolean> = _recording.asStateFlow()
+
     private var provider: ProcessCameraProvider? = null
     private var camera: Camera? = null
     private var preview: Preview? = null
     private var imageCapture: ImageCapture? = null
+    private var videoCapture: VideoCapture<Recorder>? = null
+    private var activeRecording: Recording? = null
     private var previewView: PreviewView? = null
     private var owner: LifecycleOwner? = null
+
+    /**
+     * Which mode the camera is in, and therefore which use cases are bound.
+     *
+     * `ImageCapture` and `VideoCapture` are bound one at a time, never together. The
+     * preview+capture+video triple is only guaranteed on `LEVEL_3` hardware, so binding all
+     * three risks a resolution the phone will refuse — and there is nothing to gain: a shutter
+     * that also records is two shutters.
+     */
+    var mode: CaptureMode = CaptureMode.Photo
+        private set
 
     private val captureExecutor = Executors.newSingleThreadExecutor()
 
@@ -159,6 +189,9 @@ class CameraEngine(private val context: Context) {
             if (rotation == lastRotation) return
             lastRotation = rotation
             imageCapture?.targetRotation = rotation
+            // Not while recording: the rotation is written into the file's metadata when the
+            // recording starts, and changing it mid-take is ignored at best.
+            if (!_recording.value) videoCapture?.targetRotation = rotation
         }
     }
 
@@ -207,7 +240,30 @@ class CameraEngine(private val context: Context) {
 
     fun setLens(facing: Int, flash: FlashMode) {
         if (_lensFacing.value == facing) return
+        if (_recording.value) return
         _lensFacing.value = facing
+        _faces.value = emptyList()
+        _zoom.value = 1f
+        rebind(flash)
+    }
+
+    /**
+     * Switch mode, which rebinds. Selfie is the front lens and nothing else — that is what it
+     * is on the stock camera too.
+     */
+    fun setMode(next: CaptureMode, flash: FlashMode) {
+        if (_recording.value) return
+        val lens = when (next) {
+            CaptureMode.Selfie -> CameraSelector.LENS_FACING_FRONT
+            CaptureMode.Photo -> CameraSelector.LENS_FACING_BACK
+            // Video keeps whichever lens you were using; it is a mode, not a camera.
+            CaptureMode.Video -> _lensFacing.value
+        }
+        val lensChanged = lens != _lensFacing.value
+        val modeChanged = next != mode
+        if (!lensChanged && !modeChanged) return
+        mode = next
+        _lensFacing.value = lens
         _faces.value = emptyList()
         _zoom.value = 1f
         rebind(flash)
@@ -283,6 +339,19 @@ class CameraEngine(private val context: Context) {
         this.imageCapture = capture
         setFlash(flash)
 
+        // HD rather than the highest the sensor will give: a 50MP phone will happily offer 4K,
+        // and 4K on a 3.92" screen is a minute a gigabyte for a picture nothing here can show.
+        val recorder = Recorder.Builder()
+            .setQualitySelector(
+                QualitySelector.from(
+                    Quality.HD,
+                    FallbackStrategy.lowerQualityOrHigherThan(Quality.SD),
+                ),
+            )
+            .build()
+        val video = VideoCapture.withOutput(recorder).also { it.targetRotation = lastRotation }
+        this.videoCapture = video
+
         val cameraSelector = CameraSelector.Builder()
             .requireLensFacing(_lensFacing.value)
             .build()
@@ -290,7 +359,8 @@ class CameraEngine(private val context: Context) {
         runCatching {
             provider.unbindAll()
             preview.setSurfaceProvider(view.surfaceProvider)
-            val bound = provider.bindToLifecycle(owner, cameraSelector, preview, capture)
+            val second = if (mode == CaptureMode.Video) video else capture
+            val bound = provider.bindToLifecycle(owner, cameraSelector, preview, second)
             camera = bound
             readCameraLimits(bound)
             _ready.value = true
@@ -596,6 +666,57 @@ class CameraEngine(private val context: Context) {
         )
     }
 
+    /* ---------------- video ---------------- */
+
+    /**
+     * Start recording into `DCIM/Camera`.
+     *
+     * Audio only if the permission is there — a recording with no sound is worth far more than
+     * a permission dialog in front of the thing you were trying to film, so the microphone is
+     * asked for when you switch to video and never at the moment you press record.
+     *
+     * `MediaStoreOutputOptions` rather than a file: the same reasoning as photographs. CameraX
+     * takes care of `IS_PENDING`, so a video killed halfway is not left half-visible in every
+     * gallery on the phone.
+     */
+    fun startRecording(withAudio: Boolean): Boolean {
+        val video = videoCapture ?: return false
+        if (_recording.value) return false
+        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val values = ContentValues().apply {
+            put(MediaStore.Video.Media.DISPLAY_NAME, "ROLL_$stamp.mp4")
+            put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+            put(MediaStore.Video.Media.RELATIVE_PATH, "DCIM/Camera")
+        }
+        val options = MediaStoreOutputOptions
+            .Builder(context.contentResolver, MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
+            .setContentValues(values)
+            .build()
+        return runCatching {
+            var pending = video.output.prepareRecording(context, options)
+            if (withAudio) pending = pending.withAudioEnabled()
+            activeRecording = pending.start(ContextCompat.getMainExecutor(context)) { event ->
+                when (event) {
+                    is VideoRecordEvent.Start -> _recording.value = true
+                    is VideoRecordEvent.Finalize -> {
+                        _recording.value = false
+                        activeRecording = null
+                        if (event.hasError()) Log.e(TAG, "recording failed: ${event.error}")
+                    }
+                }
+            }
+            true
+        }.onFailure {
+            Log.e(TAG, "couldn't start recording", it)
+            _recording.value = false
+        }.getOrDefault(false)
+    }
+
+    fun stopRecording() {
+        runCatching { activeRecording?.stop() }
+        activeRecording = null
+    }
+
     fun evLabel(): String {
         val stops = _ev.value * _evStep.value
         if (stops == 0f) return "0.0"
@@ -609,6 +730,7 @@ class CameraEngine(private val context: Context) {
     }
 
     fun shutdown() {
+        stopRecording()
         runCatching { orientation.disable() }
         runCatching { provider?.unbindAll() }
         captureExecutor.shutdown()

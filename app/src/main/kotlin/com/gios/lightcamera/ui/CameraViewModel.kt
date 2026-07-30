@@ -5,6 +5,7 @@ import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.gios.lightcamera.CaptureMode
 import com.gios.lightcamera.Prefs
 import com.gios.lightcamera.camera.CameraEngine
 import com.gios.lightcamera.camera.FaceBox
@@ -131,6 +132,22 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             shutterTick.collect { if (prefs.sounds.value) beeps.shutter() }
         }
+        // The elapsed counter ticks only while something is being recorded, so an idle camera
+        // isn't waking up once a second to look at a clock.
+        viewModelScope.launch {
+            engine.recording.collect { on ->
+                if (!on) {
+                    _recordSeconds.value = 0
+                    return@collect
+                }
+                val startedAt = System.currentTimeMillis()
+                while (engine.recording.value) {
+                    _recordSeconds.value = ((System.currentTimeMillis() - startedAt) / 1000).toInt()
+                    delay(500)
+                }
+                _recordSeconds.value = 0
+            }
+        }
     }
 
     @Volatile private var viewWidth = 0
@@ -165,15 +182,85 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
 
     /* ---------------- filters ---------------- */
 
+    /**
+     * Where the wheel is sitting on the filter track, which is not the same as which filter is
+     * selected: None is three notches wide, so the position carries information the filter
+     * doesn't. See [Filters.wheelPositions].
+     */
+    private var wheelPosition = Filters.positionOf(Filters.byId(prefs.filterId.value))
+
+    /** One notch of the wheel, or one sideways swipe. */
     fun stepFilter(by: Int) {
-        val next = Filters.step(filter.value, by)
+        if (videoMode()) {
+            showNotice("Filters are photo only")
+            return
+        }
+        wheelPosition = Filters.stepPosition(wheelPosition, by)
+        val next = Filters.filterAt(wheelPosition)
         prefs.setFilter(next.id)
         showNotice(next.label)
     }
 
     fun setFilter(id: String) {
+        val next = Filters.byId(id)
+        wheelPosition = Filters.positionOf(next)
         prefs.setFilter(id)
-        showNotice(Filters.byId(id).label)
+        showNotice(next.label)
+    }
+
+    /* ---------------- modes ---------------- */
+
+    fun videoMode(): Boolean = prefs.mode.value == CaptureMode.Video
+
+    fun setMode(next: CaptureMode) {
+        if (engine.recording.value) {
+            showNotice("Stop recording first")
+            return
+        }
+        prefs.setMode(next)
+        engine.setMode(next, prefs.flash.value)
+        showNotice(next.bandLabel)
+    }
+
+    /** The lens switch, which in Photo and Selfie is the same thing as switching mode. */
+    fun flipLens() {
+        when (prefs.mode.value) {
+            CaptureMode.Photo -> setMode(CaptureMode.Selfie)
+            CaptureMode.Selfie -> setMode(CaptureMode.Photo)
+            CaptureMode.Video -> {
+                if (engine.recording.value) return
+                val front = engine.lensFacing.value ==
+                    androidx.camera.core.CameraSelector.LENS_FACING_FRONT
+                engine.setLens(
+                    if (front) {
+                        androidx.camera.core.CameraSelector.LENS_FACING_BACK
+                    } else {
+                        androidx.camera.core.CameraSelector.LENS_FACING_FRONT
+                    },
+                    prefs.flash.value,
+                )
+            }
+        }
+    }
+
+    /* ---------------- video ---------------- */
+
+    /** Seconds into the current take, for the readout. */
+    private val _recordSeconds = MutableStateFlow(0)
+    val recordSeconds: StateFlow<Int> = _recordSeconds.asStateFlow()
+
+    var audioGranted: Boolean = false
+
+    /**
+     * The shutter in video mode. Start, or stop — the same button, the way every camera does it.
+     */
+    fun toggleRecording() {
+        if (engine.recording.value) {
+            engine.stopRecording()
+            return
+        }
+        val started = engine.startRecording(withAudio = audioGranted)
+        if (!started) showNotice("Couldn't start recording")
     }
 
     /* ---------------- the shutter ---------------- */
@@ -186,6 +273,12 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
      * main thread; and the roll decides at the end whether this frame is a photo yet.
      */
     fun shoot() {
+        // In video mode the shutter is the record button. One control, two modes, which is what
+        // every camera with a video mode has always done.
+        if (videoMode()) {
+            toggleRecording()
+            return
+        }
         if (_shooting.value) return
         val loadedRoll = roll.value
         if (loadedRoll != null && loadedRoll.finished) {

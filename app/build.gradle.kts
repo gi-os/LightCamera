@@ -18,7 +18,7 @@ android {
         targetSdk = 35
         // CI overwrites both from the workflow run number; see .github/workflows/build.yml
         versionCode = 1
-        versionName = "1.4.0"
+        versionName = "1.5.0"
 
         // The LPIII is arm64 only; shipping four ABIs tripled the APK for nothing.
         ndk { abiFilters += "arm64-v8a" }
@@ -67,6 +67,8 @@ dependencies {
     implementation("androidx.camera:camera-camera2:1.4.1")
     implementation("androidx.camera:camera-lifecycle:1.4.1")
     implementation("androidx.camera:camera-view:1.4.1")
+    // Video mode. Bound instead of ImageCapture rather than alongside it — see CameraEngine.
+    implementation("androidx.camera:camera-video:1.4.1")
 
     implementation("androidx.exifinterface:exifinterface:1.3.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")

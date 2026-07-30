@@ -347,10 +347,52 @@ half4 main(float2 xy) {
 
     fun indexOf(filter: Filter): Int = all.indexOfFirst { it.id == filter.id }.coerceAtLeast(0)
 
-    /** Stepping with the wheel wraps, because a physical dial should never dead-end. */
+    /** Stepping wraps, because a physical dial should never dead-end. */
     fun step(from: Filter, by: Int): Filter {
         val size = all.size
         val next = ((indexOf(from) + by) % size + size) % size
         return all[next]
+    }
+
+    /** How many notches of the wheel [none] occupies. */
+    const val NONE_NOTCHES = 3
+
+    /**
+     * The wheel's track, on which **None is three notches wide**.
+     *
+     * A dial that treats "no filter" as one position among fifteen makes the most common
+     * setting the hardest to find: you spin past it, come back, and spin past it the other
+     * way. Widening it gives the wheel a detent — landing on None is easy, and leaving it is
+     * a deliberate three notches rather than a twitch. Mechanical dials have done this with a
+     * physical click since long before anyone had to think about it.
+     *
+     * Positions rather than filters, because "step from None" is otherwise ambiguous: which of
+     * its three notches are you on? The caller holds the position; [filterAt] reads it back.
+     */
+    private val wheelTrack: List<Filter> = buildList {
+        all.forEach { filter ->
+            repeat(if (filter.id == none.id) NONE_NOTCHES else 1) { add(filter) }
+        }
+    }
+
+    val wheelPositions: Int get() = wheelTrack.size
+
+    fun filterAt(position: Int): Filter = wheelTrack[wrapPosition(position)]
+
+    fun stepPosition(position: Int, by: Int): Int = wrapPosition(position + by)
+
+    /**
+     * Where the wheel should sit for a filter chosen some other way — from the grid, or a
+     * sideways swipe. None lands in the *middle* of its three, so the next notch either way
+     * still has a notch of None to give.
+     */
+    fun positionOf(filter: Filter): Int {
+        val first = wheelTrack.indexOfFirst { it.id == filter.id }.coerceAtLeast(0)
+        return if (filter.id == none.id) first + NONE_NOTCHES / 2 else first
+    }
+
+    private fun wrapPosition(position: Int): Int {
+        val size = wheelTrack.size
+        return ((position % size) + size) % size
     }
 }

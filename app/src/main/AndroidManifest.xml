@@ -7,6 +7,9 @@
          folder, so the whole of DCIM has to be readable. -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Video mode, and only asked for when you switch to it. A recording with no sound is
+         worth more than a permission dialog in front of the thing you were filming. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!--
         The panel is a full-colour AMOLED; Light's black and white is the accessibility
         daltonizer pinned to monochromacy. Lifting it while the viewfinder is up is what makes

@@ -64,51 +64,7 @@ fun Shell(
     /** True when another app asked for a single photo; there is no roll to browse then. */
     captureRequest: Boolean,
 ) {
-    HeldSideways { ShellContent(vm = vm, captureRequest = captureRequest) }
-}
-
-/**
- * The whole app, turned a quarter clockwise inside a portrait window.
- *
- * This is how LightOS's own camera works and it takes a moment to see why. The window is
- * locked to portrait — the app never rotates, there is no landscape layout, nothing reflows —
- * and the interface is *drawn* rotated inside it. Turn the phone anticlockwise, the way you
- * would pick up a compact camera, and everything is upright: the picture fills the width, the
- * control band is along the bottom, and the phone's camera key has come round to the top edge
- * exactly where a shutter release belongs. Held in portrait, that same band runs down the
- * left-hand side.
- *
- * Rotating rather than supporting landscape is the right call and not a shortcut:
- *
- *  - **Nothing moves while you shoot.** A layout that reflowed on orientation would swap the
- *    band from one edge to another as you turned the camera to frame something, which is a
- *    viewfinder fighting you.
- *  - **Every spatial idea survives.** The roll is still *above* the viewfinder and still
- *    arrives with a downward pull, because "down" in here is down in your hand when the phone
- *    is held the way the app expects.
- *  - **The framing comes out right for free.** A 4:3 sensor very nearly fills a screen turned
- *    on its side, so almost nothing is cropped away — whereas portrait wastes a third of it.
- *
- * The mechanics: a box of the parent's *swapped* dimensions, escaping the incoming constraints
- * with `requiredSize`, centred, and turned 90°. Rotated about its own centre it covers the
- * parent exactly. Compose maps pointer input back through the layer, so touches land where
- * they look like they should, and an `AndroidView` inside — the camera preview — is drawn into
- * the same layer and turns with it.
- */
-@Composable
-private fun HeldSideways(content: @Composable () -> Unit) {
-    BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
-        val across = maxHeight
-        val down = maxWidth
-        Box(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .requiredSize(width = across, height = down)
-                .graphicsLayer { rotationZ = 90f },
-        ) {
-            content()
-        }
-    }
+    ShellContent(vm = vm, captureRequest = captureRequest)
 }
 
 @Composable

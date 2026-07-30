@@ -42,6 +42,28 @@ enum class Colour(val label: String) {
     Always("Whole app"),
 }
 
+/**
+ * What the camera is set to, in the stock app's own terms.
+ *
+ * The three the Light camera offers, and the same three here. [Selfie] is not a separate
+ * pipeline — it is the front lens — but the stock app presents it as a mode, and being a mode is
+ * what makes it reachable without a hidden gesture.
+ */
+enum class CaptureMode(val label: String) {
+    Photo("Camera"),
+    Video("Video"),
+    Selfie("Selfie"),
+    ;
+
+    /** What the mode slot in the band reads. */
+    val bandLabel: String
+        get() = when (this) {
+            Photo -> "PHOTO"
+            Video -> "VIDEO"
+            Selfie -> "SELFIE"
+        }
+}
+
 /** Seconds before the shutter fires. */
 enum class SelfTimer(val seconds: Int, val label: String) {
     Off(0, "Off"),
@@ -63,6 +85,14 @@ class Prefs(context: Context) {
 
     private val _filterId = MutableStateFlow(prefs.getString(FILTER, "film") ?: "film")
     val filterId: StateFlow<String> = _filterId.asStateFlow()
+
+    /**
+     * Deliberately not persisted. A camera should open in the mode you take photographs in;
+     * finding it still in video a day later, with the shutter recording instead of shooting, is
+     * a photograph missed.
+     */
+    private val _mode = MutableStateFlow(CaptureMode.Photo)
+    val mode: StateFlow<CaptureMode> = _mode.asStateFlow()
 
     private val _aspect = MutableStateFlow(FrameAspect.byLabel(prefs.getString(ASPECT, null)))
     val aspect: StateFlow<FrameAspect> = _aspect.asStateFlow()
@@ -122,6 +152,10 @@ class Prefs(context: Context) {
     val wheelEnabled: StateFlow<Boolean> = _wheelEnabled.asStateFlow()
 
     fun setFilter(id: String) = set(_filterId, id) { putString(FILTER, id) }
+
+    fun setMode(value: CaptureMode) {
+        _mode.value = value
+    }
 
     fun setAspect(value: FrameAspect) = set(_aspect, value) { putString(ASPECT, value.label) }
 
