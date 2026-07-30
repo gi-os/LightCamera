@@ -93,12 +93,8 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
 
     var audioGranted: Boolean = false
 
-    /**
-     * Where the wheel is sitting on the filter track, which is not the same as which filter is
-     * selected: None is three notches wide, so the position carries information the filter
-     * doesn't. See [Filters.wheelPositions].
-     */
-    private var wheelPosition = Filters.positionOf(Filters.byId(prefs.filterId.value))
+    /** While the dial is caught on None. See [Filters.NONE_DWELL_MS]. */
+    private var dialHeldUntil = 0L
 
     private var observer: AutoCloseable? = null
     private var lastPriorityFace: FaceBox? = null
@@ -207,23 +203,33 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
 
     /* ---------------- filters ---------------- */
 
-    /** One notch of the wheel, or one sideways swipe. */
+    /**
+     * One notch of the wheel, or one sideways swipe.
+     *
+     * Every notch buzzes, whether or not it moves the dial — the wheel is a physical control and
+     * silence from it reads as a control that isn't working. The buzz is also what tells you the
+     * dial is *caught* on None rather than dead: notches inside the dwell window are felt and
+     * discarded.
+     */
     fun stepFilter(by: Int) {
         if (videoMode()) {
             showNotice("Filters are photo only")
             return
         }
-        wheelPosition = Filters.stepPosition(wheelPosition, by)
-        val next = Filters.filterAt(wheelPosition)
+        LightHaptics.advance(getApplication<Application>())
+        val now = System.currentTimeMillis()
+        if (now < dialHeldUntil) return
+        val next = Filters.step(filter.value, by)
         prefs.setFilter(next.id)
+        if (next.id == Filters.none.id) dialHeldUntil = now + Filters.NONE_DWELL_MS
         showNotice(next.label)
     }
 
     fun setFilter(id: String) {
-        val next = Filters.byId(id)
-        wheelPosition = Filters.positionOf(next)
+        // Chosen deliberately from the grid, so the dial has no business holding on to it.
+        dialHeldUntil = 0L
         prefs.setFilter(id)
-        showNotice(next.label)
+        showNotice(Filters.byId(id).label)
     }
 
     /* ---------------- modes ---------------- */

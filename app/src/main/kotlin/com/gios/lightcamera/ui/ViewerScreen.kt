@@ -167,24 +167,51 @@ fun ViewerScreen(
                     },
                 )
                 Spacer(Modifier.weight(1f))
+                // The send button is off unless you have pointed it at LightChat. A share
+                // sheet is the one place a Light Phone stops feeling like a Light Phone — a
+                // grid of every app that ever registered for an image, on a phone whose whole
+                // argument is that there aren't any. Switched on, it has one destination and
+                // no chooser.
+                val sendEnabled by vm.prefs.sendToLightChat.collectAsState()
                 ChromeIcon(
                     icon = LightIcons.Share,
+                    lighten = !sendEnabled,
                     onClick = {
+                        if (!sendEnabled) {
+                            vm.showNotice("Turn on Send to LightChat in settings")
+                            return@ChromeIcon
+                        }
                         val target = photos.getOrNull(pager.currentPage) ?: return@ChromeIcon
                         val send = Intent(Intent.ACTION_SEND).apply {
                             type = "image/jpeg"
                             putExtra(Intent.EXTRA_STREAM, target.uri)
+                            // The package is named explicitly, which is what makes this a link
+                            // to LightChat rather than a share sheet with LightChat in it.
+                            setPackage(LIGHT_CHAT)
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
-                        runCatching {
-                            context.startActivity(Intent.createChooser(send, null))
-                        }.onFailure { vm.showNotice("Nothing to share with") }
+                        // Resolve before starting: an explicit-package intent nothing can
+                        // handle throws ActivityNotFound, and "LightChat can't take images" is
+                        // a far more useful thing to be told than a crash.
+                        val resolves = runCatching {
+                            context.packageManager.resolveActivity(send, 0) != null
+                        }.getOrDefault(false)
+                        if (!resolves) {
+                            vm.showNotice("LightChat can't receive photos")
+                            return@ChromeIcon
+                        }
+                        runCatching { context.startActivity(send) }
+                            .onFailure { vm.showNotice("LightChat wouldn't open") }
                     },
                 )
             }
         }
     }
 }
+
+/** Giovanni's iMessage client. The only destination the send button has. */
+private const val LIGHT_CHAT = "com.gios.lightchat"
 
 /**
  * A developed roll, all at once.

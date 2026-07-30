@@ -134,6 +134,17 @@ class Prefs(context: Context) {
     )
     val scope: StateFlow<RollScope> = _scope.asStateFlow()
 
+    /**
+     * Where the viewer's send button goes, if anywhere.
+     *
+     * Off by default and genuinely disabled rather than hidden, because a share sheet is the one
+     * place a Light Phone stops feeling like a Light Phone: a grid of every app that ever
+     * registered for an image, on a phone whose whole argument is that there aren't any. Turned
+     * on, it has exactly one destination and no chooser.
+     */
+    private val _sendToLightChat = MutableStateFlow(prefs.getBoolean(SEND_LIGHTCHAT, false))
+    val sendToLightChat: StateFlow<Boolean> = _sendToLightChat.asStateFlow()
+
     /** The digicam focus beep and the shutter tick. */
     private val _sounds = MutableStateFlow(prefs.getBoolean(SOUNDS, true))
     val sounds: StateFlow<Boolean> = _sounds.asStateFlow()
@@ -180,6 +191,9 @@ class Prefs(context: Context) {
 
     fun setColour(value: Colour) = set(_colour, value) { putString(COLOUR, value.name) }
 
+    fun setSendToLightChat(value: Boolean) =
+        set(_sendToLightChat, value) { putBoolean(SEND_LIGHTCHAT, value) }
+
     private fun <T> set(
         flow: MutableStateFlow<T>,
         value: T,
@@ -202,5 +216,6 @@ class Prefs(context: Context) {
         const val WHEEL = "wheel"
         const val SOUNDS = "sounds"
         const val COLOUR = "colour"
+        const val SEND_LIGHTCHAT = "sendLightChat"
     }
 }

@@ -42,56 +42,39 @@ class LevelAndFilterTrackTest {
         }
     }
 
-    /* ---------------- the filter track ---------------- */
+    /* ---------------- the dial ---------------- */
 
     @Test
-    fun `None is three notches wide and everything else is one`() {
-        assertEquals(Filters.all.size + Filters.NONE_NOTCHES - 1, Filters.wheelPositions)
-        val counts = (0 until Filters.wheelPositions)
-            .groupingBy { Filters.filterAt(it).id }
-            .eachCount()
-        assertEquals(Filters.NONE_NOTCHES, counts[Filters.none.id])
-        Filters.all.filter { it.id != Filters.none.id }.forEach { filter ->
-            assertEquals("${filter.id} should occupy one notch", 1, counts[filter.id])
-        }
-    }
-
-    @Test
-    fun `leaving None takes three notches, from either side`() {
-        var position = Filters.positionOf(Filters.none)
-        assertEquals(Filters.none.id, Filters.filterAt(position).id)
-        // Middle of three: one notch each way is still None, the second leaves it.
-        assertEquals(Filters.none.id, Filters.filterAt(Filters.stepPosition(position, 1)).id)
-        assertEquals(Filters.none.id, Filters.filterAt(Filters.stepPosition(position, -1)).id)
-        assertTrue(Filters.filterAt(Filters.stepPosition(position, 2)).id != Filters.none.id)
-        assertTrue(Filters.filterAt(Filters.stepPosition(position, -2)).id != Filters.none.id)
-
-        // And walking in from a neighbour spends three notches inside it.
-        position = Filters.positionOf(Filters.all[1])
-        var inside = 0
-        for (step in 1..4) {
-            if (Filters.filterAt(Filters.stepPosition(position, -step)).id == Filters.none.id) {
-                inside++
-            }
-        }
-        assertEquals(Filters.NONE_NOTCHES, inside)
-    }
-
-    @Test
-    fun `the track wraps rather than dead-ending`() {
-        val last = Filters.wheelPositions - 1
-        assertEquals(0, Filters.stepPosition(last, 1))
-        assertEquals(last, Filters.stepPosition(0, -1))
-    }
-
-    @Test
-    fun `every filter is reachable by turning one way`() {
+    fun `stepping wraps and reaches everything, one notch per filter`() {
+        // Every filter is one notch now. None gets its emphasis from a dwell in the view model
+        // rather than from extra positions on the track, which meant three clicks to leave it.
         val seen = HashSet<String>()
-        var position = 0
-        repeat(Filters.wheelPositions) {
-            seen += Filters.filterAt(position).id
-            position = Filters.stepPosition(position, 1)
+        var here = Filters.all.first()
+        repeat(Filters.all.size) {
+            seen += here.id
+            here = Filters.step(here, 1)
         }
         assertEquals(Filters.all.map { it.id }.toSet(), seen)
+        assertEquals(Filters.all.first().id, here.id)
+    }
+
+    @Test
+    fun `the dwell is long enough to catch a fast spin`() {
+        // The sensor fires a notch every ~35ms, so anything much under a second would be
+        // spun straight through, which was the whole problem.
+        assertTrue(Filters.NONE_DWELL_MS >= 1_000L)
+    }
+
+    @Test
+    fun `the Game Boy filters are there and are quantised on the sensor's own grid`() {
+        listOf("gameboy", "gbcolor").forEach { id ->
+            val filter = Filters.byId(id)
+            assertEquals(id, filter.id)
+            val source = filter.agsl!!
+            // 128 cells across the short edge — the GB Camera's sensor width. Without the
+            // pixel grid these are just palette filters, which is not the look.
+            assertTrue("$id should quantise to 128 cells", source.contains("128.0"))
+            assertTrue("$id should dither", source.contains("bayer"))
+        }
     }
 }

@@ -214,6 +214,60 @@ half4 main(float2 xy) {
 }
 """
 
+    /**
+     * The Game Boy Camera.
+     *
+     * Two things make that look, and only one of them is the green. The other is the
+     * resolution: the GB Camera's sensor was **128 x 112**, so the image is quantised onto a
+     * grid of that many cells across the short edge before anything else happens — sampling
+     * once per cell rather than averaging, because that is what a 128-pixel sensor does.
+     *
+     * Then four shades and nothing between them, the DMG palette from the real thing
+     * (`0f380f`, `306230`, `8bac0f`, `9bbc0f`), reached through a Bayer threshold so gradients
+     * break into the cross-hatch the hardware produced instead of banding. The contrast is
+     * pushed first: four levels of a flat exposure is mud.
+     */
+    private const val GAMEBOY = """
+half4 main(float2 xy) {
+    float cell = max(1.0, min(size.x, size.y) / 128.0);
+    float2 grid = (floor(xy / cell) + 0.5) * cell;
+    float g = lum(tap(grid));
+    g = clamp((g - 0.5) * 1.45 + 0.5, 0.0, 1.0);
+    // Three thresholds for four shades, nudged by the dither so the steps break up.
+    float t = (bayer4(xy / cell) - 0.5) * 0.30;
+    float level = floor(clamp(g + t, 0.0, 0.999) * 4.0);
+    float3 c = float3(0.059, 0.220, 0.059);
+    if (level > 0.5) c = float3(0.188, 0.384, 0.188);
+    if (level > 1.5) c = float3(0.545, 0.675, 0.059);
+    if (level > 2.5) c = float3(0.608, 0.737, 0.059);
+    return half4(float4(c, 1.0));
+}
+"""
+
+    /**
+     * The same sensor, on a Game Boy Color.
+     *
+     * The GBC kept the low resolution and gained fifteen bits of colour — five per channel — so
+     * this is the same 128-cell grid with each channel dithered to five levels rather than
+     * everything crushed to four greens. What you get is not "colour": it is the specific,
+     * slightly sour palette of a 1998 handheld, which is the point of asking for it.
+     */
+    private const val GB_COLOR = """
+half4 main(float2 xy) {
+    float cell = max(1.0, min(size.x, size.y) / 128.0);
+    float2 grid = (floor(xy / cell) + 0.5) * cell;
+    float3 c = tap(grid);
+    c = clamp((c - 0.5) * 1.30 + 0.5, 0.0, 1.0);
+    // Five steps a channel, which is 125 colours — close enough to the GBC's usable palette,
+    // and the dither is what stops it looking like a posterise filter.
+    float t = (bayer4(xy / cell) - 0.5) * 0.26;
+    float3 q = floor(clamp(c + t, 0.0, 0.999) * 5.0) / 4.0;
+    // A touch warm and green, the way that screen was.
+    q *= float3(0.98, 1.02, 0.90);
+    return half4(float4(clamp(q, 0.0, 1.0), 1.0));
+}
+"""
+
     /** Inverted, gamma-lifted, cooled. Bones. */
     private const val X_RAY = """
 half4 main(float2 xy) {
@@ -332,6 +386,8 @@ half4 main(float2 xy) {
         Filter("dither16", "Dither 16", DITHER16),
         Filter("onebit", "1-Bit", ONE_BIT),
         Filter("halftone", "Halftone", HALFTONE),
+        Filter("gameboy", "Game Boy", GAMEBOY),
+        Filter("gbcolor", "GB Color", GB_COLOR),
         Filter("comic", "Comic", COMIC),
         Filter("thermal", "Thermal", THERMAL),
         Filter("xray", "X-Ray", X_RAY),
@@ -354,45 +410,18 @@ half4 main(float2 xy) {
         return all[next]
     }
 
-    /** How many notches of the wheel [none] occupies. */
-    const val NONE_NOTCHES = 3
-
     /**
-     * The wheel's track, on which **None is three notches wide**.
+     * How long the wheel rests on [none] before it will move again.
      *
-     * A dial that treats "no filter" as one position among fifteen makes the most common
-     * setting the hardest to find: you spin past it, come back, and spin past it the other
-     * way. Widening it gives the wheel a detent — landing on None is easy, and leaving it is
-     * a deliberate three notches rather than a twitch. Mechanical dials have done this with a
-     * physical click since long before anyone had to think about it.
+     * A dial that treats "no filter" as one position among seventeen makes the most common
+     * setting the hardest to find: you spin past it, come back, and spin past it the other way.
+     * The first attempt at fixing that gave None three notches of its own, which worked but
+     * meant three deliberate clicks to leave — the wheel felt broken rather than detented.
      *
-     * Positions rather than filters, because "step from None" is otherwise ambiguous: which of
-     * its three notches are you on? The caller holds the position; [filterAt] reads it back.
+     * This is the better answer: landing on None **stops the dial dead** for a moment. Every
+     * notch inside that window is swallowed, so a fast spin cannot skate over it, and it costs
+     * nothing to leave once the moment has passed. A film advance that catches at the frame line
+     * does exactly this.
      */
-    private val wheelTrack: List<Filter> = buildList {
-        all.forEach { filter ->
-            repeat(if (filter.id == none.id) NONE_NOTCHES else 1) { add(filter) }
-        }
-    }
-
-    val wheelPositions: Int get() = wheelTrack.size
-
-    fun filterAt(position: Int): Filter = wheelTrack[wrapPosition(position)]
-
-    fun stepPosition(position: Int, by: Int): Int = wrapPosition(position + by)
-
-    /**
-     * Where the wheel should sit for a filter chosen some other way — from the grid, or a
-     * sideways swipe. None lands in the *middle* of its three, so the next notch either way
-     * still has a notch of None to give.
-     */
-    fun positionOf(filter: Filter): Int {
-        val first = wheelTrack.indexOfFirst { it.id == filter.id }.coerceAtLeast(0)
-        return if (filter.id == none.id) first + NONE_NOTCHES / 2 else first
-    }
-
-    private fun wrapPosition(position: Int): Int {
-        val size = wheelTrack.size
-        return ((position % size) + size) % size
-    }
+    const val NONE_DWELL_MS = 1_500L
 }

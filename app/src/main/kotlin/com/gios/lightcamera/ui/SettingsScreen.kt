@@ -58,6 +58,7 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
     val timer by vm.prefs.timer.collectAsState()
     val sounds by vm.prefs.sounds.collectAsState()
     val colour by vm.prefs.colour.collectAsState()
+    val sendChat by vm.prefs.sendToLightChat.collectAsState()
     val wheel by vm.prefs.wheelEnabled.collectAsState()
     val rollLength by vm.prefs.rollLength.collectAsState()
     val roll by vm.roll.collectAsState()
@@ -116,6 +117,14 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
                 } else {
                     "Needs one adb grant, then the viewfinder is in colour:\n\nadb shell pm grant com.gios.lightcamera android.permission.WRITE_SECURE_SETTINGS\n\nUntil then everything stays grey, which is harmless — the write is simply refused."
                 },
+            )
+
+            Section("Sending")
+            Setting("Send button", if (sendChat) "Use LightChat" else "Off") {
+                vm.prefs.setSendToLightChat(!sendChat)
+            }
+            Note(
+                "Off, the send button in the viewer is dead. On, it hands the photograph straight to LightChat with no share sheet in between — one destination, named explicitly.",
             )
 
             Section("Focus")
