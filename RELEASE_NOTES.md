@@ -1,31 +1,34 @@
-## Roll v2.20 — 1877 ms was the camera, not the app
+## Roll v2.21 — Simple stops using the still pipeline
 
-The measurement came back **1877 ms in `takePicture`, 87 ms to save**. That settles it: the save was never
-the problem, and neither was anything else I changed in the last three releases. The camera is doing nearly
-two seconds of work per still.
+1877 ms, then 1815 ms after asking the HAL for fast post-processing. A three percent difference: this
+camera's still pipeline is a fixed cost, and no capture request an app can send will move it.
 
-**What it is doing**
+**So Simple doesn't take a still any more**
 
-A still on a modern HAL is not one exposure. It is a short burst, stacked for noise, denoised, sharpened,
-tone-mapped — and every one of those stages has a HIGH_QUALITY setting and a FAST one. Asking for
-`CAPTURE_MODE_MINIMIZE_LATENCY`, which Roll already did, is CameraX *hinting* that the fast ones will do.
-Plenty of HALs ignore the hint.
+It binds a high-resolution analysis stream in place of the stills unit, keeps the newest frame in memory as
+NV21, and a shutter press *copies what is already there*. There is no capture to wait for — the frame
+existed before you pressed. The only work left is our own JPEG encode, which is a couple of hundred
+milliseconds of CPU rather than the camera's second and a half.
 
-**So Simple now asks in the request itself**
+Bound **instead of** `ImageCapture`, not alongside: this camera is LEVEL_3 and will not give three streams
+at once. Simple never called `takePicture` anyway. Pro is completely unchanged and still uses the stills
+pipeline, because that is where somebody asked for the best file the camera can make.
 
-Through Camera2 interop, on the still request only: noise reduction FAST, edge FAST, aberration correction
-FAST, tone-map FAST, and capture intent PREVIEW — which is the blunt version of the same statement, telling
-the HAL this frame does not need what a photograph normally gets. Pro is untouched: somebody there has asked
-for the best file the camera can make, and waiting for it is the right trade.
+**What you give up, plainly**
 
-Take a shot and read the number again. If it drops a lot, that was it. If it barely moves, this camera does
-its stacking somewhere an app cannot reach, and the honest options left are both hardware-facing rather than
-clever:
+- **No flash in Simple.** There is no still request to fire it with. Pro has it.
+- **Slightly noisier.** This is the ISP's frame without the still pipeline's stacking and denoising. In
+  daylight it is hard to tell; in a dim room it will be visible.
+- **The resolution is whatever the camera will give an analysis stream.** It asks for 12MP and takes the
+  closest available. That might be 12MP, it might be 1080p — this varies by device and there is no way to
+  know without asking the hardware. **So the readout now tells you**: `120ms shot · 60ms save · 12.2MP`.
 
-- **Shoot the preview stream instead.** A continuous stream means a capture is grabbing the latest frame
-  already in flight — genuinely instant, no HAL still pipeline at all. We would JPEG-encode it ourselves.
-  At the analysis stream's full resolution that is a real photograph rather than a screenshot, but it is the
-  ISP's raw frame without its still-image processing: slightly noisier, and no flash.
-- **Ask for less.** 8MP or 5MP, where the burst is shorter and there is less of everything to denoise.
+If that last number comes back low enough to bother you, the answer is a middle path — the stills pipeline
+at 5MP, which is slower than this but faster than 12MP and keeps the flash. The number will say.
 
-Both are a few hours' work. Neither is worth doing until the number above says which.
+**Under it**
+
+The YUV→NV21 conversion happens on the camera's executor as each frame arrives, not at the press, so the
+shutter is a reference read. It handles both chroma layouts phones actually produce — already-interleaved VU
+with a pixel stride of two, and two tightly packed planes that have to be woven a byte at a time. Assuming
+either one is a bug on half the phones in circulation.

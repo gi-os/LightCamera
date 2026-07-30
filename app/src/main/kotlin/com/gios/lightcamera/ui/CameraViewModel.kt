@@ -586,16 +586,18 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 if (wanted != PhotoSize.Large) prefs.setPhotoSize(PhotoSize.Large)
 
+                // **The frame is already in memory; this is a copy, not a capture.** Measured at 1815 ms
+                // for `takePicture` on this camera against 1877 before asking the HAL for fast
+                // post-processing — a three percent difference, which is to say the still pipeline is a
+                // fixed cost an app cannot reach. So Simple reads the live stream instead. `grabLive`
+                // includes our own JPEG encode, which is the only part of this with any weight.
                 val startedAt = System.nanoTime()
-                val attempt = runCatching { engine.capture() }
-                    .onFailure { Log.e(TAG, "simple capture failed", it) }
+                val frame = engine.grabLive(quality = 88)
+                    ?: run {
+                        showNotice("Nothing on the viewfinder yet")
+                        return@launch
+                    }
                 val captureMs = (System.nanoTime() - startedAt) / 1_000_000
-                val frame = attempt.getOrNull()
-                if (frame == null) {
-                    val why = attempt.exceptionOrNull()?.message?.take(48)
-                    showNotice(if (why.isNullOrBlank()) "Shutter failed" else "Shutter: $why")
-                    return@launch
-                }
                 _shutterTick.tryEmit(Unit)
 
                 // **Everything from here is off the critical path.** The bytes are in hand; the shutter's
@@ -616,8 +618,15 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                         height = size.second,
                     )
                     val saveMs = (System.nanoTime() - savedAt) / 1_000_000
-                    Log.i(TAG, "simple: capture ${captureMs}ms, save ${saveMs}ms")
-                    if (reportTimings) showNotice("${captureMs}ms shot · ${saveMs}ms save")
+                    val live = engine.liveSize()
+                    Log.i(TAG, "simple: grab ${captureMs}ms, save ${saveMs}ms, ${live?.first}x${live?.second}")
+                    // The achieved resolution is reported rather than assumed: an analysis stream is often
+                    // capped well below the sensor, and what this camera actually hands over is a fact
+                    // about the phone rather than something the code gets to decide.
+                    if (reportTimings) {
+                        val mp = live?.let { (it.first.toLong() * it.second / 100_000) / 10.0 }
+                        showNotice("${captureMs}ms shot · ${saveMs}ms save · ${mp ?: "?"}MP")
+                    }
                     if (uri == null) {
                         showNotice("Couldn't save")
                         return@launch

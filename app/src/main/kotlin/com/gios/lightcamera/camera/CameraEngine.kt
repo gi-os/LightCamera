@@ -4,6 +4,8 @@ import android.annotation.SuppressLint
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.ImageFormat
+import android.graphics.YuvImage
 import android.graphics.Rect
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
@@ -24,6 +26,7 @@ import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.FocusMeteringAction
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
@@ -205,6 +208,17 @@ class CameraEngine(private val context: Context) {
     }
 
     @Volatile private var lastRotation = Surface.ROTATION_0
+
+    @Volatile private var imageAnalysis: ImageAnalysis? = null
+
+    /**
+     * The newest frame off the live stream, already in NV21, waiting to be asked for.
+     *
+     * Replaced thirty times a second and read once per shutter press. `@Volatile` rather than a lock: a
+     * torn read is impossible because the reference is swapped whole, and the worst case is taking the
+     * frame from a thirtieth of a second ago.
+     */
+    @Volatile private var latestFrame: LiveFrame? = null
 
     /** Cleared for the rest of the process the first time a zero-shutter-lag capture fails. */
     @Volatile private var zslAllowed = true
@@ -554,6 +568,52 @@ class CameraEngine(private val context: Context) {
         val video = VideoCapture.withOutput(recorder).also { it.targetRotation = lastRotation }
         this.videoCapture = video
 
+        // **The live stream, for Simple.** Measured: `takePicture` costs 1.8 seconds on this camera and
+        // nothing an app can set moves it — the still pipeline is a burst, stacked and denoised, and the
+        // fast-mode request keys changed it by three percent. So Simple stops using the still pipeline. An
+        // analysis stream delivers frames continuously; the newest one is always already in memory, and a
+        // press is a copy rather than a capture.
+        //
+        // **Bound instead of `ImageCapture`, not alongside it.** This camera is LEVEL_3 and will not give
+        // three streams at once — preview plus stills plus analysis fails to bind. Simple never calls
+        // `takePicture`, so it does not need the stills unit at all.
+        val analysis = if (mode.isSimple) {
+            ImageAnalysis.Builder()
+                .setResolutionSelector(
+                    ResolutionSelector.Builder()
+                        .setResolutionStrategy(
+                            // Ask for 12MP and take the closest the camera will give. An analysis stream is
+                            // often capped far lower than the sensor, so what arrives may be 1080p — which
+                            // is why the achieved size is reported in the timing readout rather than
+                            // assumed. Whatever it is, it is instant.
+                            ResolutionStrategy(
+                                Size(4000, 3000),
+                                ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER,
+                            ),
+                        )
+                        .build(),
+                )
+                // Keep only the newest: this is a shutter, not a queue. An old frame is not a photograph
+                // anybody asked for.
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+                .setTargetRotation(lastRotation)
+                .build()
+                .also { unit ->
+                    unit.setAnalyzer(captureExecutor) { image ->
+                        // Converted here rather than at the press, on the camera's own executor: NV21 out
+                        // of three planes is a few milliseconds and doing it now means the shutter is a
+                        // reference assignment. The previous frame is simply dropped.
+                        latestFrame = runCatching { LiveFrame.from(image) }.getOrNull() ?: latestFrame
+                        image.close()
+                    }
+                }
+        } else {
+            latestFrame = null
+            null
+        }
+        this.imageAnalysis = analysis
+
         val cameraSelector = CameraSelector.Builder()
             .requireLensFacing(_lensFacing.value)
             .build()
@@ -561,7 +621,11 @@ class CameraEngine(private val context: Context) {
         runCatching {
             provider.unbindAll()
             preview.setSurfaceProvider(view.surfaceProvider)
-            val second = if (mode == CaptureMode.Video) video else capture
+            val second = when {
+                mode == CaptureMode.Video -> video
+                analysis != null -> analysis
+                else -> capture
+            }
             val bound = provider.bindToLifecycle(owner, cameraSelector, preview, second)
             camera = bound
             readCameraLimits(bound)
@@ -844,6 +908,31 @@ class CameraEngine(private val context: Context) {
      * chosen frame, and may end up in a roll that isn't in the gallery yet, so writing them
      * to disk first would only be a file to clean up.
      */
+    /**
+     * The frame that is already there, as a JPEG.
+     *
+     * Null when Simple is not bound or no frame has arrived yet. The encode is ours rather than the ISP's —
+     * `YuvImage.compressToJpeg` on the NV21 the analyser already produced — which costs a couple of hundred
+     * milliseconds of CPU and, crucially, costs it *after* the shutter has returned.
+     */
+    fun grabLive(quality: Int): CapturedFrame? {
+        val frame = latestFrame ?: return null
+        val out = java.io.ByteArrayOutputStream(frame.width * frame.height / 4)
+        val ok = runCatching {
+            YuvImage(frame.nv21, ImageFormat.NV21, frame.width, frame.height, null)
+                .compressToJpeg(Rect(0, 0, frame.width, frame.height), quality, out)
+        }.getOrDefault(false)
+        if (!ok) return null
+        return CapturedFrame(
+            jpeg = out.toByteArray(),
+            rotationDegrees = frame.rotationDegrees,
+            mirrored = _lensFacing.value == CameraSelector.LENS_FACING_FRONT,
+        )
+    }
+
+    /** The size the live stream actually gave us, for the timing readout. Null until a frame arrives. */
+    fun liveSize(): Pair<Int, Int>? = latestFrame?.let { it.width to it.height }
+
     suspend fun capture(): CapturedFrame = suspendCancellableCoroutine { cont ->
         val capture = imageCapture
         if (capture == null) {
