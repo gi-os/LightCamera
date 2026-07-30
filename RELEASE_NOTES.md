@@ -1,23 +1,22 @@
-## Roll v2.31 — the camera key opens the camera
+## Roll v2.32 — the send picker is back, and now it asks before it sends
 
-Press the shutter key with Roll already running and you arrived wherever you left it — the roll, a photograph,
-the settings. A camera button should mean the viewfinder.
+**The picker was deleted from main by mistake.** Commit 7253955 was written from a checkout
+taken before the picker landed, so it wrote the old files back over it — all of send/, the
+sheet, the roll's multi-select, the contacts permission, the recents. v2.29 through v2.31 shipped
+without any of it. This restores it onto current main; Dither 32, the camera-key fix and the
+Purikura persistence are all untouched.
 
-**Why it happened**
+**Choosing somebody no longer sends immediately**
 
-The activity is `singleTop`, so the key does not start a new instance: it resumes the existing one, and the
-pager's `initialPage` only applies to the first composition. Everything about the app was working as written;
-what was missing was anybody telling it a launch had happened.
+Tapping a name used to fire the photograph straight off, which put the one irreversible step in
+the flow behind the same gesture as scrolling past a name — and there is no unsend. Now a tap
+chooses, and a bar appears under the header saying who it is going to, which number it is going
+to, and how many photographs. Send or Cancel from there.
 
-**The fix**
+The number matters more than it looks: a contact with a mobile and an old landline is exactly
+the case a confirmation step earns its keep, and that line is what catches it.
 
-`onNewIntent` now signals the view model, and the shell goes back to the viewfinder — closing the viewer and
-the settings on the way, since a photograph covering the picture is the same problem as being on the wrong
-page.
+The list stays live underneath, so picking somebody else moves the choice rather than making you
+cancel first, and the chosen row carries the same mark a picked frame does in the roll. Back
+steps out of the choice before it steps out of the picker.
 
-The signal is a `SharedFlow` rather than a flag, deliberately. A boolean already true would not re-fire on the
-second press, and a state-keyed effect would run at startup — which is precisely the bug that made tapping a
-photograph open the newest one back in v2.11. A shared flow fires only on emission and never replays, so both
-faults are impossible rather than merely avoided.
-
-Mode is untouched: Pro is already the default and Simple is opt-in, so a key press lands on the normal camera.

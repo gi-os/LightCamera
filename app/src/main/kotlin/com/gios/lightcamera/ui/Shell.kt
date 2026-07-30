@@ -122,6 +122,15 @@ private fun ShellContent(vm: CameraViewModel, captureRequest: Boolean) {
     var viewing by remember { mutableStateOf<Photo?>(null) }
     var settingsOpen by remember { mutableStateOf(false) }
 
+    /**
+     * The photographs waiting for a recipient.
+     *
+     * Hoisted to here rather than kept inside the viewer or the roll because both of them raise
+     * it — one photograph from the viewer, a selected set from the roll — and the picker has to
+     * be drawn above both, on top of the pager. Empty means closed.
+     */
+    var sending by remember { mutableStateOf<List<Photo>>(emptyList()) }
+
     val pager = rememberPagerState(initialPage = PAGE_CAMERA, pageCount = { 2 })
 
     // Back to the viewfinder when the camera key brings the app forward — and back *out* of whatever was
@@ -167,6 +176,7 @@ private fun ShellContent(vm: CameraViewModel, captureRequest: Boolean) {
                         onBackToCamera = {
                             scope.launch { pager.animateScrollToPage(PAGE_CAMERA) }
                         },
+                        onSend = { sending = it },
                     )
 
                     else -> CameraScreen(
@@ -187,6 +197,7 @@ private fun ShellContent(vm: CameraViewModel, captureRequest: Boolean) {
                     vm = vm,
                     initial = photo,
                     onClose = { viewing = null },
+                    onSend = { sending = it },
                 )
             }
         }
@@ -194,6 +205,38 @@ private fun ShellContent(vm: CameraViewModel, captureRequest: Boolean) {
         AnimatedVisibility(visible = settingsOpen, enter = fadeIn(), exit = fadeOut()) {
             SettingsScreen(vm = vm, onClose = { settingsOpen = false })
         }
+
+        // Above the viewer, so sending from a photograph leaves the photograph behind it and
+        // closing the picker lands back on it rather than on the roll.
+        AnimatedVisibility(visible = sending.isNotEmpty(), enter = fadeIn(), exit = fadeOut()) {
+            val photos = sending
+            if (photos.isNotEmpty()) {
+                val recents by vm.prefs.recentRecipients.collectAsState()
+                SendSheet(
+                    photos = photos,
+                    recentKeys = recents,
+                    onRemember = { vm.prefs.rememberRecipient(it) },
+                    onNotice = { vm.showNotice(it) },
+                    onClose = { sending = emptyList() },
+                )
+            }
+        }
+
+        /**
+         * **The one place a notice is drawn.**
+         *
+         * It used to live inside `CameraScreen`, which is a page of the pager — so every message
+         * raised from the viewer, the settings screen or the send picker was posted onto a surface
+         * covered by an opaque full-screen overlay. All four of the picker's failure paths ("no
+         * way to reach Alex", "nothing on the phone takes photos") were therefore invisible, and
+         * a send that failed was indistinguishable from a tap that didn't register. Drawn here it
+         * is above everything, which is what a notice is for.
+         */
+        val notice by vm.notice.collectAsState()
+        Notice(
+            text = notice,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp),
+        )
 
         val developed by vm.developed.collectAsState()
         AnimatedVisibility(visible = developed != null, enter = fadeIn(), exit = fadeOut()) {

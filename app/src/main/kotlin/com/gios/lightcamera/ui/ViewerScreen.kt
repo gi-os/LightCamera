@@ -65,6 +65,7 @@ fun ViewerScreen(
     vm: CameraViewModel,
     initial: Photo,
     onClose: () -> Unit,
+    onSend: (List<Photo>) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -338,65 +339,24 @@ fun ViewerScreen(
                     )
                     Spacer(Modifier.weight(1f))
                 }
-                // **Always live, and it goes wherever it can.** It used to refuse unless "Send to
-                // LightChat" was on, and then always fail anyway — LightChat registers no ACTION_SEND
-                // filter at all, so an explicit send to it can never resolve, whatever this app does. The
-                // setting is now a *preference*: LightChat when LightChat can take an image, and a chooser
-                // when it cannot, which on a Light Phone is a short list rather than the wall of icons the
-                // original comment was worried about.
-                val preferLightChat by vm.prefs.sendToLightChat.collectAsState()
+                // **The share button asks who, not which app.**
+                //
+                // It used to open the system chooser: a colour Material sheet listing every app
+                // that ever registered for an image, on a phone whose argument is that there
+                // aren't any, and still leaving you to pick the person once inside. The question
+                // worth asking on this phone is who the photograph is for, so this opens the
+                // app's own picker over the address book instead. See `SendSheet` and `Handoff`.
                 ChromeIcon(
                     icon = LightIcons.Share,
                     onClick = {
                         val target = photoAt(pager.currentPage) ?: return@ChromeIcon
-                        val send = Intent(Intent.ACTION_SEND).apply {
-                            type = "image/jpeg"
-                            putExtra(Intent.EXTRA_STREAM, target.uri)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        // **Ask who can actually take it.** With the manifest's `<queries>` in place this
-                        // is now a question we are allowed to ask, and the answer settles which of two
-                        // things to do rather than guessing.
-                        val takers = runCatching {
-                            context.packageManager.queryIntentActivities(send, 0).map {
-                                it.activityInfo?.packageName
-                            }
-                        }.getOrDefault(emptyList())
-                        val lightChatCanTake = LIGHT_CHAT in takers
-
-                        when {
-                            preferLightChat && lightChatCanTake -> {
-                                send.setPackage(LIGHT_CHAT)
-                                send.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                runCatching { context.startActivity(send) }
-                                    .onFailure { vm.showNotice("LightChat wouldn't open") }
-                            }
-
-                            takers.isEmpty() -> vm.showNotice("Nothing on the phone takes photos")
-
-                            else -> {
-                                // LightChat cannot receive images — it registers no ACTION_SEND filter at
-                                // all — so the photograph goes to whatever can, rather than nowhere. A
-                                // chooser on a Light Phone is a short list.
-                                if (preferLightChat) vm.showNotice("LightChat can't receive photos yet")
-                                runCatching {
-                                    context.startActivity(
-                                        Intent.createChooser(send, "Send photo").apply {
-                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        },
-                                    )
-                                }.onFailure { vm.showNotice("Couldn't send that one") }
-                            }
-                        }
+                        onSend(listOf(target))
                     },
                 )
             }
         }
     }
 }
-
-/** Giovanni's iMessage client. The preferred destination, once it can receive an image. */
-private const val LIGHT_CHAT = "com.gios.lightchat"
 
 /**
  * A developed roll, all at once.

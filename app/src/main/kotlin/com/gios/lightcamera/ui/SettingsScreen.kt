@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.gios.lightcamera.send.Handoff
 import com.gios.lightcamera.Chrome
 import com.gios.lightcamera.Colour
 import com.gios.lightcamera.CrashLog
@@ -68,7 +69,7 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
     val simpleMode by vm.prefs.simpleMode.collectAsState()
     val stampStyle by vm.prefs.stampStyle.collectAsState()
     val colour by vm.prefs.colour.collectAsState()
-    val sendChat by vm.prefs.sendToLightChat.collectAsState()
+    val recents by vm.prefs.recentRecipients.collectAsState()
     val wheel by vm.prefs.wheelEnabled.collectAsState()
     val rollLength by vm.prefs.rollLength.collectAsState()
     val roll by vm.roll.collectAsState()
@@ -189,11 +190,19 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
             )
 
             Section("Sending")
-            Setting("Send button", if (sendChat) "Use LightChat" else "Off") {
-                vm.prefs.setSendToLightChat(!sendChat)
+            Setting("Recents", if (recents.isEmpty()) "None yet" else "${recents.size} kept", enabled = recents.isNotEmpty()) {
+                vm.prefs.clearRecentRecipients()
+                vm.showNotice("Recents cleared")
             }
+            // Remembered: it's a PackageManager binder call, and inside composition it would run
+            // on every recomposition of the settings list.
+            val lightChatTakesPhotos = remember { Handoff.lightChatCanReceive(context) }
             Note(
-                "Off, the send button in the viewer is dead. On, it hands the photograph straight to LightChat with no share sheet in between — one destination, named explicitly.",
+                if (lightChatTakesPhotos) {
+                    "The send button opens your contacts and hands the photograph to LightChat, already addressed. The people you send to most recently sit at the top of that list; tap here to forget them."
+                } else {
+                    "The send button opens your contacts rather than a grid of apps. LightChat can't receive photographs on this build, so a send goes to whatever else can take one — and the person has to be chosen again inside it."
+                },
             )
 
             Section("Focus")

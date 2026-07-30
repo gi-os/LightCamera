@@ -357,6 +357,35 @@ class Prefs(context: Context) {
     val simpleMode: StateFlow<Boolean> = _simpleMode.asStateFlow()
 
     /**
+     * The people last sent a photograph, most recent first, so the picker opens with them on
+     * screen instead of at the top of the alphabet.
+     *
+     * **Held by normalised address, not by contact id.** A contact id belongs to one
+     * address-book database and does not survive a restore or a phone swap, so a list keyed by
+     * it would silently empty itself — the same reasoning as keying starred photographs by
+     * filename. The address is the thing that identifies the person across all of that, and
+     * `Recipients.key` is what makes two spellings of it compare equal.
+     *
+     * Stored newline-joined rather than as a `StringSet`, because a set has no order and the
+     * order is the entire content of this list.
+     */
+    private val _recentRecipients = MutableStateFlow(
+        prefs.getString(RECENT_RECIPIENTS, null)
+            ?.split('\n')
+            ?.filter { it.isNotBlank() }
+            ?: emptyList(),
+    )
+    val recentRecipients: StateFlow<List<String>> = _recentRecipients.asStateFlow()
+
+    fun clearRecentRecipients() =
+        set(_recentRecipients, emptyList()) { remove(RECENT_RECIPIENTS) }
+
+    fun rememberRecipient(key: String) {
+        val next = com.gios.lightcamera.send.Recipients.remember(_recentRecipients.value, key)
+        set(_recentRecipients, next) { putString(RECENT_RECIPIENTS, next.joinToString("\n")) }
+    }
+
+    /**
      * Show how long each shot took, in milliseconds, split into capture and save.
      *
      * A developer diagnostic, off by default. It answered its question — 1.8 s inside `takePicture`, 87 ms
@@ -509,5 +538,6 @@ class Prefs(context: Context) {
         const val STAMP_STYLE = "stampStyle"
         const val COLOUR = "colour"
         const val SEND_LIGHTCHAT = "sendLightChat"
+        const val RECENT_RECIPIENTS = "recentRecipients"
     }
 }
