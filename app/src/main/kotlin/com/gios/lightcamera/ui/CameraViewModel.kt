@@ -578,17 +578,10 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     reshufflePuri()
                 }
 
+                // No date on a strip, in the panels or on the print. The layouts that want one have a
+                // footer of their own, which the composer fills in.
                 val sheet = withContext(Dispatchers.Default) {
-                    PuriStrip.compose(bitmaps, layout, puriFrame(), takenAt)?.also { print ->
-                        PuriArt.drawDate(
-                            canvas = android.graphics.Canvas(print),
-                            w = print.width,
-                            h = print.height,
-                            dateId = prefs.puriDate.value,
-                            seed = _puriSeed.value,
-                            millis = takenAt,
-                        )
-                    }
+                    PuriStrip.compose(bitmaps, layout, puriFrame(), takenAt)
                 }
                 if (sheet == null) {
                     showNotice("Couldn't build the strip")

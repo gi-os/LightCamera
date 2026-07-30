@@ -83,6 +83,7 @@ object ShaderRuntime {
         if (!filter.facesAware) return
         shader.setFloatUniform("warp", tune.eyes, tune.chin, tune.slim, tune.skin)
         shader.setFloatUniform("wash", tune.wash)
+        shader.setFloatUniform("faceTurn", (((tune.turns % 4) + 4) % 4).toFloat())
         val used = faces.take(FaceQuads.MAX)
         shader.setFloatUniform("faceCount", used.size.toFloat())
         for (slot in 0 until FaceQuads.MAX) {

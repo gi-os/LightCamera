@@ -1,51 +1,37 @@
-## Roll v2.12 — a Look section, thumbnails in every list, and the send button works
+## Roll v2.13 — the face warps were wrong sideways
 
-**Look: five switches**
+**The 2×2 no longer pushes the menu off the screen**
 
-Purikura's effect is now five things you can turn on and off separately, under Look in its menu:
+`ContentScale.Fit` in a column with no width constraint takes the bitmap's intrinsic width, and the grid
+sheet is twice as wide as a single frame — so it shoved the rows off the side. The example now has a fixed
+width and the full height, and every layout fits inside it.
 
-- **Pink wash** — the blow-out, the rose, the glitter. Off, what is left is a beauty filter rather than a
-  booth print, which is a reasonable thing to want.
-- **Skin** — the twelve-tap edge-preserving smoothing.
-- **Bigger eyes** — the magnification.
-- **Narrow chin** — new. A horizontal squeeze that ramps from nothing at the cheekbones to full at the
-  jaw, which is the difference between a taper and a waist.
-- **Smaller face** — new. A gentle radial shrink around the whole head, falling off well outside the
-  rectangle so there is no seam at the hairline.
+**No date on a four-shot, anywhere**
 
-The wash, skin and eyes start on because that is the effect; the chin and the slimming start off, because
-they are the two that look uncanny on a face the detector has boxed slightly wrong. They are amounts in
-the shader rather than branches, so half strength would work if it were ever offered.
+Not in the panels, and not in the margin either. The layouts that want a printed date have their own
+footer, which the composer fills in.
 
-**Every list row shows itself**
+**The face shaping was measuring the wrong axes**
 
-Frame, Date and Four-shot rows carry a thumbnail drawn by the same code the photograph uses — the frames
-in the list *are* the frames. Pick a strip layout and its row shows four cells arranged that way.
+This is why it looked off, and it is a real bug rather than a matter of taste. The shader runs on the panel
+image, and the panel is locked to portrait — so with the phone held sideways a face lies on its side in
+that image, eyes one above the other. The eye positions were still being guessed left-and-right of centre,
+which put the magnification on a forehead and a chin, and the chin squeeze across the side of the head.
 
-**The example is as big as the panel allows**
+Every offset is now measured along the face's own axes, from a quarter-turn count the shader is told
+directly. Held upright nothing changes; held sideways it is correct for the first time.
 
-A strip is 1:4, so at a fixed size it came out the width of a fingernail. It now takes the full height of
-the menu and whatever width that leaves.
+**And it is all gentler**
 
-**Stickers: bigger, spaced, never touching**
+The eyes were at nearly twice size with a radius of over half the face's width — on a detector box that
+usually takes in hair and forehead, that grabs eyebrows as readily as eyes. Eyes are now up to 1.55×
+within a tighter radius, the chin squeeze is 18% rather than 30%, and the head shrink 10% rather than 16%.
 
-Two or three per photograph instead of two to four, each a fifth of the short edge or more, and a
-candidate is rejected if it lands within a sticker's width of one already placed. Tested over three
-hundred seeds.
+**Where this can still go wrong, honestly**
 
-**The date prints once on a strip**
-
-Not into all four panels. A booth prints it in the margin, because the four photographs are one object.
-
-**A frame is paper, not a tint**
-
-The glitter band's pink was translucent, so the wash and the glitter showed through the border and it read
-as part of the photograph. Opaque now.
-
-**The send button works**
-
-It never did. From Android 11 an app cannot see another app's activities unless the manifest says which
-ones it is looking for, and `resolveActivity` returns null for everything else — so the check in front of
-the send always failed and reported that LightChat could not receive photos, on a phone with LightChat
-installed. The manifest now declares the query, and the check is gone anyway: it starts the intent and
-explains itself if that throws.
+The eyes are *guessed* from the rectangle — a fifth of its width either side of centre, a quarter of its
+height above the middle. That is where eyes are on a face, but the hardware's rectangle is loose and
+varies between cameras, so on a box that sits high or wide the warp will still land slightly off. The real
+fix is the camera's own eye and mouth landmarks, which `STATISTICS_FACE_DETECT_MODE_FULL` publishes on the
+hardware that supports it. Roll currently asks for SIMPLE, which is the cheaper mode and carries only the
+rectangle. Moving to FULL where available, and falling back to the guess where not, is the next step.

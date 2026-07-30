@@ -289,12 +289,13 @@ class Prefs(context: Context) {
     val puriSlim: StateFlow<Boolean> = _puriSlim.asStateFlow()
 
     /** The five, as the shader wants them. */
-    fun puriTune(): FaceTune = FaceTune.of(
+    fun puriTune(turns: Int = 0): FaceTune = FaceTune.of(
         eyes = _puriEyes.value,
         chin = _puriChin.value,
         slim = _puriSlim.value,
         skin = _puriSkin.value,
         wash = _puriWash.value,
+        turns = turns,
     )
 
     /** The digicam focus beep and the shutter tick. */

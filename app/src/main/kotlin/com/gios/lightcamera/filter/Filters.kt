@@ -394,6 +394,17 @@ uniform float faceCount;
 uniform float4 warp;
 uniform float wash;
 
+/**
+ * Which way up the face is, in quarter turns: 0, 1, 2, 3.
+ *
+ * **Without this every warp was wrong the moment you turned the phone.** The shader runs on the panel,
+ * and the panel is portrait-locked — so held sideways a face lies on its side in the image, with the eyes
+ * one above the other. The eye positions were being guessed left-and-right of centre regardless, which
+ * put the magnification on a forehead and a chin. Everything below is measured along the face's own axes
+ * instead of the image's.
+ */
+uniform float faceTurn;
+
 float4 faceAt(int i) {
     if (i == 0) return face0;
     if (i == 1) return face1;
@@ -438,36 +449,52 @@ half4 main(float2 xy) {
     // shrinks a little. All three read the *original* rectangle rather than each other's output, which
     // compounds slightly and is invisible at these strengths — and is far easier to reason about than
     // three warps chasing a moving centre.
+    // The face's own axes: `ax` runs along the eye line, `ay` down from the brow to the chin. At a
+    // quarter turn they are the image's y and -x, which is what makes every offset below correct in
+    // every pose instead of only in portrait.
+    float turns = mod(faceTurn, 4.0);
+    float sideways = (turns == 1.0 || turns == 3.0) ? 1.0 : 0.0;
+    float ca = (turns == 0.0) ? 1.0 : ((turns == 2.0) ? -1.0 : 0.0);
+    float sa = (turns == 1.0) ? 1.0 : ((turns == 3.0) ? -1.0 : 0.0);
+    float2 ax = float2(ca, sa);
+    float2 ay = float2(-sa, ca);
+
     for (int i = 0; i < 3; ++i) {
         float4 f = faceAt(i);
         float2 mid = float2(f.x, f.y) * size;
-        // `ext` — half the face's width and height in pixels. Not `half`, which is a type here.
+        // Half extents, in pixels, in the *image's* axes. `ext` rather than `half`, which is a type here.
         float2 ext = float2(f.z, f.w) * size * (i < n ? 1.0 : 0.0);
+        // The same two numbers along the face's axes: sideways, the face's width is the box's height.
+        float across = mix(ext.x, ext.y, sideways);
+        float down = mix(ext.y, ext.x, sideways);
 
-        // Eyes. Guessed from the rectangle: a quarter of the width either side, a fifth of the height up.
-        float2 eyeL = mid + float2(-ext.x * 0.42, -ext.y * 0.28);
-        float2 eyeR = mid + float2(ext.x * 0.42, -ext.y * 0.28);
-        float radius = ext.x * 0.52;
-        p = magnify(p, eyeL, radius, 1.0 + 0.95 * warp.x);
+        // Eyes. Guessed from the rectangle — a fifth of the face's width either side of centre, a
+        // quarter of its height above the middle — because the hardware's landmarks are not available on
+        // every camera and its rectangle always is. Kept gentle: the box is loose, often taking in hair
+        // and forehead, so a strong magnification lands on an eyebrow as readily as an eye.
+        float2 eyeL = mid - ax * (across * 0.40) - ay * (down * 0.26);
+        float2 eyeR = mid + ax * (across * 0.40) - ay * (down * 0.26);
+        float radius = across * 0.38;
+        p = magnify(p, eyeL, radius, 1.0 + 0.55 * warp.x);
+        p = magnify(p, eyeR, radius, 1.0 + 0.55 * warp.x);
 
-        p = magnify(p, eyeR, radius, 1.0 + 0.95 * warp.x);
-
-        // Chin. Squeezed horizontally, and only below the middle of the face — the amount ramps from
+        // Chin. Squeezed along the eye line, and only below the middle of the face: the amount ramps from
         // nothing at the cheekbones to full at the jaw, which is the difference between a taper and a
         // waist. Sampling *further out* pulls the picture in, so the multiplier is above one.
-        if (ext.y > 0.0 && warp.y > 0.0) {
-            float down = clamp((p.y - (mid.y + ext.y * 0.1)) / (ext.y * 1.05), 0.0, 1.0);
-            float across = 1.0 - smoothstep(ext.x * 0.9, ext.x * 1.9, abs(p.x - mid.x));
-            float k = 1.0 + 0.30 * warp.y * smoothstep(0.0, 1.0, down) * across;
-            p = float2(mid.x + (p.x - mid.x) * k, p.y);
+        if (down > 0.0 && warp.y > 0.0) {
+            float2 d = p - mid;
+            float lower = clamp((dot(d, ay) - down * 0.15) / (down * 1.0), 0.0, 1.0);
+            float near = 1.0 - smoothstep(across * 0.9, across * 1.9, abs(dot(d, ax)));
+            float k = 0.18 * warp.y * smoothstep(0.0, 1.0, lower) * near;
+            p = p + ax * (dot(d, ax) * k);
         }
 
         // The whole head, in a little. A radial version of the same trick, falling off to nothing well
-        // outside the rectangle so there is no visible seam at the hairline.
+        // outside the rectangle so there is no seam at the hairline.
         float reach = max(max(ext.x, ext.y) * 1.8, 0.0001);
         float away = length(p - mid) / reach;
         if (away < 1.0 && ext.x > 0.0 && warp.z > 0.0) {
-            float k = 1.0 + 0.16 * warp.z * (1.0 - smoothstep(0.0, 1.0, away));
+            float k = 1.0 + 0.10 * warp.z * (1.0 - smoothstep(0.0, 1.0, away));
             p = mid + (p - mid) * k;
         }
     }
@@ -512,9 +539,9 @@ half4 main(float2 xy) {
         float4 f = faceAt(i);
         float2 mid = float2(f.x, f.y) * size;
         float2 ext = float2(f.z, f.w) * size;
-        float2 eyeL = mid + float2(-ext.x * 0.42, -ext.y * 0.28);
-        float2 eyeR = mid + float2(ext.x * 0.42, -ext.y * 0.28);
-        float reach = max(ext.x * 0.42, 1.0);
+        float2 eyeL = mid - ax * (mix(ext.x, ext.y, sideways) * 0.40) - ay * (mix(ext.y, ext.x, sideways) * 0.26);
+        float2 eyeR = mid + ax * (mix(ext.x, ext.y, sideways) * 0.40) - ay * (mix(ext.y, ext.x, sideways) * 0.26);
+        float reach = max(mix(ext.x, ext.y, sideways) * 0.40, 1.0);
         float near = max(
             1.0 - clamp(length(p - eyeL) / reach, 0.0, 1.0),
             1.0 - clamp(length(p - eyeR) / reach, 0.0, 1.0)

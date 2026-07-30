@@ -74,7 +74,8 @@ class FiltersTest {
         // and then sample garbage; one that declares a face uniform without the flag would never
         // have it written and would warp a stale rectangle for ever.
         val always = setOf("src", "size", "seed")
-        val faceUniforms = setOf("faceCount", "face0", "face1", "face2", "warp", "wash")
+        val faceUniforms =
+            setOf("faceCount", "face0", "face1", "face2", "warp", "wash", "faceTurn")
         Filters.all.filter { it.agsl != null }.forEach { filter ->
             val declared = Regex("uniform\\s+\\w+\\s+(\\w+)\\s*;")
                 .findAll(filter.source!!)

@@ -224,6 +224,7 @@ fun CameraScreen(
         puriEyes,
         puriChin,
         puriSlim,
+        turn,
     ) {
         previewView.setRenderEffect(
             ShaderRuntime.effectFor(
@@ -232,7 +233,10 @@ fun CameraScreen(
                 height = frameHeight,
                 seed = seed,
                 faces = faceQuads,
-                tune = vm.prefs.puriTune(),
+                // The preview image is still in the panel's frame, so the shader needs to know how the
+                // face is lying in it. The captured photograph is turned upright before the shader sees
+                // it, which is why the shutter passes no turn at all.
+                tune = vm.prefs.puriTune(turns = turn / 90),
             ),
         )
     }
@@ -1076,22 +1080,27 @@ private fun PuriSample(
             }
             val sheet = PuriStrip.compose(cells, strip, frame, System.currentTimeMillis())
             cells.forEach { it.recycle() }
-            sheet?.also {
-                PuriArt.drawDate(AndroidCanvas(it), it.width, it.height, dateId, seed, System.currentTimeMillis())
-            }?.asImageBitmap()
+            // No date anywhere on a strip. Four copies down the panels was wrong, and one in the margin
+            // was still a date on something that is already stamped by being four photographs of one
+            // moment — the layouts that want a printed date have their own footer.
+            sheet?.asImageBitmap()
                 ?: puriTile(cellW, cellH, frame, dateId, seed, faceStickers, marginStickers).asImageBitmap()
         }
     }
 
+    // **A bounded width, and that is not cosmetic.** `ContentScale.Fit` inside a column with no width
+    // constraint takes the bitmap's intrinsic width, so the 2x2 sheet — twice as wide as a single frame —
+    // shoved the rows off the side of the screen. Full height, fixed width, and every layout fits inside
+    // it: a strip lands tall and narrow, the grid lands square.
     Column(
-        modifier = modifier.fillMaxHeight(),
+        modifier = modifier.fillMaxHeight().width(124.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Image(
             bitmap = sample,
             contentDescription = null,
             contentScale = ContentScale.Fit,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.fillMaxWidth().weight(1f),
         )
         LightText(
             text = "EXAMPLE",

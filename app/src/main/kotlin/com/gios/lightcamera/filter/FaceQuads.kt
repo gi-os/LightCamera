@@ -93,9 +93,26 @@ data class FaceTune(
     val slim: Float = 0f,
     val skin: Float = 1f,
     val wash: Float = 1f,
+    /**
+     * Which way up the face is, in quarter turns.
+     *
+     * Zero for a photograph that has already been turned upright — the file — and the device's own turn
+     * for the live preview, whose image is still in the panel's frame. Without it the eye positions are
+     * guessed left-and-right of centre whichever way the phone is held, which lands the magnification on
+     * a forehead the moment you turn it sideways.
+     */
+    val turns: Int = 0,
 ) {
     companion object {
-        fun of(eyes: Boolean, chin: Boolean, slim: Boolean, skin: Boolean, wash: Boolean) = FaceTune(
+        fun of(
+            eyes: Boolean,
+            chin: Boolean,
+            slim: Boolean,
+            skin: Boolean,
+            wash: Boolean,
+            turns: Int = 0,
+        ) = FaceTune(
+            turns = turns,
             eyes = if (eyes) 1f else 0f,
             chin = if (chin) 1f else 0f,
             slim = if (slim) 1f else 0f,
