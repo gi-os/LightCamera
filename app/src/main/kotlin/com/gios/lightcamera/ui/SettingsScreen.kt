@@ -26,6 +26,7 @@ import com.gios.lightcamera.Colour
 import com.gios.lightcamera.CrashLog
 import com.gios.lightcamera.PhotoSize
 import com.gios.lightcamera.SelfTimer
+import com.gios.lightcamera.StampStyle
 import com.gios.lightcamera.camera.AfMode
 import com.gios.lightcamera.camera.FrameAspect
 import com.gios.lightcamera.hw.CameraKeyAdvice
@@ -60,6 +61,7 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
     val timer by vm.prefs.timer.collectAsState()
     val sounds by vm.prefs.sounds.collectAsState()
     val dateStamp by vm.prefs.dateStamp.collectAsState()
+    val stampStyle by vm.prefs.stampStyle.collectAsState()
     val colour by vm.prefs.colour.collectAsState()
     val sendChat by vm.prefs.sendToLightChat.collectAsState()
     val wheel by vm.prefs.wheelEnabled.collectAsState()
@@ -126,6 +128,12 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
             Section("Date")
             Setting("Date stamp", if (dateStamp) "On" else "Off") {
                 vm.prefs.setDateStamp(!dateStamp)
+            }
+            if (dateStamp) {
+                Setting("Style", stampStyle.label) {
+                    val all = StampStyle.entries
+                    vm.prefs.setStampStyle(all[(all.indexOf(stampStyle) + 1) % all.size])
+                }
             }
             Note(
                 "The quartz date back off a 1990s compact: month, day, apostrophe-year, in leaning amber dots in the corner of the frame. It is printed into the photograph, so it costs a decode and a re-encode on a shot that would otherwise be saved exactly as the camera made it — and there is no taking it off afterwards.",

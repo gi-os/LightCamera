@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import androidx.exifinterface.media.ExifInterface
+import com.gios.lightcamera.StampStyle
 import com.gios.lightcamera.filter.Filters
 import com.gios.lightcamera.filter.ShaderRuntime
 import java.io.ByteArrayInputStream
@@ -54,6 +55,7 @@ object Frames {
         aspect: FrameAspect,
         seed: Float,
         stampAt: Long? = null,
+        stampStyle: StampStyle = StampStyle.Dots,
     ): Processed {
         val needsCrop = aspect != FrameAspect.Full
         // The date back costs a decode and a re-encode on a photograph that would otherwise have
@@ -75,7 +77,7 @@ object Frames {
         // After the filter, always: a date back printed through the film gate, so the date is on
         // the emulsion and not under it. Dithering the stamp along with the picture would turn the
         // digits into confetti.
-        if (stampAt != null) bitmap = DateStamp.apply(bitmap, stampAt)
+        if (stampAt != null) bitmap = DateStamp.apply(bitmap, stampAt, stampStyle)
 
         val out = ByteArrayOutputStream(bitmap.width * bitmap.height / 6)
         bitmap.compress(Bitmap.CompressFormat.JPEG, QUALITY, out)
@@ -101,6 +103,7 @@ object Frames {
         aspect: FrameAspect,
         seed: Float,
         stampAt: Long? = null,
+        stampStyle: StampStyle = StampStyle.Dots,
     ): Processed {
         var bitmap = preview
         if (rotationDegrees != 0) {
@@ -112,6 +115,7 @@ object Frames {
         }
         if (aspect != FrameAspect.Full) bitmap = crop(bitmap, aspect)
         if (filter.agsl != null) bitmap = ShaderRuntime.applyToBitmap(bitmap, filter, seed)
+        if (stampAt != null) bitmap = DateStamp.apply(bitmap, stampAt, stampStyle)
         val out = ByteArrayOutputStream(bitmap.width * bitmap.height / 4)
         bitmap.compress(Bitmap.CompressFormat.JPEG, QUALITY, out)
         return Processed(out.toByteArray(), bitmap.width, bitmap.height)

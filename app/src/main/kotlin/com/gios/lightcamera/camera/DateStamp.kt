@@ -4,6 +4,9 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.Typeface
+import com.gios.lightcamera.StampStyle
 import java.util.Calendar
 
 /**
@@ -13,7 +16,12 @@ import java.util.Calendar
  * frame, in amber, and it is the one piece of camera furniture everybody now wants back: the date on
  * a photograph, put there by a camera that had no idea what year it would be looked at in.
  *
- * Four things make it, and they were all read off photographs rather than guessed:
+ * **Three of them**, because they were three different mechanisms and drawing them the same way is
+ * what makes fake ones look fake: the compact camera's dot matrix, the film SLR's seven-segment
+ * quartz back, and the camcorder's character generator. Each has its own order, padding, colour and
+ * typography. See [StampStyle].
+ *
+ * What the dot matrix needs, all read off photographs rather than guessed:
  *
  *  - **A dot matrix, not a typeface.** A date back exposed a small LED array through the film gate,
  *    so close up the digits are plainly discrete round lamps with the picture showing between them.
@@ -39,12 +47,19 @@ object DateStamp {
      * months are **space**-padded rather than zero-padded, which is why the fifth of a month sits
      * with a gap in front of it.
      */
-    fun format(millis: Long): String {
+    fun format(millis: Long, style: StampStyle = StampStyle.Dots): String {
         val cal = Calendar.getInstance().apply { timeInMillis = millis }
         val year = cal.get(Calendar.YEAR) % 100
         val month = cal.get(Calendar.MONTH) + 1
         val day = cal.get(Calendar.DAY_OF_MONTH)
-        return "%2d %2d '%02d".format(month, day, year)
+        return when (style) {
+            // The compact-camera dot matrix, American firmware: month, day, apostrophe-year.
+            StampStyle.Dots -> "%2d %2d '%02d".format(month, day, year)
+            // The film SLR quartz back put the year first, and zero-padded everything.
+            StampStyle.Quartz -> "'%02d %02d %02d".format(year, month, day)
+            // Camcorders wrote a full date with slashes and all four digits of the year.
+            StampStyle.Outline -> "%02d/%02d/%d".format(month, day, cal.get(Calendar.YEAR))
+        }
     }
 
     /**
@@ -52,14 +67,25 @@ object DateStamp {
      *
      * Takes a copy when handed an immutable bitmap, which a freshly decoded JPEG always is.
      */
-    fun apply(bitmap: Bitmap, millis: Long): Bitmap {
+    fun apply(bitmap: Bitmap, millis: Long, style: StampStyle = StampStyle.Dots): Bitmap {
         val target = if (bitmap.isMutable) {
             bitmap
         } else {
             bitmap.copy(Bitmap.Config.ARGB_8888, true).also { bitmap.recycle() }
         }
-        val text = format(millis)
+        val text = format(millis, style)
         val canvas = Canvas(target)
+        when (style) {
+            StampStyle.Dots -> drawDots(canvas, target, text)
+            StampStyle.Quartz -> drawQuartz(canvas, target, text)
+            StampStyle.Outline -> drawOutline(canvas, target, text)
+        }
+        return target
+    }
+
+    /* ---------------- dots: the compact-camera matrix ---------------- */
+
+    private fun drawDots(canvas: Canvas, target: Bitmap, text: String) {
 
         // One glyph is seven cells tall, and the whole stamp about a twenty-fifth of the frame —
         // measured off photographs from a Canon Sure Shot, which is as principled as this gets.
@@ -89,13 +115,162 @@ object DateStamp {
         text.forEach { ch ->
             val rows = GLYPHS[ch]
             if (rows != null) {
-                // Halation first, so the lit cells sit on top of their own bloom.
-                drawGlyph(canvas, rows, x, y, cell, glow, spill = cell * 0.55f)
+                // Halation first, so the lit cells sit on top of their own bloom — and kept small,
+                // because a wide bloom bridges the gaps between the lamps and undoes the dots.
+                drawGlyph(canvas, rows, x, y, cell, glow, spill = cell * 0.22f)
                 drawGlyph(canvas, rows, x, y, cell, lamp, spill = 0f)
             }
             x += glyphW + gap
         }
-        return target
+    }
+
+    /* ---------------- quartz: seven segments ---------------- */
+
+    /**
+     * The film SLR's date back: **seven segments**, orange-red, leaning.
+     *
+     * A different mechanism from the dot matrix and so a different drawing. Segments are bars, not
+     * lamps — so a `1` is two bars with nothing between them and a `7` has a hard corner, neither of
+     * which a 5x7 dot grid can make convincingly. The bars are drawn as parallelograms by shearing
+     * their tops, because the whole display leans and a sheared bar is what a leaning segment is.
+     */
+    private fun drawQuartz(canvas: Canvas, target: Bitmap, text: String) {
+        val unit = (minOf(target.width, target.height) / 190f).coerceAtLeast(1f)
+        val digitW = unit * 9
+        val digitH = unit * 16
+        val thick = unit * 2.4f
+        val gap = unit * 4
+        val lean = digitH * 0.13f
+        val width = text.length * (digitW + gap) - gap + lean
+        var x = target.width - unit * 12 - width
+        val y = target.height - unit * 12 - digitH
+
+        val glow = Paint().apply {
+            isAntiAlias = true
+            color = Color.argb(70, 255, 122, 48)
+        }
+        val lamp = Paint().apply {
+            isAntiAlias = true
+            color = Color.argb(238, 240, 86, 30)
+        }
+
+        text.forEach { ch ->
+            when (ch) {
+                ' ' -> Unit
+                '\'' -> {
+                    // The apostrophe on these was a single short segment, high and leaning.
+                    for (paint in listOf(glow, lamp)) {
+                        val spill = if (paint === glow) unit * 0.5f else 0f
+                        vbar(canvas, x + digitW * 0.45f, y, thick, digitH * 0.28f, lean, paint, spill)
+                    }
+                }
+                else -> SEGMENTS[ch]?.let { on ->
+                    for (paint in listOf(glow, lamp)) {
+                        val spill = if (paint === glow) unit * 0.5f else 0f
+                        drawSegments(canvas, on, x, y, digitW, digitH, thick, lean, paint, spill)
+                    }
+                }
+            }
+            x += digitW + gap
+        }
+    }
+
+    /** `a` top, then clockwise `b c d e f`, and `g` the middle. */
+    private fun drawSegments(
+        canvas: Canvas,
+        on: String,
+        x: Float,
+        y: Float,
+        w: Float,
+        h: Float,
+        thick: Float,
+        lean: Float,
+        paint: Paint,
+        spill: Float,
+    ) {
+        val half = h / 2f
+        if ('a' in on) hbar(canvas, x, y, w, thick, lean, paint, spill)
+        if ('g' in on) hbar(canvas, x, y + half - thick / 2f, w, thick, lean * 0.5f, paint, spill)
+        if ('d' in on) hbar(canvas, x, y + h - thick, w, thick, 0f, paint, spill)
+        if ('f' in on) vbar(canvas, x, y, thick, half, lean * 0.5f, paint, spill)
+        if ('b' in on) vbar(canvas, x + w - thick, y, thick, half, lean * 0.5f, paint, spill)
+        if ('e' in on) vbar(canvas, x, y + half, thick, half, 0f, paint, spill)
+        if ('c' in on) vbar(canvas, x + w - thick, y + half, thick, half, 0f, paint, spill)
+    }
+
+    /** A horizontal segment, sheared so its top edge sits right of its bottom. */
+    private fun hbar(
+        canvas: Canvas,
+        x: Float,
+        y: Float,
+        w: Float,
+        thick: Float,
+        lean: Float,
+        paint: Paint,
+        spill: Float,
+    ) {
+        val path = Path().apply {
+            moveTo(x + lean - spill, y - spill)
+            lineTo(x + w + lean + spill, y - spill)
+            lineTo(x + w + spill, y + thick + spill)
+            lineTo(x - spill, y + thick + spill)
+            close()
+        }
+        canvas.drawPath(path, paint)
+    }
+
+    /** A vertical segment, likewise. */
+    private fun vbar(
+        canvas: Canvas,
+        x: Float,
+        y: Float,
+        thick: Float,
+        h: Float,
+        lean: Float,
+        paint: Paint,
+        spill: Float,
+    ) {
+        val path = Path().apply {
+            moveTo(x + lean - spill, y - spill)
+            lineTo(x + lean + thick + spill, y - spill)
+            lineTo(x + thick + spill, y + h + spill)
+            lineTo(x - spill, y + h + spill)
+            close()
+        }
+        canvas.drawPath(path, paint)
+    }
+
+    /* ---------------- camcorder: a typeface, outlined ---------------- */
+
+    /**
+     * The camcorder stamp, and the one style where **a real font is right**.
+     *
+     * This one was never a lamp array — it was a character generator drawing an ordinary bold sans
+     * into the video signal, with a black keyline so it stayed readable over anything. So it is
+     * drawn as text: stroke pass first for the outline, fill pass on top, no lean, slashes between
+     * the numbers, and all four digits of the year.
+     */
+    private fun drawOutline(canvas: Canvas, target: Bitmap, text: String) {
+        val size = minOf(target.width, target.height) / 15f
+        val outline = Paint().apply {
+            isAntiAlias = true
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textSize = size
+            style = Paint.Style.STROKE
+            strokeWidth = size * 0.14f
+            color = Color.argb(235, 0, 0, 0)
+        }
+        val fill = Paint().apply {
+            isAntiAlias = true
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textSize = size
+            color = Color.argb(255, 247, 160, 42)
+        }
+        val width = fill.measureText(text)
+        val x = target.width - size * 0.8f - width
+        val y = target.height - size * 0.8f
+        canvas.drawText(text, x, y, outline)
+        canvas.drawText(text, x, y, fill)
     }
 
     private fun drawGlyph(
@@ -134,11 +309,28 @@ object DateStamp {
     private const val SLANT = 0.26f
 
     /**
-     * Dot radius as a fraction of a cell. Under a half leaves the gap between lamps visible, which
-     * is the whole character of the thing; at a half exactly the dots touch and it turns into a
-     * solid stroke.
+     * Dot radius as a fraction of a cell.
+     *
+     * The gaps are **tiny** — the lamps nearly touch, and what you see between them is a hairline
+     * rather than a grid. At 0.42 the dots leave about a sixth of a cell of picture showing, which
+     * is what the photographs show; at a half exactly they meet and every stroke turns solid, and
+     * much under 0.4 it stops reading as digits and starts reading as beadwork.
      */
-    private const val DOT = 0.38f
+    private const val DOT = 0.42f
+
+    /** Which of the seven segments each digit lights. */
+    private val SEGMENTS: Map<Char, String> = mapOf(
+        '0' to "abcdef",
+        '1' to "bc",
+        '2' to "abdeg",
+        '3' to "abcdg",
+        '4' to "bcfg",
+        '5' to "acdfg",
+        '6' to "acdefg",
+        '7' to "abc",
+        '8' to "abcdefg",
+        '9' to "abcdfg",
+    )
 
     /**
      * 5x7 masks. Only the characters a date needs, because a date back could only make those —

@@ -75,7 +75,9 @@ fun ViewerScreen(
 
     WheelTurns(active = true, armed = true) { notches ->
         scope.launch {
-            val next = (pager.currentPage - notches).coerceIn(0, (photos.size - 1).coerceAtLeast(0))
+            // Turning the wheel the way you'd scroll a list moves *forward* through the roll.
+            // It was subtracting, which sent you back through photographs you had just passed.
+            val next = (pager.currentPage + notches).coerceIn(0, (photos.size - 1).coerceAtLeast(0))
             pager.animateScrollToPage(next)
         }
     }

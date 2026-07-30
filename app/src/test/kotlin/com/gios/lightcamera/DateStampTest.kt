@@ -1,6 +1,7 @@
 package com.gios.lightcamera
 
 import com.gios.lightcamera.camera.DateStamp
+import com.gios.lightcamera.StampStyle
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.util.Calendar
@@ -41,5 +42,18 @@ class DateStampTest {
     fun `the year is two digits and wraps at the century`() {
         assertEquals(" 1  1 '00", DateStamp.format(at(2000, 1, 1)))
         assertEquals(" 1  1 '08", DateStamp.format(at(2008, 1, 1)))
+    }
+
+    @Test
+    fun `quartz puts the year first and pads with zeroes`() {
+        // The film SLR backs did it the other way round from the compacts, and zero-padded.
+        assertEquals("'99 12 29", DateStamp.format(at(1999, 12, 29), StampStyle.Quartz))
+        assertEquals("'21 11 05", DateStamp.format(at(2021, 11, 5), StampStyle.Quartz))
+    }
+
+    @Test
+    fun `the camcorder stamp uses slashes and four digits`() {
+        assertEquals("08/31/2015", DateStamp.format(at(2015, 8, 31), StampStyle.Outline))
+        assertEquals("01/01/2026", DateStamp.format(at(2026, 1, 1), StampStyle.Outline))
     }
 }

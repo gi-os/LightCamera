@@ -91,6 +91,24 @@ enum class PhotoSize(val label: String, val longEdge: Int) {
     val isPreviewGrab: Boolean get() = this == Screen
 }
 
+/**
+ * Which date back. Three real ones, each with its own era, order and typography.
+ *
+ * They are not skins on one drawing: the dot matrix is lamps behind a mask, the quartz is seven
+ * segments, and the camcorder stamp is an actual typeface with an outline. Drawing all three the
+ * same way is what makes fake ones look fake.
+ */
+enum class StampStyle(val label: String) {
+    /** Amber-green dot matrix, leaning. `11  5 '21`. The compact-camera one. */
+    Dots("Dots"),
+
+    /** Orange-red seven segment, leaning. `'99 12 29`. The film SLR quartz back. */
+    Quartz("Quartz"),
+
+    /** Solid orange with a black outline, upright. `08/31/2015`. Camcorders and dashcams. */
+    Outline("Camcorder"),
+}
+
 /** Seconds before the shutter fires. */
 enum class SelfTimer(val seconds: Int, val label: String) {
     Off(0, "Off"),
@@ -183,6 +201,12 @@ class Prefs(context: Context) {
     private val _dateStamp = MutableStateFlow(prefs.getBoolean(DATE_STAMP, false))
     val dateStamp: StateFlow<Boolean> = _dateStamp.asStateFlow()
 
+    private val _stampStyle = MutableStateFlow(
+        StampStyle.entries.firstOrNull { it.name == prefs.getString(STAMP_STYLE, null) }
+            ?: StampStyle.Dots,
+    )
+    val stampStyle: StateFlow<StampStyle> = _stampStyle.asStateFlow()
+
     /** The digicam focus beep and the shutter tick. */
     private val _sounds = MutableStateFlow(prefs.getBoolean(SOUNDS, true))
     val sounds: StateFlow<Boolean> = _sounds.asStateFlow()
@@ -231,6 +255,9 @@ class Prefs(context: Context) {
 
     fun setDateStamp(value: Boolean) = set(_dateStamp, value) { putBoolean(DATE_STAMP, value) }
 
+    fun setStampStyle(value: StampStyle) =
+        set(_stampStyle, value) { putString(STAMP_STYLE, value.name) }
+
     fun setColour(value: Colour) = set(_colour, value) { putString(COLOUR, value.name) }
 
     fun setSendToLightChat(value: Boolean) =
@@ -259,6 +286,7 @@ class Prefs(context: Context) {
         const val WHEEL = "wheel"
         const val SOUNDS = "sounds"
         const val DATE_STAMP = "dateStamp"
+        const val STAMP_STYLE = "stampStyle"
         const val COLOUR = "colour"
         const val SEND_LIGHTCHAT = "sendLightChat"
     }

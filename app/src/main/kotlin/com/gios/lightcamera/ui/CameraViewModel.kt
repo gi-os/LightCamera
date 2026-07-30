@@ -336,7 +336,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     val aspect = prefs.aspect.value
                     val stampAt = if (prefs.dateStamp.value) System.currentTimeMillis() else null
                     val processed = withContext(Dispatchers.Default) {
-                        Frames.fromPreview(grabbed, turn, activeFilter, aspect, seed, stampAt)
+                        Frames.fromPreview(grabbed, turn, activeFilter, aspect, seed, stampAt, prefs.stampStyle.value)
                     }
                     finish(processed, activeFilter.id)
                     return@launch
@@ -363,7 +363,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 val seed = Random.nextFloat() * 1000f
                 val stampAt = if (prefs.dateStamp.value) System.currentTimeMillis() else null
                 val processed = withContext(Dispatchers.Default) {
-                    Frames.process(frame, activeFilter, aspect, seed, stampAt)
+                    Frames.process(frame, activeFilter, aspect, seed, stampAt, prefs.stampStyle.value)
                 }
 
                 finish(processed, activeFilter.id)
