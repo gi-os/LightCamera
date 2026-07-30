@@ -1,23 +1,56 @@
-## Roll v2.3 — three date backs
+## Roll v2.5 — the fixes batch
 
-**Settings → Date → Date stamp, then Style.** Three of them, because they were three different
-mechanisms and drawing them the same way is what makes fake ones look fake.
+**Swiping between photographs works again, and that one was mine**
 
-- **Dots** — the compact camera's LED matrix. `11  5 '21`, month-day-apostrophe-year, space-padded,
-  amber-green, leaning. Each glyph is a 5×7 bitmask and each lit cell a circle a little under half a
-  cell across, so the picture shows through the hairline gaps between the lamps.
-- **Quartz** — the film SLR's date back. `'99 12 29`, year first, zero-padded, orange-red, **seven
-  segments** rather than dots: a `1` is two bars with nothing between them and a `7` has a hard
-  corner, neither of which a dot grid makes convincingly. The bars are parallelograms because the
-  whole display leans.
-- **Camcorder** — `08/31/2015`, slashes, all four digits of the year, upright, solid orange with a
-  black keyline. This is the one style where a **real typeface is correct**: it was never a lamp
-  array, it was a character generator drawing bold sans into the video signal.
+`detectTransformGestures` consumes every drag it is given, single-finger ones included, so adding
+pinch-to-zoom quietly took the swipe away and left the wheel as the only way through the roll. The
+gesture is arbitrated by hand now: two fingers is always a pinch, one finger is only claimed once
+you're zoomed in — where panning has to win — and one finger at 1x is claimed by nobody, so the pager
+gets it back.
 
-All three are sized as a fraction of the frame, so the stamp is the same size relative to the
-photograph at 2MP and at 50MP, and printed *into* the file. Off by default — there's no taking it
-off afterwards, and with it on a shot that would have been saved byte-for-byte as the camera made it
-costs a decode and a re-encode.
+**Rotation was 180 degrees out**
 
-**Also:** the wheel was scrolling the viewer backwards — turning it sent you back through
-photographs you'd just passed. Fixed.
+`atan2(x, y)` grows as the phone turns *anticlockwise*, and `rotationZ` is clockwise-positive, so
+cancelling the phone's turn means adding it, not negating it. Negating it put the picture upside down
+in both sideways poses.
+
+**The roll grid turns too**
+
+Open the photos with the phone already on its side and the thumbnails now come round with it, the
+same way the viewer does.
+
+**The header bar takes its own taps**
+
+A background paints but does not claim touches, so the roll's top bar was transparent to the finger
+and reaching for settings opened whichever photograph was tiled underneath it.
+
+**The wheel in the viewer, the other way**
+
+Reported backwards twice. I reasoned my way to the current direction both times on the grounds that
+it matched the roll grid; the thumb is the authority on which way a dial turns, so it is flipped.
+
+**Coarse filters always take the viewfinder frame**
+
+Dither 16, 1-Bit, Halftone, Game Boy and GB Color quantise onto a grid of their own, so a sensor
+capture has nothing to give them — a 12MP frame and a panel-sized one come out of a 160-cell dither
+as the same picture. They now use the instant path whatever the photo size is set to. The size
+setting governs the photographs where resolution is a real quantity.
+
+**Quartz, rebuilt rather than resized again**
+
+There is no seven-segment typeface on Android to switch to, and a seven-segment font wouldn't be a
+typeface anyway — every glyph in DSEG and its relatives is the same seven chamfered bars with a
+different subset filled in. So the bars are drawn the way the real ones are built:
+
+- **ends mitred at 45 degrees**, which is the detail that was missing. A segment on a real LCD is a
+  hexagon tapered at both ends; square-ended bars read as a bar chart.
+- **one shear per digit**, applied to the canvas about the baseline, instead of a lean fudged onto
+  each bar separately. The display leans; the segments stand up inside it.
+- classic LCD proportions — near twice as tall as wide, bars a fifth of the width — and about a
+  fiftieth of the long edge, smaller again.
+
+**Camcorder**
+
+Condensed, tighter digits, and a heavy black keyline rather than a hairline: on a video line the
+border around each glyph was as thick as the strokes, and that is what kept the date readable over
+grass or sky.

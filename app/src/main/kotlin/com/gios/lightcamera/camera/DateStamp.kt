@@ -129,115 +129,145 @@ object DateStamp {
     /**
      * The film SLR's date back: **seven segments**, orange-red, leaning.
      *
-     * A different mechanism from the dot matrix and so a different drawing. Segments are bars, not
-     * lamps — so a `1` is two bars with nothing between them and a `7` has a hard corner, neither of
-     * which a 5x7 dot grid can make convincingly. The bars are drawn as parallelograms by shearing
-     * their tops, because the whole display leans and a sheared bar is what a leaning segment is.
+     * Drawn rather than typeset, and that is not a compromise. There is no seven-segment face on
+     * Android to switch to — `sans-serif`, `serif`, `monospace` and the condensed and light variants
+     * are the lot — and a seven-segment font is not really a typeface anyway: every glyph in DSEG or
+     * any of its relatives is the same seven chamfered bars with a different subset filled in. So
+     * this draws those seven bars, built the way the real ones are:
+     *
+     *  - **ends mitred at 45°**, not square. This is the detail that makes or breaks the look. A
+     *    segment on a real LCD is a hexagon, tapered at both ends so its neighbours can sit close
+     *    without touching, and square-ended bars read as a bar chart instead of a display.
+     *  - **one shear for the whole digit**, applied to the canvas, rather than a lean fudged onto
+     *    each bar separately. The display leans; the segments are upright inside it.
+     *  - a hair of a gap at every joint, because seven separate bars is what it is.
      */
     private fun drawQuartz(canvas: Canvas, target: Bitmap, text: String) {
-        val unit = (minOf(target.width, target.height) / 190f).coerceAtLeast(1f)
-        val digitW = unit * 9
-        val digitH = unit * 16
-        val thick = unit * 2.4f
-        val gap = unit * 4
-        val lean = digitH * 0.13f
-        val width = text.length * (digitW + gap) - gap + lean
-        var x = target.width - unit * 12 - width
-        val y = target.height - unit * 12 - digitH
+        // Sized off the long edge, and smaller again — a date back's display is a couple of
+        // centimetres of LCD reflected into the corner of a 35mm frame. The digit is now about a
+        // fiftieth of the long edge, with the classic LCD proportions: near twice as tall as it is
+        // wide, bars a fifth of the width.
+        val unit = (maxOf(target.width, target.height) / 720f).coerceAtLeast(0.7f)
+        val digitH = unit * 13f
+        val digitW = digitH * 0.55f
+        val thick = digitW * 0.19f
+        val gap = digitW * 0.34f
+        val lean = 0.11f
+        val width = text.length * (digitW + gap) - gap
+        var x = target.width - unit * 16 - width - digitH * lean
+        val baseline = target.height - unit * 16
 
         val glow = Paint().apply {
             isAntiAlias = true
-            color = Color.argb(70, 255, 122, 48)
+            color = Color.argb(50, 255, 132, 60)
+            // Halation as a stroke around the same path, so the bloom follows the mitred ends
+            // instead of being a second, fatter, differently-shaped bar.
+            style = Paint.Style.FILL_AND_STROKE
+            strokeWidth = unit * 0.9f
         }
         val lamp = Paint().apply {
             isAntiAlias = true
-            color = Color.argb(238, 240, 86, 30)
+            color = Color.argb(240, 240, 86, 30)
         }
 
         text.forEach { ch ->
-            when (ch) {
-                ' ' -> Unit
-                '\'' -> {
-                    // The apostrophe on these was a single short segment, high and leaning.
-                    for (paint in listOf(glow, lamp)) {
-                        val spill = if (paint === glow) unit * 0.5f else 0f
-                        vbar(canvas, x + digitW * 0.45f, y, thick, digitH * 0.28f, lean, paint, spill)
+            if (ch != ' ') {
+                canvas.save()
+                // Shear about the baseline, so the digit leans and its feet stay put.
+                canvas.translate(x, baseline)
+                canvas.skew(-lean, 0f)
+                when (ch) {
+                    // The apostrophe was a single short segment, high up.
+                    '\'' -> for (paint in listOf(glow, lamp)) {
+                        vbar(canvas, digitW * 0.42f, -digitH, thick, digitH * 0.24f, paint)
+                    }
+                    else -> SEGMENTS[ch]?.let { on ->
+                        for (paint in listOf(glow, lamp)) {
+                            drawSegments(canvas, on, digitW, digitH, thick, paint)
+                        }
                     }
                 }
-                else -> SEGMENTS[ch]?.let { on ->
-                    for (paint in listOf(glow, lamp)) {
-                        val spill = if (paint === glow) unit * 0.5f else 0f
-                        drawSegments(canvas, on, x, y, digitW, digitH, thick, lean, paint, spill)
-                    }
-                }
+                canvas.restore()
             }
             x += digitW + gap
         }
     }
 
-    /** `a` top, then clockwise `b c d e f`, and `g` the middle. */
+    /**
+     * `a` top, then clockwise `b c d e f`, and `g` the middle.
+     *
+     * Local coordinates: the baseline is y = 0 and the digit runs up to -[h], which is what lets the
+     * caller shear the whole thing about its feet with one canvas transform.
+     */
     private fun drawSegments(
         canvas: Canvas,
         on: String,
-        x: Float,
-        y: Float,
         w: Float,
         h: Float,
         thick: Float,
-        lean: Float,
         paint: Paint,
-        spill: Float,
     ) {
         val half = h / 2f
-        if ('a' in on) hbar(canvas, x, y, w, thick, lean, paint, spill)
-        if ('g' in on) hbar(canvas, x, y + half - thick / 2f, w, thick, lean * 0.5f, paint, spill)
-        if ('d' in on) hbar(canvas, x, y + h - thick, w, thick, 0f, paint, spill)
-        if ('f' in on) vbar(canvas, x, y, thick, half, lean * 0.5f, paint, spill)
-        if ('b' in on) vbar(canvas, x + w - thick, y, thick, half, lean * 0.5f, paint, spill)
-        if ('e' in on) vbar(canvas, x, y + half, thick, half, 0f, paint, spill)
-        if ('c' in on) vbar(canvas, x + w - thick, y + half, thick, half, 0f, paint, spill)
+        // The joint gap. Mitred ends already pull away from each other, so this is small — enough to
+        // read as seven bars, not enough to look broken.
+        val nick = thick * 0.5f
+        val across = w - thick
+        val run = half - thick - nick
+        if ('a' in on) hbar(canvas, 0f, -h, across, thick, paint)
+        if ('g' in on) hbar(canvas, 0f, -half - thick / 2f, across, thick, paint)
+        if ('d' in on) hbar(canvas, 0f, -thick, across, thick, paint)
+        if ('f' in on) vbar(canvas, 0f, -h + thick + nick, thick, run, paint)
+        if ('b' in on) vbar(canvas, across, -h + thick + nick, thick, run, paint)
+        if ('e' in on) vbar(canvas, 0f, -half + thick * 0.5f + nick, thick, run, paint)
+        if ('c' in on) vbar(canvas, across, -half + thick * 0.5f + nick, thick, run, paint)
     }
 
-    /** A horizontal segment, sheared so its top edge sits right of its bottom. */
+    /** A horizontal segment: a hexagon, mitred at 45° into a point at each end. */
     private fun hbar(
         canvas: Canvas,
         x: Float,
         y: Float,
         w: Float,
         thick: Float,
-        lean: Float,
         paint: Paint,
-        spill: Float,
     ) {
-        val path = Path().apply {
-            moveTo(x + lean - spill, y - spill)
-            lineTo(x + w + lean + spill, y - spill)
-            lineTo(x + w + spill, y + thick + spill)
-            lineTo(x - spill, y + thick + spill)
-            close()
-        }
-        canvas.drawPath(path, paint)
+        val m = thick / 2f
+        canvas.drawPath(
+            Path().apply {
+                moveTo(x + m, y)
+                lineTo(x + w - m, y)
+                lineTo(x + w, y + m)
+                lineTo(x + w - m, y + thick)
+                lineTo(x + m, y + thick)
+                lineTo(x, y + m)
+                close()
+            },
+            paint,
+        )
     }
 
-    /** A vertical segment, likewise. */
+    /** A vertical segment, mitred the same way. */
     private fun vbar(
         canvas: Canvas,
         x: Float,
         y: Float,
         thick: Float,
         h: Float,
-        lean: Float,
         paint: Paint,
-        spill: Float,
     ) {
-        val path = Path().apply {
-            moveTo(x + lean - spill, y - spill)
-            lineTo(x + lean + thick + spill, y - spill)
-            lineTo(x + thick + spill, y + h + spill)
-            lineTo(x - spill, y + h + spill)
-            close()
-        }
-        canvas.drawPath(path, paint)
+        val m = thick / 2f
+        canvas.drawPath(
+            Path().apply {
+                moveTo(x, y + m)
+                lineTo(x + m, y)
+                lineTo(x + thick, y + m)
+                lineTo(x + thick, y + h - m)
+                lineTo(x + m, y + h)
+                lineTo(x, y + h - m)
+                close()
+            },
+            paint,
+        )
     }
 
     /* ---------------- camcorder: a typeface, outlined ---------------- */
@@ -251,24 +281,33 @@ object DateStamp {
      * the numbers, and all four digits of the year.
      */
     private fun drawOutline(canvas: Canvas, target: Bitmap, text: String) {
-        val size = minOf(target.width, target.height) / 15f
+        // A character generator drew this into a video line, so it was small — about a
+        // twenty-fifth of the frame, not a fifteenth — and the keyline was one pixel of video,
+        // which is a hairline here rather than the heavy slab of the first attempt.
+        val size = maxOf(target.width, target.height) / 34f
         val outline = Paint().apply {
             isAntiAlias = true
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            // **Condensed**, because the character generators in camcorders were: the digits are
+            // tall and tight, not the wide default sans. And a heavy keyline — on a video line the
+            // black border around each glyph was as thick as the strokes themselves, which is what
+            // kept the date legible over grass, sky or anything else.
+            typeface = CONDENSED
             textSize = size
             style = Paint.Style.STROKE
-            strokeWidth = size * 0.14f
-            color = Color.argb(235, 0, 0, 0)
+            strokeWidth = size * 0.22f
+            strokeJoin = Paint.Join.ROUND
+            strokeCap = Paint.Cap.ROUND
+            color = Color.argb(245, 0, 0, 0)
         }
         val fill = Paint().apply {
             isAntiAlias = true
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            typeface = CONDENSED
             textSize = size
             color = Color.argb(255, 247, 160, 42)
         }
         val width = fill.measureText(text)
-        val x = target.width - size * 0.8f - width
-        val y = target.height - size * 0.8f
+        val x = target.width - size * 0.7f - width
+        val y = target.height - size * 0.7f
         canvas.drawText(text, x, y, outline)
         canvas.drawText(text, x, y, fill)
     }
@@ -307,6 +346,13 @@ object DateStamp {
      * rows, which is where the date backs sat.
      */
     private const val SLANT = 0.26f
+
+    /**
+     * The camcorder face. `sans-serif-condensed` is present on every Android and is the closest
+     * thing in the system to what a character generator drew — the default sans is far too wide.
+     */
+    private val CONDENSED: Typeface =
+        Typeface.create(Typeface.create("sans-serif-condensed", Typeface.BOLD), Typeface.BOLD)
 
     /**
      * Dot radius as a fraction of a cell.

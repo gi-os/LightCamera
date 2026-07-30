@@ -323,7 +323,13 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 // Screen size never touches the shutter: the frame is already on the panel. This
                 // is the whole of the fast path, and with a filter on it is the very frame you
                 // were looking at rather than a second one processed to match.
-                if (prefs.photoSize.value.isPreviewGrab) {
+                //
+                // **The coarse filters always come this way too, whatever the size is set to.** A
+                // Game Boy frame is 160 cells wide by definition; capturing 12MP to throw all of it
+                // into those cells costs a second and a half and changes nothing in the file. So the
+                // size setting governs the photographs where resolution is a real quantity, and the
+                // ones where it isn't just take the panel.
+                if (prefs.photoSize.value.isPreviewGrab || filter.value.lowRes) {
                     val grabbed = engine.previewFrame()
                     if (grabbed == null) {
                         showNotice("Nothing on the viewfinder yet")

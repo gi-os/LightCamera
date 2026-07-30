@@ -88,6 +88,13 @@ fun RollScreen(
     val gridState = rememberLazyGridState()
     WheelScroll(gridState, active = active, reverse = true)
 
+    // The roll turns with the phone as well. Opening the photos with the phone already on its side
+    // and finding them all sideways is the same complaint as the viewer's, and the same fix — the
+    // grid is rotated against the phone rather than the window being unlocked, because unlocking it
+    // would let the viewfinder reflow.
+    val quarter = rememberDeviceQuarter(active = active)
+
+    RotatedToDevice(quarter) {
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         when {
             !mediaGranted -> Column(
@@ -180,11 +187,16 @@ fun RollScreen(
 
         // Top chrome. Over the oldest photographs on screen rather than the newest, which is
         // the right way round: the header is a label for the screen, not for a photo.
+        //
+        // `swallowTaps` because a background does not consume touches in Compose: taps on the bar
+        // were falling straight through to whichever photograph happened to be underneath, so
+        // reaching for settings opened a picture instead.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(46.dp)
                 .background(colours.scrim)
+                .swallowTaps()
                 .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -250,6 +262,7 @@ fun RollScreen(
                 LightText("  CAMERA", LightTextVariant.Superfine, lighten = true)
             }
         }
+    }
     }
 }
 

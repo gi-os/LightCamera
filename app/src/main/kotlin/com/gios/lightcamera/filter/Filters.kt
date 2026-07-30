@@ -362,12 +362,19 @@ half4 main(float2 xy) {
      * [agsl] is null for [none] only. [animated] marks the ones whose look depends on
      * `seed`, so the preview re-applies them a few times a second and the grain crawls the
      * way it does on a projector; everything else is applied once and left alone.
+     *
+     * [lowRes] marks the ones that quantise the image onto a coarse grid of their own — the dithers,
+     * the halftone, the two Game Boys. **There is nothing for a sensor capture to give these.** A
+     * 12MP frame and a panel-sized one both come out of a 160-cell dither as the same picture, so
+     * these always take the viewfinder frame instead: instant, silent, and exactly what you were
+     * looking at when you pressed.
      */
     data class Filter(
         val id: String,
         val label: String,
         val agsl: String?,
         val animated: Boolean = false,
+        val lowRes: Boolean = false,
     ) {
         /** The whole shader, prelude included. */
         val source: String? get() = agsl?.let { PRELUDE + it }
@@ -383,11 +390,11 @@ half4 main(float2 xy) {
         none,
         Filter("film", "Film", FILM, animated = true),
         Filter("mono", "Mono", MONO),
-        Filter("dither16", "Dither 16", DITHER16),
-        Filter("onebit", "1-Bit", ONE_BIT),
-        Filter("halftone", "Halftone", HALFTONE),
-        Filter("gameboy", "Game Boy", GAMEBOY),
-        Filter("gbcolor", "GB Color", GB_COLOR),
+        Filter("dither16", "Dither 16", DITHER16, lowRes = true),
+        Filter("onebit", "1-Bit", ONE_BIT, lowRes = true),
+        Filter("halftone", "Halftone", HALFTONE, lowRes = true),
+        Filter("gameboy", "Game Boy", GAMEBOY, lowRes = true),
+        Filter("gbcolor", "GB Color", GB_COLOR, lowRes = true),
         Filter("comic", "Comic", COMIC),
         Filter("thermal", "Thermal", THERMAL),
         Filter("xray", "X-Ray", X_RAY),
