@@ -152,6 +152,20 @@ fun CameraScreen(
 
     LaunchedEffect(previewView) { engine.bind(lifecycleOwner, previewView, flash) }
 
+    // **The camera is released whenever the viewfinder is not the thing on screen.** `active` is already
+    // false for the roll, the viewer and the settings — it was only ever used to stop *drawing*, which
+    // left the sensor and the preview stream running behind a full-screen photograph. A short delay
+    // before letting go, because flicking to the roll and back is a common gesture and a rebind mid-flick
+    // would show a black frame.
+    LaunchedEffect(active) {
+        if (active) {
+            engine.resume(flash)
+        } else {
+            delay(400)
+            engine.release()
+        }
+    }
+
     // The microphone is asked for when you switch into video, never at the moment you press
     // record — a dialog in front of the thing you were filming is worse than silent footage.
     val askAudio = rememberLauncherForActivityResult(

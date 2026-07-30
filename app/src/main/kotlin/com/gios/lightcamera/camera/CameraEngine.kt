@@ -257,6 +257,38 @@ class CameraEngine(private val context: Context) {
         }, ContextCompat.getMainExecutor(context))
     }
 
+    /**
+     * Let the camera go, without forgetting how to come back.
+     *
+     * **The sensor is the most expensive thing this app can leave running**, and a camera is bound the
+     * whole time the roll or the viewer is on screen — where there is no viewfinder to feed. Unbinding
+     * releases the sensor, the ISP and the preview stream; the provider and the view are kept, so
+     * [resume] is a rebind rather than a cold start, which is the difference between a viewfinder that is
+     * there when you swipe back and one that fades in.
+     *
+     * The orientation listener goes too: it is a sensor callback that only exists to keep the capture
+     * rotation right, and nothing is being captured.
+     */
+    fun release() {
+        if (_recording.value) return
+        runCatching { orientation.disable() }
+        runCatching { provider?.unbindAll() }
+        _faces.value = emptyList()
+    }
+
+    /** Bind again after [release], using the provider and view already in hand. */
+    fun resume(flash: FlashMode) {
+        val view = previewView ?: return
+        if (owner == null) return
+        orientation.enable()
+        if (provider == null) {
+            // Never bound in the first place — go the long way round.
+            owner?.let { bind(it, view, flash) }
+            return
+        }
+        rebind(flash)
+    }
+
     fun setLens(facing: Int, flash: FlashMode) {
         if (_lensFacing.value == facing) return
         if (_recording.value) return

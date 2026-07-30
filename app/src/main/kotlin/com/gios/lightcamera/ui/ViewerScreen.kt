@@ -338,46 +338,56 @@ fun ViewerScreen(
                     )
                     Spacer(Modifier.weight(1f))
                 }
-                // The send button is off unless you have pointed it at LightChat. A share
-                // sheet is the one place a Light Phone stops feeling like a Light Phone — a
-                // grid of every app that ever registered for an image, on a phone whose whole
-                // argument is that there aren't any. Switched on, it has one destination and
-                // no chooser.
-                val sendEnabled by vm.prefs.sendToLightChat.collectAsState()
+                // **Always live, and it goes wherever it can.** It used to refuse unless "Send to
+                // LightChat" was on, and then always fail anyway — LightChat registers no ACTION_SEND
+                // filter at all, so an explicit send to it can never resolve, whatever this app does. The
+                // setting is now a *preference*: LightChat when LightChat can take an image, and a chooser
+                // when it cannot, which on a Light Phone is a short list rather than the wall of icons the
+                // original comment was worried about.
+                val preferLightChat by vm.prefs.sendToLightChat.collectAsState()
                 ChromeIcon(
                     icon = LightIcons.Share,
-                    lighten = !sendEnabled,
                     onClick = {
-                        if (!sendEnabled) {
-                            vm.showNotice("Turn on Send to LightChat in settings")
-                            return@ChromeIcon
-                        }
                         val target = photoAt(pager.currentPage) ?: return@ChromeIcon
                         val send = Intent(Intent.ACTION_SEND).apply {
                             type = "image/jpeg"
                             putExtra(Intent.EXTRA_STREAM, target.uri)
-                            // The package is named explicitly, which is what makes this a link
-                            // to LightChat rather than a share sheet with LightChat in it.
-                            setPackage(LIGHT_CHAT)
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
-                        // **Try it, then explain.** This used to resolve the intent first and refuse if
-                        // the answer was null — which it always was, because from Android 11 an app
-                        // cannot see another app's activities unless the manifest asks for them. The
-                        // manifest now asks, and the resolve check is gone anyway: attempting the start
-                        // and catching `ActivityNotFound` gets the same information without depending on
-                        // visibility rules at all.
-                        runCatching { context.startActivity(send) }
-                            .onFailure {
-                                vm.showNotice(
-                                    if (it is android.content.ActivityNotFoundException) {
-                                        "LightChat isn't installed"
-                                    } else {
-                                        "LightChat wouldn't open"
-                                    },
-                                )
+                        // **Ask who can actually take it.** With the manifest's `<queries>` in place this
+                        // is now a question we are allowed to ask, and the answer settles which of two
+                        // things to do rather than guessing.
+                        val takers = runCatching {
+                            context.packageManager.queryIntentActivities(send, 0).map {
+                                it.activityInfo?.packageName
                             }
+                        }.getOrDefault(emptyList())
+                        val lightChatCanTake = LIGHT_CHAT in takers
+
+                        when {
+                            preferLightChat && lightChatCanTake -> {
+                                send.setPackage(LIGHT_CHAT)
+                                send.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                runCatching { context.startActivity(send) }
+                                    .onFailure { vm.showNotice("LightChat wouldn't open") }
+                            }
+
+                            takers.isEmpty() -> vm.showNotice("Nothing on the phone takes photos")
+
+                            else -> {
+                                // LightChat cannot receive images — it registers no ACTION_SEND filter at
+                                // all — so the photograph goes to whatever can, rather than nowhere. A
+                                // chooser on a Light Phone is a short list.
+                                if (preferLightChat) vm.showNotice("LightChat can't receive photos yet")
+                                runCatching {
+                                    context.startActivity(
+                                        Intent.createChooser(send, "Send photo").apply {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        },
+                                    )
+                                }.onFailure { vm.showNotice("Couldn't send that one") }
+                            }
+                        }
                     },
                 )
             }
@@ -385,7 +395,7 @@ fun ViewerScreen(
     }
 }
 
-/** Giovanni's iMessage client. The only destination the send button has. */
+/** Giovanni's iMessage client. The preferred destination, once it can receive an image. */
 private const val LIGHT_CHAT = "com.gios.lightchat"
 
 /**

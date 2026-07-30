@@ -1,42 +1,30 @@
-## Roll v2.14 — favourites, three sign errors and a switch
+## Roll v2.15 — the camera lets go, and the send button admits the truth
 
-**Tapping a photograph opens that photograph**
+**Why sending never worked, and it was never Roll's fault**
 
-My regression from v2.11. A `LaunchedEffect` fires once on composition as well as on every change, and the
-one that resets the pager when you swap to a strip's frames was therefore firing the moment the viewer
-opened — throwing away the page computed from the photo you tapped and jumping to the end of the roll. It
-now skips its first run.
+LightChat declares no `ACTION_SEND` intent filter. Its only activity filter is MAIN/LAUNCHER, so an
+explicit send to `com.gios.lightchat` cannot resolve no matter what this app does — every fix on this side
+was addressing the wrong half of the problem.
 
-**The chin shrinks the chin**
+So the button now asks the system who can actually take an image, and acts on the answer:
 
-And the eyes are on the eyes. These were the same fault: the axis meaning "down the face" pointed up, so
-the jaw squeeze landed on the forehead — and the eye magnification, which is placed on the opposite side
-of the same axis, had been landing near the mouth all along. That is most of why the shaping looked wrong
-rather than merely strong. One sign, both faults.
+- LightChat, if LightChat can take one and you have it preferred.
+- Otherwise a chooser, so the photograph goes *somewhere* instead of nowhere. On a Light Phone that is a
+  short list, not the wall of icons the original comment was worried about.
+- And if nothing on the phone accepts an image, it says so.
 
-**The level leans the right way**
+The setting is a preference now rather than a gate, and the button is always live. Making the LightChat
+route work needs a filter on **LightChat's** side plus something in its UI to do with the photograph — that
+is a change to the other repo.
 
-Also a sign. The tilt reading comes from `atan2(x, y)`, which grows as the phone turns anticlockwise,
-while a rotation is clockwise-positive — so cancelling the tilt means adding it, not subtracting. It was
-leaning the wrong way by twice the angle. The same mistake as the viewer's rotation two releases ago, in a
-different file; three of those now, which is enough to be a pattern worth remembering.
+**The camera lets go while you are looking at photographs**
 
-**The level has a switch**
+The sensor is the most expensive thing this app can leave running, and it was bound the whole time the
+roll, the viewer or the settings were on screen — a full-screen photograph with a live preview stream
+behind it. The `active` flag already knew the viewfinder was not visible; it was only being used to stop
+*drawing*.
 
-Settings → Camera. On by default, since it only appears when you are crooked and goes away a beat after
-you straighten up — but it is still a line through the middle of the frame.
-
-**Favourites**
-
-Open a photograph and tap the star. The roll's scope label walks three positions now — Camera roll, All
-photos, Starred — so the starred ones are a collection you can browse rather than a flag you can only see
-one photo at a time.
-
-Stored **by file name, not by MediaStore id**. An id is a row number: rescan the volume, move a file or
-restore a backup and the same photograph comes back with a different one, and a favourites list that
-quietly empties itself is worse than none. Unlike the Purikura settings this list is written to disk — a
-star is a statement about a photograph, and it should still be there next week.
-
-The grid narrows in memory rather than re-querying, so starring something updates it immediately instead
-of flickering through a round trip to MediaStore. `IS_FAVORITE` exists in MediaStore and would have been
-the tidy answer, but only the system gallery is allowed to write it.
+Now it unbinds: sensor, ISP, preview stream and the orientation listener, which exists only to keep the
+capture rotation right and has nothing to keep right. Coming back is a rebind rather than a cold start,
+and there is a 400 ms grace before letting go, because flicking to the roll and back is a common gesture
+and a rebind mid-flick would show a black frame. Recording is never interrupted.
