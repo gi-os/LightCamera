@@ -3,18 +3,56 @@
 A camera for the Light Phone III.
 
 The roll sits **above** the viewfinder. Pull down on the camera and your photographs come
-into view — every photo on the phone, newest one first, hanging against the top edge of the
-frame with older ones running up behind it. Flick up from anywhere and you are back at the
-shutter. That is the whole navigation model, and everything else in the app is arranged
-around it.
+into view — every photo on the phone, newest one first, hanging against the top-right corner
+of the frame with older ones running up and leftward behind it, the way a contact sheet reads.
+Flick up from anywhere and you are back at the shutter. That is the whole navigation model,
+and everything else in the app is arranged around it.
 
 It replaces both the stock Camera and the stock Album, and it can be set as the phone's
-default camera, so the hardware camera button opens this instead.
+default camera, so the hardware camera button opens this instead. It is not a fork — a
+full rewrite, and the app that has shipped the most releases in this collection.
 
-## The camera button is a real two-stage release
+**Current version:** `versionName` in `app/build.gradle.kts` is `1.9.0`. The latest
+published release is `v1.8.11` (2026-07-30); one further commit sits on top of it,
+already carrying release notes for `v1.9` (shutter reliability, legible chrome, roll
+ordering) and the version bump, so a `v1.9.x` tag is the next push away. See
+[Version history](#version-history) for the full run from `v1.0.1`.
 
-The LPIII's camera button has two detents and reports them as two separate keys — `FOCUS`
-at the half press, `CAMERA` at the bottom. Nothing in LightOS uses the first one. Here:
+## Quick start
+
+Sideload a release APK — no build required:
+
+```sh
+# grab LightCamera-v<version>.apk from https://github.com/gi-os/LightCamera/releases
+adb install -r LightCamera-v1.8.11.apk
+```
+
+Every build is signed with the same committed key, fingerprint pinned in
+`signing-fingerprint.txt` and checked in CI, so later releases install over this one — or
+track the repo in [Obtainium](https://github.com/ImranR98/Obtainium) for automatic updates.
+
+To make it the default camera so the hardware camera button opens it: the first press
+after installing shows a chooser with an **"always"** option — pick Roll there. If the
+stock camera already claims the default, clear it first in **Settings → Apps → Camera →
+Open by default → Clear defaults** (Android has no adb command for setting a default
+camera, only the launcher). With [LightControl](https://github.com/gi-os/LightControl)
+installed you can skip all of that and bind the camera button straight to
+`com.gios.lightcamera`.
+
+To build it yourself:
+
+```sh
+git clone https://github.com/gi-os/LightCamera.git
+cd LightCamera
+./gradlew :app:assembleRelease
+```
+
+Requires JDK 17. `minSdk` is 33 because [AGSL](https://developer.android.com/develop/ui/views/graphics/agsl) — every filter is a fragment shader — is API 33.
+
+## Controls
+
+The camera button has two detents and reports them as two separate keys — `FOCUS` at the
+half press, `CAMERA` at the bottom — and nothing in stock LightOS uses the first one:
 
 | Control | Does |
 |---|---|
@@ -46,7 +84,10 @@ working on gets the focus mark.
 ## The wheel needs nothing else installed
 
 Zoom, exposure and the torch are the wheel's, and so is scrolling — the roll and the settings
-page both move under it. None of it needs a service, a permission or root. Light patched
+page both move under it. Since v1.6, a bare turn steps through the filters instead of zooming:
+the LPIII has no optical zoom and the stock camera offers none, so a dial spent on digital crop
+was a dial spent on nothing. None sits three notches wide on the track so a stray turn lands
+somewhere harmless. None of it needs a service, a permission or root. Light patched
 `/system/usr/keylayout/Generic.kl`, so a notch arrives as an ordinary key event delivered to
 whichever app has focus, and this app reads those keys itself. Install the APK and the wheel is
 a lens ring.
@@ -113,7 +154,9 @@ one.
 The band is the stock four — **album, the mode slot, flash, brightness** — in the stock order and
 spacing, measured off photographs of the real thing. Nothing floats over the picture: the strips
 take their own width out of the left-hand side, which is why there is not a gradient anywhere in
-this app.
+this app. As of v1.9, every readout on the band has moved up two steps of the type scale — the
+8-design-pixel `Micro` variant worked out to about six points on this panel, too small to read
+at arm's length, and nothing uses it any more.
 
 ### The mode slot
 
@@ -157,7 +200,7 @@ Settings → Colour chooses between the viewfinder only, the whole app, and off.
 
 ## Filters are AGSL, and the photo matches the frame
 
-Fifteen filters, each one a fragment shader. The same shader source runs twice: as a
+Seventeen filters, each one a fragment shader. The same shader source runs twice: as a
 `RenderEffect` on the live preview, and over a `BitmapShader` when the photograph is
 written. So there is one definition of what Halftone looks like, and the file you get is the
 frame you saw.
@@ -168,18 +211,22 @@ frame you saw.
   sixteen colours.
 - **1-Bit** — pure black and white, dithered. The phone's own idea of a photograph.
 - **Halftone** — a rotated dot screen, one read per cell, so the dots stay round.
+- **Game Boy / GB Color** — the DMG and GBC palettes through a Bayer threshold, and the
+  other half of the look: both quantise the image onto a grid of 128 cells across the
+  short edge, the Game Boy Camera's real sensor width, sampling once per cell.
 - **Mono, Comic, Thermal, X-Ray, Glow** and the Photo Booth distortions: **Twirl, Bulge,
   Mirror, Kaleido, Tunnel**.
 
 Patterns are sized in design pixels rather than device pixels, which is why the dither in a
-4000px photograph looks like the dither in the 340px preview instead of dissolving into
-noise.
+photograph looks like the dither in the preview instead of dissolving into noise.
 
 The mode strip's **Filters** entry opens the grid: every filter running live on what the camera is
 pointed at, all at once, the way Photo Booth used to do it. Sideways swipes on the image and the
-wheel walk through them too — and on the wheel's track **None is three notches wide**, so the most
-common setting is the easy one to land on and a deliberate three notches to leave. Treating it as
-one position among fifteen made it the one you always spun past.
+wheel walk through them too — since v1.6 the wheel's default action is stepping filters rather
+than zoom — and on the wheel's track **None is three notches wide**, so the most common setting
+is the easy one to land on and a deliberate three notches to leave, with a buzz on every notch so
+the dial never reads as dead. Landing on None additionally catches for 1.5 seconds: notches inside
+that window are felt and discarded, so a fast spin can't skate past it.
 
 ### Applying a shader to a still is not three lines
 
@@ -212,41 +259,35 @@ than you saw at the top and bottom of the frame. An earlier version did draw the
 aspect as a bordered box with the controls in the margins, which was honest about cropping and
 horrible to look through.
 
+## Sending a photo
+
+The viewer's send button is disabled until **Settings → Sending → Use LightChat** is turned on.
+Then it hands the photograph over to [LightChat](https://github.com/gi-os/LightChat) by explicit
+package, with no chooser — a share sheet with every app that has ever registered for an image is
+the one place a Light Phone stops feeling like a Light Phone. It resolves the intent first, so an
+absent LightChat is a sentence rather than a crash.
+
 ## Setting it as the default camera
 
 The app claims `STILL_IMAGE_CAMERA`, `IMAGE_CAPTURE`, `CAMERA_BUTTON` and the `_SECURE`
-variants, and it honours `EXTRA_OUTPUT`, so other apps' "take a photo" works properly.
-
-With both cameras installed, the first press of the camera key shows a chooser with an
-"always" option — pick Roll there and the key belongs to it from then on. If the stock camera
-already holds the default, clear it first in **Settings → Apps → Camera → Open by default →
-Clear defaults**; Android has no supported adb command for setting a default camera, only for
-the launcher.
-
-If you have [LightControl](https://github.com/gi-os/LightControl) installed, you can skip all
-of that and bind the camera button straight to `com.gios.lightcamera`.
+variants, and it honours `EXTRA_OUTPUT`, so other apps' "take a photo" works properly. See
+[Quick start](#quick-start) above for setting it as the default.
 
 Launched for `IMAGE_CAPTURE` the app shows only the viewfinder — no roll, no settings — takes
 one photograph, writes it where the caller asked and finishes.
 
-## Install
+## Configuration
 
-Grab the APK from [Releases](https://github.com/gi-os/LightCamera/releases), or point
-[Obtainium](https://github.com/ImranR98/Obtainium) at this repo. Every build is signed with
-the same committed key and the certificate fingerprint is pinned in `signing-fingerprint.txt`
-and checked in CI, so updates install over each other.
+Everything is in the in-app Settings screen — there is no config file and nothing to edit by
+hand:
 
-```sh
-adb install -r LightCamera-v1.0.x.apk
-```
-
-## Build
-
-```sh
-./gradlew :app:assembleRelease
-```
-
-Requires JDK 17. `minSdk` is 33 because AGSL is.
+| Setting | Options | Notes |
+|---|---|---|
+| Colour | Viewfinder only / whole app / off | Needs the `WRITE_SECURE_SETTINGS` grant above; degrades to grey without it. |
+| Aspect | 4:3, 3:2, 16:9, 1:1 | Applied as a centre crop at save time — the live viewfinder always fills the screen. |
+| Resolution | Capped at 4000×3000 (12MP) | Down from the sensor's native 50MP, since v1.8 — see [Version history](#version-history). |
+| Sending | Off / Use LightChat | Enables the viewer's send button, targeted at `com.gios.lightchat` with no chooser. |
+| Film roll | Off / 12 / 24 / 36 | Switches the shutter release from a circle to a square; develops on completion or on demand. |
 
 ## Layout
 
@@ -258,6 +299,43 @@ media/      MediaStore reads and writes, thumbnails
 roll/       film-roll mode
 ui/         the two pages, the viewfinder chrome, the filter grid
 ```
+
+## Contributing
+
+- New filters go in `filter/`: write the AGSL source once, and it must run through both call
+  sites in `filter/ShaderRuntime.kt` (live `RenderEffect` and the still-capture `BitmapShader`)
+  — a filter that only works on the preview is a bug, not a feature.
+- Camera-button and wheel changes touch `hw/ShutterRelease.kt` and `hw/Wheel.kt`; both key
+  arrival order and rapid notches are covered by tests specifically because both have shipped
+  broken before (see [Version history](#version-history)) — extend those tests rather than
+  hand-testing on a device alone.
+- CI (`.github/workflows/build.yml`) gates every push to `main` on a signed build, a
+  certificate-fingerprint check against `signing-fingerprint.txt`, a launcher-icon check and a
+  camera-intent-filter check — a push that doesn't pass all four never reaches Releases.
+  `check.yml` runs the same build minus release steps on any other branch, so open a branch
+  first if you want CI feedback before a push cuts a release.
+- Bump `versionName`'s `major.minor` in `app/build.gradle.kts` when a release deserves one;
+  CI stamps the run number on as the patch and tags `vMAJOR.MINOR.RUN` automatically on every
+  push to `main` — there is no separate tagging step.
+
+## Version history
+
+| Version | Date | Notes |
+|---|---|---|
+| `v1.9.x` (pending) | — | Drops zero shutter lag (it was the cause of "Shutter failed", not a fix for it — CameraX accepted the mode but refused the first captures while its buffer filled); moves every readout up two type-scale steps off the unreadable `Micro` size; fixes the roll grid so the newest photo lands bottom-right, not bottom-left, matching a real contact sheet. |
+| `v1.8.11` | 2026-07-30 | Capture resolution capped at 4000×3000 (down from the sensor's native 50MP) — the single biggest fix for the "one to three seconds" shutter lag every review complains about. Adds `CAPTURE_MODE_ZERO_SHUTTER_LAG` where supported (later found to cause its own failures, dropped in v1.9). Filtered stills now downsample with `inSampleSize` instead of decoding the full 50MP JPEG; JPEG quality 92 not 95. |
+| `v1.7.9` | 2026-07-30 | Two Game Boy Camera filters (DMG and GBC palettes, both quantised onto a 128-cell grid matching the real Game Boy Camera sensor). Every wheel notch now buzzes; landing on None catches for 1.5s instead of spanning three notches of track. The viewer's send button, gated on Settings → Sending → Use LightChat. |
+| `v1.6.8` | 2026-07-30 | The wheel's bare turn now steps through filters instead of zooming — the LPIII has no optical zoom, so a dial spent on digital crop was a dial spent on nothing. |
+| `v1.5.7` | 2026-07-30 | Fixed the v1.5.6 instant-crash-on-launch: a `viewModelScope` collector in an `init` block ran synchronously in the constructor and read a field declared below it. Adds an on-device crash log, shown in Settings. |
+| `v1.5.6` | 2026-07-29 | Sideways chrome, upright picture: only the control band is rotated, not the whole app, matching what a screengrab of the stock camera actually shows. Adds the Camera/Video/Selfie mode picker. Shipped with the instant crash fixed in v1.5.7 the same day. |
+| `v1.4.5` | 2026-07-29 | The whole app briefly drawn a quarter turn (superseded by v1.5.6's more accurate split); the viewfinder lifts LightOS's forced greyscale while a camera or photo is on screen. |
+| `v1.2.4` | 2026-07-29 | The roll scrolls the way the wheel is turned. |
+| `v1.2.3` | 2026-07-29 | Camera band laid out like LightOS's own: album / lens / mode / flash / brightness, system bars hidden, no on-screen shutter. |
+| `v1.1.2` | 2026-07-29 | Unobstructed viewfinder: the bordered-crop preview from v1.0 is gone, replaced by a full-bleed preview with chrome floating in the system-bar insets. Adds the stock focus brackets and the focus beep. |
+| `v1.0.1` | 2026-07-29 | First release. Two-stage shutter release, hardware face detection over Camera2 interop, the roll as a reversed grid above the viewfinder. |
+
+Every tag ships a hand-written entry in `RELEASE_NOTES.md`, which is what the table above is
+condensed from — read that file at any tag for the full reasoning behind a change.
 
 ## Credits
 
