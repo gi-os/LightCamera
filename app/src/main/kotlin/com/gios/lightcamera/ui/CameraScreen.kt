@@ -126,7 +126,6 @@ fun CameraScreen(
     val ev by engine.ev.collectAsState()
     val evRange by engine.evRange.collectAsState()
     val torch by engine.torch.collectAsState()
-    val notice by vm.notice.collectAsState()
     val countdown by vm.countdown.collectAsState()
     val recording by engine.recording.collectAsState()
     val recordSeconds by vm.recordSeconds.collectAsState()
@@ -631,12 +630,8 @@ fun CameraScreen(
                     }
                 }
 
-                Notice(
-                    text = notice,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 14.dp),
-                )
+                // The notice is drawn once, by `Shell`, above every overlay — drawn here as well
+                // it would appear twice whenever the viewfinder is the page underneath.
 
                 // No progress bar while the shutter works. There was a hairline across the
                 // bottom of the frame here, and it was the wrong answer twice over: it drew on

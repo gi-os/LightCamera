@@ -1,5 +1,6 @@
 package com.gios.lightcamera.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +25,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +47,7 @@ import com.gios.lightcamera.ui.theme.LightText
 import com.gios.lightcamera.ui.theme.LightTextVariant
 import com.gios.lightcamera.ui.theme.LightThemeTokens
 import com.gios.lightcamera.ui.theme.lightClickable
+import com.gios.lightcamera.ui.theme.lightCombinedClickable
 
 /** One row of the flattened roll: either a photo or the day it was taken. */
 private sealed interface RollEntry {
@@ -78,6 +81,7 @@ fun RollScreen(
     onOpen: (Photo) -> Unit,
     onOpenSettings: () -> Unit,
     onBackToCamera: () -> Unit,
+    onSend: (List<Photo>) -> Unit,
 ) {
     val colours = LightThemeTokens.colors
     val photos by vm.photos.collectAsState()
@@ -86,6 +90,37 @@ fun RollScreen(
     val roll by vm.roll.collectAsState()
 
     val entries = remember(photos) { flatten(photos) }
+
+    /**
+     * **Selection mode, entered by holding a photograph.**
+     *
+     * Held as a set of MediaStore ids rather than of [Photo] objects: the roll is re-read
+     * whenever the content observer fires, which replaces every object in the list, and a
+     * selection compared by identity would empty itself the moment a new photograph was taken
+     * while you were choosing. `rememberSaveable` so a rotation or a brief trip to another app
+     * doesn't lose a set of eight ticks.
+     *
+     * An empty set is not selection mode — the mode *is* having something selected, so
+     * unticking the last photograph leaves rather than stranding you in an empty toolbar with
+     * a Cancel button.
+     */
+    var selected by rememberSaveable { mutableStateOf(setOf<Long>()) }
+    val selecting = selected.isNotEmpty()
+    // The roll is re-read on every media change, so a selected photograph that has since been
+    // deleted (by this app or another) has to drop out of the set rather than being sent as a
+    // URI that no longer resolves.
+    LaunchedEffect(photos) {
+        if (selected.isEmpty()) return@LaunchedEffect
+        val alive = photos.mapTo(HashSet()) { it.id }
+        val kept = selected.intersect(alive)
+        if (kept.size != selected.size) selected = kept
+    }
+    // Back leaves selection before it leaves the roll — the same expectation as every gallery.
+    // Gated on `active` as well: the pager keeps this page composed while the viewfinder is
+    // showing (`beyondViewportPageCount = 1`), so without it a left-over selection would swallow
+    // the back press on the camera page and nothing visible would happen.
+    BackHandler(enabled = selecting && active) { selected = emptySet() }
+
     val gridState = rememberLazyGridState()
     WheelScroll(gridState, active = active, reverse = true)
 
@@ -184,10 +219,34 @@ fun RollScreen(
                             vm = vm,
                             photo = entry.photo,
                             quarter = quarter,
+                            selected = entry.photo.id in selected,
+                            // Dimmed only while choosing, so the grid looks untouched the rest of
+                            // the time. A tick on every cell all the time is a gallery that always
+                            // looks like it is in the middle of an operation.
+                            selecting = selecting,
                             modifier = Modifier
                                 .padding(1.dp)
                                 .aspectRatio(1f)
-                                .lightClickable { onOpen(entry.photo) },
+                                .lightCombinedClickable(
+                                    onLongClick = {
+                                        // Holding always *adds*, never toggles: a long press on
+                                        // something already ticked reads as "yes, this one", and
+                                        // having it disappear is the sort of thing you have to
+                                        // undo.
+                                        selected = selected + entry.photo.id
+                                    },
+                                    onClick = {
+                                        if (selecting) {
+                                            selected = if (entry.photo.id in selected) {
+                                                selected - entry.photo.id
+                                            } else {
+                                                selected + entry.photo.id
+                                            }
+                                        } else {
+                                            onOpen(entry.photo)
+                                        }
+                                    },
+                                ),
                         )
                     }
                 }
@@ -210,6 +269,32 @@ fun RollScreen(
                 .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (selecting) {
+                // The whole bar becomes the selection's, because while choosing, the scope
+                // toggle and settings are not what the bar is for.
+                ChromeIcon(icon = LightIcons.Close, onClick = { selected = emptySet() })
+                Spacer(Modifier.weight(1f))
+                LightText("${selected.size} SELECTED", LightTextVariant.Detail)
+                Spacer(Modifier.weight(1f))
+                ChromeIcon(
+                    icon = LightIcons.Share,
+                    onClick = {
+                        // In roll order — newest first, as the grid shows them — so a set sent
+                        // together arrives in the order it was looked at rather than in the
+                        // order it happened to be tapped.
+                        val chosen = photos.filter { it.id in selected }.take(SEND_LIMIT)
+                        if (chosen.isNotEmpty()) {
+                            onSend(chosen)
+                            // **Cleared on the way out.** Left standing, the ticks were still
+                            // there when the picker closed, and because holding a photograph
+                            // *adds* rather than toggles, the next send would quietly include
+                            // everything already sent — to a different person.
+                            selected = emptySet()
+                        }
+                    },
+                )
+                return@Row
+            }
             LightText("ROLL", LightTextVariant.Detail)
             Spacer(Modifier.weight(1f))
             LightText(
@@ -273,7 +358,14 @@ fun RollScreen(
 }
 
 @Composable
-private fun Thumb(vm: CameraViewModel, photo: Photo, quarter: Int, modifier: Modifier) {
+private fun Thumb(
+    vm: CameraViewModel,
+    photo: Photo,
+    quarter: Int,
+    modifier: Modifier,
+    selected: Boolean = false,
+    selecting: Boolean = false,
+) {
     val colours = LightThemeTokens.colors
     var image by remember(photo.id) {
         mutableStateOf(vm.thumbs.cached(photo.id)?.asImageBitmap())
@@ -293,11 +385,41 @@ private fun Thumb(vm: CameraViewModel, photo: Photo, quarter: Int, modifier: Mod
                 // box or clipping anything — a square rotated a quarter turn is the same square.
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer { rotationZ = quarter.toFloat() },
+                    .graphicsLayer {
+                        rotationZ = quarter.toFloat()
+                        // Unpicked frames recede while choosing. Greyscale has no tint to select
+                        // with, so the selection is carried by what is *not* selected going dim —
+                        // the same inversion trick the rest of the app uses for state.
+                        alpha = if (selecting && !selected) UNSELECTED_ALPHA else 1f
+                    },
+            )
+        }
+        // The tick is chrome, so it stays pinned to the phone rather than turning with the
+        // picture: a checkmark lying on its side reads as a glitch.
+        if (selecting) {
+            LightIcon(
+                icon = if (selected) LightIcons.SelectOn else LightIcons.SelectOff,
+                size = 14.dp,
+                tint = if (selected) colours.content else colours.contentSecondary,
+                modifier = Modifier.align(Alignment.TopEnd).padding(3.dp),
             )
         }
     }
 }
+
+/**
+ * The most photographs one send carries.
+ *
+ * Every URI in the intent is a grant the system has to record and the whole thing crosses a
+ * Binder transaction with a hard size limit, so a selection of several hundred fails as a
+ * `TransactionTooLargeException` rather than as anything a user could interpret. Reaching this
+ * takes fifty long presses, so capping is free insurance rather than a restriction.
+ */
+private const val SEND_LIMIT = 50
+
+/** How far an unpicked frame recedes while choosing. Enough to read as "not this one", not so
+ *  far that you can no longer tell what the photograph is. */
+private const val UNSELECTED_ALPHA = 0.35f
 
 /**
  * Photos to entries, newest first, with each day's heading *after* its photographs.

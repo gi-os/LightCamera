@@ -261,11 +261,29 @@ horrible to look through.
 
 ## Sending a photo
 
-The viewer's send button is disabled until **Settings → Sending → Use LightChat** is turned on.
-Then it hands the photograph over to [LightChat](https://github.com/gi-os/LightChat) by explicit
-package, with no chooser — a share sheet with every app that has ever registered for an image is
-the one place a Light Phone stops feeling like a Light Phone. It resolves the intent first, so an
-absent LightChat is a sentence rather than a crash.
+**The send button asks who, not which app.** It opens a list of your own contacts — recently sent
+to at the top, and a search box that takes either letters or digits, so `5550148` finds a number
+however it is punctuated. Tap somebody and the photograph goes out addressed to them.
+
+Android's own share sheet answers "which application?", which on a phone with three applications
+is an obvious answer wrapped in a grid of icons — and it is a colour Material bottom sheet on a
+monochrome panel. The question you actually have is who the photograph is for, and Android will
+not let a third-party app ask it: the row of faces at the top of the stock chooser comes from
+*sharing shortcuts*, which each app publishes for the system's own UI, with no API to read
+another app's. So Roll reads the address book itself. Hence the contacts permission — read on the
+phone, sent nowhere, and asked for the first time you open the picker rather than at launch.
+
+**Several at once:** long-press any frame in the roll to start choosing. Unpicked frames dim, tap
+to add and remove, and the header counts them.
+
+Where it goes: [LightChat](https://github.com/gi-os/LightChat) first, if LightChat can take an
+image — on current builds it cannot, since it registers no share filter, which is why the old
+send button reported "LightChat can't receive photos" on a phone with LightChat installed. Failing
+that, any app that handles *addressed* messages (`smsto:` for a number, `mailto:` for an address).
+Nothing else, deliberately: a wallpaper cropper and a cloud drive both accept an image send and
+neither knows what a recipient is, so handing the photograph to whichever app resolved first meant
+the picker closed as though it had reached the person when it hadn't. When nothing suitable exists
+the system chooser opens and the app says the recipient was lost.
 
 ## Setting it as the default camera
 
@@ -286,13 +304,14 @@ hand:
 | Colour | Viewfinder only / whole app / off | Needs the `WRITE_SECURE_SETTINGS` grant above; degrades to grey without it. |
 | Aspect | 4:3, 3:2, 16:9, 1:1 | Applied as a centre crop at save time — the live viewfinder always fills the screen. |
 | Resolution | Capped at 4000×3000 (12MP) | Down from the sensor's native 50MP, since v1.8 — see [Version history](#version-history). |
-| Sending | Off / Use LightChat | Enables the viewer's send button, targeted at `com.gios.lightchat` with no chooser. |
+| Sending → Recents | Clear | Forgets the people at the top of the send picker. The picker itself needs no setting — the send button always works. |
 | Film roll | Off / 12 / 24 / 36 | Switches the shutter release from a circle to a square; develops on completion or on demand. |
 
 ## Layout
 
 ```
 camera/     CameraX, hardware face detection, AF, capture, EXIF and cropping
+send/       the send picker's address book, search ordering and the messaging handoff
 filter/     the AGSL sources and the two ways they get run
 hw/         the wheel and the two-stage camera button
 media/      MediaStore reads and writes, thumbnails

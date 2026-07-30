@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.VibrationEffect
 import android.os.VibratorManager
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.material3.ColorScheme
@@ -278,6 +279,46 @@ fun Modifier.lightClickable(
         interactionSource = null,
         indication = null,
         enabled = enabled,
+        onClick = onClick,
+    )
+}
+
+/**
+ * [lightClickable] with a long press, for the roll's cells.
+ *
+ * Kept separate rather than folded into the one modifier because `combinedClickable` changes
+ * the *tap* as well: with a long-press handler attached, every single tap has to wait out the
+ * long-press timeout before it fires. That is the right trade on a grid cell where holding
+ * means "select this", and the wrong one on a text button, so it is opted into.
+ *
+ * The 45ms buzz still lands on finger-down, so a press that turns out to be a long one has
+ * already acknowledged itself.
+ *
+ * `@OptIn` because the overload taking `interactionSource` and `indication` is still marked
+ * experimental for `combinedClickable`, while the identical one on `clickable` is stable. It is
+ * the overload that lets the indication be *nothing* — without it, `LocalIndication` supplies
+ * Material's ripple, and LightOS has no ripples anywhere.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+fun Modifier.lightCombinedClickable(
+    enabled: Boolean = true,
+    haptics: Boolean = true,
+    onLongClick: (() -> Unit)? = null,
+    onClick: () -> Unit,
+): Modifier = composed {
+    val context = LocalContext.current
+    val buzz = enabled && haptics
+    pointerInput(buzz) {
+        if (!buzz) return@pointerInput
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false)
+            LightHaptics.click(context)
+        }
+    }.combinedClickable(
+        interactionSource = null,
+        indication = null,
+        enabled = enabled,
+        onLongClick = onLongClick,
         onClick = onClick,
     )
 }

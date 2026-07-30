@@ -1,45 +1,48 @@
-## Roll v2.27 — filters hold honestly, the wait has two ends, and Simple is opt-in
+## Roll v2.28 — send a photograph to a person, not to an app
 
-**Filtered photographs hold a filtered frame**
+Tapping send used to open Android's share chooser: a colour Material sheet listing every app that ever
+registered for an image, on a phone whose whole argument is that there aren't any — and then you still had to
+pick the person once you were inside one. The chooser answers "which app?". The question you actually have is
+"who?".
 
-The hold worked for filters already, but it was holding the wrong picture. `previewFrame` returns the
-*unfiltered* surface — the live filter is a `RenderEffect` on the view and never reaches the bitmap — so a
-Game Boy shot froze on a plain one and then saved a dithered one. That is the same dishonesty as the Purikura
-preview showing one thing and saving another, which you caught me on twice.
+**So the send button now opens your contacts.**
 
-The same shader now runs over the held frame at panel size, where it costs a few milliseconds. What you hold is
-what you get.
+A plain list of people in the app's own type and grid, the ones you sent to most recently at the top, and a
+search box that takes either letters or digits — type `alex`, or type `5550148` and never mind how the number
+is punctuated. Tap somebody and the photograph goes out addressed to them.
 
-**The click moved to the press**
+Android will not let an app ask this question the easy way. The row of faces at the top of the stock chooser is
+built from *sharing shortcuts*, which each app publishes for the system's own UI, and there is no API to read
+another app's. So Roll reads the address book itself — a new contacts permission, asked for the first time you
+open the picker, read on the phone and sent nowhere.
 
-It was firing when the capture *returned* — a second and a half after your finger, which is the wrong end of
-the event entirely. A shutter sound is feedback for the press.
+**Hold a photograph in the roll to send several at once**
 
-**And the file landing has its own sound**
+Long-press any frame to start choosing; unpicked ones dim, tap to add and remove, and the header counts them.
+The tick stays upright when you turn the phone, because it's a control rather than part of the picture.
+Sending clears the selection — left standing, the next send would have quietly included everything already
+sent, to somebody else.
 
-Two notes rising, quiet, when the photograph is actually on disk. Deliberately unlike the focus confirmation,
-which is two of the *same* note: rising says finished rather than ready. So the ear brackets the wait — click
-when you press, chime when it lands — and the second and a half becomes a process with two ends rather than a
-delay with one.
+**Where the photograph actually goes**
 
-It plays for every photograph that reaches disk, Simple and Pro alike, and follows the existing Sounds switch.
+LightChat, if LightChat can take it. On this build it cannot: it registers no share filter at all, which is
+why the old send button reported "LightChat can't receive photos" on a phone with LightChat installed. Until
+that changes, a send goes to whatever else on the phone handles addressed messages — and only to something
+that plausibly understands what a recipient *is*. Handing the photograph to the first app that resolved was
+the previous behaviour and it was wrong in the worst way: a wallpaper cropper or a cloud drive accepts an
+image send, ignores the recipient, and the picker closed as though the photograph had reached Alex.
 
-**Simple is a switch now, and it starts off**
+**Smaller things in here**
 
-Settings → Simple mode. Off, Simple is not in the mode picker and the wheel does not walk into it — as far as
-the camera is concerned it does not exist, and Pro is what opens. On, it joins the picker as before.
-
-That is the right shape for it: Simple buys an instant shutter with resolution, panel-sized instead of 12MP,
-and a trade is something to opt into rather than find yourself in.
-
-**The band names the filter, not the mode**
-
-In Pro the mode slot now reads MONO, GAME BOY, PURIKURA — whatever is on — instead of "PRO". "Pro" labels
-something you can already see from the chrome; which filter is loaded is the one piece of state you cannot
-read off the picture with certainty, and it is exactly what the wheel changes. Video, Selfie and Simple keep
-their own names, because in those the mode is the news.
-
-**And the Purikura chip says OPTIONS**
-
-Which is what is behind it: a frame, two kinds of sticker, a date, a four-shot strip and five parts of the
-look.
+- Notices are drawn once, above everything, instead of on a pager page that overlays covered up. Every failure
+  message from the viewer, from settings and from the picker was previously invisible — a send that failed
+  looked exactly like a tap that hadn't registered.
+- The recipient is the contact's own preferred number, then a mobile, rather than whichever row the address
+  book happened to return first. A photograph sent to a landline is a photograph nobody sees.
+- An email-only contact is sent to as an email address, not by putting one in a field meant for a phone number.
+- A selection of screenshots is described as what it is. The type was hard-coded to JPEG, which contradicts
+  the attachment's real type and invites the receiver to re-encode it.
+- Refusing contacts twice no longer leaves a dead button: Android stops showing the dialog, and Roll now says
+  so and offers the settings page instead.
+- Back leaves selection before it leaves the roll — and no longer swallows the back press on the viewfinder,
+  where the roll page is still composed but not on screen.
