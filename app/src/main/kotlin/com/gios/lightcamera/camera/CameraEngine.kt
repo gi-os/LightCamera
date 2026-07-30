@@ -66,7 +66,10 @@ class CapturedFrame(val jpeg: ByteArray, val rotationDegrees: Int, val mirrored:
  * rather than when a future completes. That is the difference between a viewfinder you
  * trust and one you second-guess.
  */
-@OptIn(ExperimentalCamera2Interop::class)
+// androidx.annotation.OptIn, not Kotlin's: ExperimentalCamera2Interop is a Java-declared
+// marker carrying @RequiresOptIn from the annotation-experimental library, which Kotlin's own
+// @OptIn does not recognise — it compiles and warns that it has no effect.
+@androidx.annotation.OptIn(markerClass = [ExperimentalCamera2Interop::class])
 class CameraEngine(private val context: Context) {
 
     private val _faces = MutableStateFlow<List<FaceBox>>(emptyList())

@@ -30,8 +30,14 @@ class ShutterRelease(
     private var focusDown = false
     private var cameraDown = false
 
-    /** When the shutter last fired, so a trailing half press for the same press is ignored. */
-    private var firedAt = Long.MIN_VALUE
+    /**
+     * When the shutter last fired, so a trailing half press for the same press is ignored.
+     *
+     * [NEVER] is checked for explicitly rather than compared against: `now - Long.MIN_VALUE`
+     * overflows to a negative number, which read as "the shutter fired a moment ago" and
+     * swallowed the very first half press of the app's life.
+     */
+    private var firedAt = NEVER
 
     /** True while the current press has already released the shutter. */
     private var fired = false
@@ -50,7 +56,8 @@ class ShutterRelease(
         focusDown = true
         // The other half of a full press whose CAMERA key won the race. Autofocusing now
         // would hunt the lens immediately after the photo was taken.
-        if (fired || nowMs() - firedAt < SAME_PRESS_MS) return
+        if (fired) return
+        if (firedAt != NEVER && nowMs() - firedAt < SAME_PRESS_MS) return
         onHalfPress()
     }
 
@@ -91,5 +98,7 @@ class ShutterRelease(
     private companion object {
         /** How long after the shutter a FOCUS key still counts as the same press. */
         const val SAME_PRESS_MS = 500L
+
+        const val NEVER = Long.MIN_VALUE
     }
 }
