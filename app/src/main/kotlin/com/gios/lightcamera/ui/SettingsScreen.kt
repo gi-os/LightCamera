@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.gios.lightcamera.Chrome
 import com.gios.lightcamera.Colour
+import com.gios.lightcamera.CrashLog
 import com.gios.lightcamera.SelfTimer
 import com.gios.lightcamera.camera.AfMode
 import com.gios.lightcamera.camera.FrameAspect
@@ -229,6 +230,33 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
                     }
                 }
                 Note("Developing writes every frame into the camera roll, each keeping the time it was taken.")
+            }
+
+            val crash = remember { CrashLog.last(context) }
+            if (crash != null) {
+                Section("Last crash")
+                Note(
+                    "Roll fell over. The trace is below — the first few lines are the ones that matter. Tap to clear it.",
+                )
+                var cleared by remember { mutableStateOf(false) }
+                if (!cleared) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp)
+                            .background(colours.rule)
+                            .lightClickable {
+                                CrashLog.clear(context)
+                                cleared = true
+                            }
+                            .padding(8.dp),
+                    ) {
+                        LightText(
+                            text = crash.lineSequence().take(14).joinToString("\n"),
+                            variant = LightTextVariant.Micro,
+                        )
+                    }
+                }
             }
 
             Section("About")

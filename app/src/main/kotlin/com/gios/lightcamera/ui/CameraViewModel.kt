@@ -87,9 +87,38 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private val _filter = MutableStateFlow(Filters.byId(prefs.filterId.value))
     val filter: StateFlow<Filters.Filter> = _filter.asStateFlow()
 
+    /** Seconds into the current take, for the readout. */
+    private val _recordSeconds = MutableStateFlow(0)
+    val recordSeconds: StateFlow<Int> = _recordSeconds.asStateFlow()
+
+    var audioGranted: Boolean = false
+
+    /**
+     * Where the wheel is sitting on the filter track, which is not the same as which filter is
+     * selected: None is three notches wide, so the position carries information the filter
+     * doesn't. See [Filters.wheelPositions].
+     */
+    private var wheelPosition = Filters.positionOf(Filters.byId(prefs.filterId.value))
+
     private var observer: AutoCloseable? = null
     private var lastPriorityFace: FaceBox? = null
 
+    /** Read from the face collector below, so declared above it. Ints, so harmless either way. */
+    @Volatile private var viewWidth = 0
+
+    @Volatile private var viewHeight = 0
+
+    /**
+     * **Every field this block touches must be declared above it.**
+     *
+     * `viewModelScope` runs on `Dispatchers.Main.immediate`, and the view model is built on the
+     * main thread — so each `launch` here starts executing *synchronously, inside the
+     * constructor*, and a `StateFlow` hands over its current value on subscription. A field
+     * declared below this point is therefore still null when the collector first fires, and the
+     * app dies in the view model's constructor with a null-pointer exception that names a
+     * property Kotlin swore was non-null. That is exactly how v1.5.6 shipped an instant crash:
+     * the recording collector wrote to a counter declared thirty lines further down.
+     */
     init {
         viewModelScope.launch {
             prefs.filterId.collect { id -> _filter.value = Filters.byId(id) }
@@ -150,10 +179,6 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    @Volatile private var viewWidth = 0
-
-    @Volatile private var viewHeight = 0
-
     fun onViewSized(width: Int, height: Int) {
         viewWidth = width
         viewHeight = height
@@ -181,13 +206,6 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /* ---------------- filters ---------------- */
-
-    /**
-     * Where the wheel is sitting on the filter track, which is not the same as which filter is
-     * selected: None is three notches wide, so the position carries information the filter
-     * doesn't. See [Filters.wheelPositions].
-     */
-    private var wheelPosition = Filters.positionOf(Filters.byId(prefs.filterId.value))
 
     /** One notch of the wheel, or one sideways swipe. */
     fun stepFilter(by: Int) {
@@ -244,12 +262,6 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /* ---------------- video ---------------- */
-
-    /** Seconds into the current take, for the readout. */
-    private val _recordSeconds = MutableStateFlow(0)
-    val recordSeconds: StateFlow<Int> = _recordSeconds.asStateFlow()
-
-    var audioGranted: Boolean = false
 
     /**
      * The shutter in video mode. Start, or stop — the same button, the way every camera does it.
