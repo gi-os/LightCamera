@@ -1,27 +1,31 @@
-## Roll v2.19 — stop guessing, measure
+## Roll v2.20 — 1877 ms was the camera, not the app
 
-**Every Simple shot now tells you where its time went**
+The measurement came back **1877 ms in `takePicture`, 87 ms to save**. That settles it: the save was never
+the problem, and neither was anything else I changed in the last three releases. The camera is doing nearly
+two seconds of work per still.
 
-After each photograph: `1420ms shot · 90ms save`. The first number is the camera hardware answering
-`takePicture`; the second is this app writing the file. It goes to logcat as well, tagged `CameraViewModel`.
+**What it is doing**
 
-Three releases have gone into making Simple quick on the strength of my reasoning about where the time
-goes, and you have told me three times that it is still slow. That is enough of that — the phone knows and
-I do not, so this asks it. It is on by default; there is a switch in Settings to turn it off once the
-answer is boring.
+A still on a modern HAL is not one exposure. It is a short burst, stacked for noise, denoised, sharpened,
+tone-mapped — and every one of those stages has a HIGH_QUALITY setting and a FAST one. Asking for
+`CAPTURE_MODE_MINIMIZE_LATENCY`, which Roll already did, is CameraX *hinting* that the fast ones will do.
+Plenty of HALs ignore the hint.
 
-**How to read it**
+**So Simple now asks in the request itself**
 
-- **A large first number** means the time is inside the camera HAL, and there is nothing left for the app
-  to shave. The remaining levers are all hardware-facing: dropping to a smaller capture, or giving up on
-  the sensor's JPEG and taking the viewfinder frame instead — which is instant but panel resolution.
-- **A large second number** means it is the save, and that is squarely mine to fix.
+Through Camera2 interop, on the still request only: noise reduction FAST, edge FAST, aberration correction
+FAST, tone-map FAST, and capture intent PREVIEW — which is the blunt version of the same statement, telling
+the HAL this frame does not need what a photograph normally gets. Pro is untouched: somebody there has asked
+for the best file the camera can make, and waiting for it is the right trade.
 
-**Two real changes while we find out**
+Take a shot and read the number again. If it drops a lot, that was it. If it barely moves, this camera does
+its stacking somewhere an app cannot reach, and the honest options left are both hardware-facing rather than
+clever:
 
-- **The save is off the critical path.** It used to sit in the same coroutine as the capture, so the shot
-  was not "finished" — and the next press not accepted — until five megabytes were on disk and a MediaStore
-  row inserted. The camera is ready again the moment the bytes are in hand.
-- **JPEG quality 88 in Simple**, 92 in Pro. Encode is a real slice of the shutter on a 12MP frame and cost
-  is not linear in quality: 88 to 92 is a few percent of file size and nothing visible on a 3.92" screen,
-  while the encoder does measurably less work. Pro keeps 92, where somebody asked for the best file.
+- **Shoot the preview stream instead.** A continuous stream means a capture is grabbing the latest frame
+  already in flight — genuinely instant, no HAL still pipeline at all. We would JPEG-encode it ourselves.
+  At the analysis stream's full resolution that is a real photograph rather than a screenshot, but it is the
+  ISP's raw frame without its still-image processing: slightly noisier, and no flash.
+- **Ask for less.** 8MP or 5MP, where the burst is shorter and there is less of everything to denoise.
+
+Both are a few hours' work. Neither is worth doing until the number above says which.
