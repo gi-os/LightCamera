@@ -1,37 +1,30 @@
-## Roll v1.8 — a shutter that answers
+## Roll v1.9 — legible chrome, and the shutter fixed
 
-Three changes, all latency. Nothing about the interface moved.
+**"Shutter failed" is fixed**
 
-**Twelve megapixels instead of fifty**
+Zero shutter lag, added in v1.8, was the cause. CameraX documents a silent fallback where the
+hardware won't do it — but that covers *configuration*, not capture: this camera accepted the
+mode, bound without complaint, and then refused the first captures while its ring buffer filled,
+which is exactly why it "started working shortly after". It's gone. Minimise-latency is what works
+here, and a shutter that fires beats one that is early.
 
-This is the whole thing. The LPIII's sensor is 50MP and, left alone, CameraX asks the camera for
-the biggest JPEG it will give — 8160 x 6144. Reading that out and encoding it costs the ISP the
-better part of a second or two, which is exactly the "one to three seconds" every review of this
-phone complains about, and then this app had to decode it again to apply a filter.
+The resolution cap from v1.8 is what actually made the shutter quick, and that stays.
 
-It now asks for 4000 x 3000. Nothing is lost that anyone can see: still four times the pixels of
-the largest print you'd make from a phone, and about thirty times the panel you'll look at it on.
-What's gained is a shutter that answers.
+Capture failures now report **what** the camera said instead of "Shutter failed". Guessing at that
+message cost a round trip.
 
-**Zero shutter lag**
+**The microtext is gone**
 
-Where the hardware supports it and the flash is off, the capture now uses
-`CAPTURE_MODE_ZERO_SHUTTER_LAG`: the camera keeps a ring of recent frames and hands back the one
-from the instant the button went down. The photograph is the moment you pressed rather than the
-moment the camera got round to it. CameraX falls back on its own where the phone won't do it, so
-it costs nothing to ask.
+Every readout has moved up two steps of the type scale — the 8-design-pixel `Micro` variant works
+out at about six points on this panel, which is not a size anything you need at arm's length
+should be set in. Nothing in a screen uses it any more.
 
-**Filtered shots decode down, not across**
+And some of it just went: the count of photographs beside each day in the roll was a number the
+interface offered because it happened to know it, not because anyone wanted it.
 
-A filter meant decoding the full JPEG — 200MB of ARGB at 50MP, seconds of work and a genuine
-out-of-memory risk — and then scaling it to fit a GPU texture. The decoder now does that
-reduction itself with `inSampleSize`, in powers of two, for a fraction of the cost.
+**The newest photograph is bottom right**
 
-JPEG quality is 92 rather than 95, which is invisible and shortens the encode.
-
-If it still feels slow after this, the next lever is a shutter that grabs the preview frame
-instead of taking a real capture — instant, at panel resolution. Say the word.
-
-**Also:** the white hairline that appeared across the bottom of the frame while the shutter
-worked is gone. It was drawing on the picture, which nothing else in this app is allowed to do,
-and it was apologising for a wait this release mostly removes. The blink is the feedback.
+`reverseLayout` fills the roll from the bottom, which is what puts the newest frame against the
+viewfinder — but rows still filled left to right, so the newest landed bottom-*left* and the corner
+nearest your thumb held the third-newest. The grid is laid out right-to-left now: the newest takes
+the bottom-right cell and the roll fills leftwards and upwards, the way a contact sheet does.

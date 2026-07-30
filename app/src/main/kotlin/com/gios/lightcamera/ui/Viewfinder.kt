@@ -275,7 +275,7 @@ fun RollCounter(roll: Roll?, modifier: Modifier = Modifier) {
         modifier = modifier.padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        LightText(text = "%02d".format(roll.shot), variant = LightTextVariant.Superfine)
+        LightText(text = "%02d".format(roll.shot), variant = LightTextVariant.Detail)
         Canvas(
             modifier = Modifier
                 .padding(horizontal = 8.dp)
@@ -303,7 +303,7 @@ fun RollCounter(roll: Roll?, modifier: Modifier = Modifier) {
         }
         LightText(
             text = "%02d".format(roll.length),
-            variant = LightTextVariant.Superfine,
+            variant = LightTextVariant.Detail,
             lighten = true,
         )
     }

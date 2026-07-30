@@ -133,14 +133,14 @@ fun ViewerScreen(
                     LightText(
                         text = SimpleDateFormat("d MMM yyyy · HH:mm", Locale.getDefault())
                             .format(Date(photo.takenAt)),
-                        variant = LightTextVariant.Micro,
+                        variant = LightTextVariant.Superfine,
                         lighten = true,
                     )
                 }
                 Spacer(Modifier.weight(1f))
                 LightText(
                     text = "${pager.currentPage + 1}/${photos.size}",
-                    variant = LightTextVariant.Micro,
+                    variant = LightTextVariant.Superfine,
                     lighten = true,
                     modifier = Modifier.padding(end = 10.dp),
                 )
@@ -248,7 +248,7 @@ fun ContactSheet(
         ) {
             LightText(
                 "ROLL ${developed.number} DEVELOPED",
-                LightTextVariant.Superfine,
+                LightTextVariant.Detail,
                 modifier = Modifier.padding(start = 8.dp),
             )
             Spacer(Modifier.weight(1f))
@@ -300,7 +300,7 @@ fun ContactSheet(
                     }
                     LightText(
                         text = "%02d".format(index + 1),
-                        variant = LightTextVariant.Micro,
+                        variant = LightTextVariant.Superfine,
                         lighten = true,
                         modifier = Modifier.padding(top = 3.dp),
                     )

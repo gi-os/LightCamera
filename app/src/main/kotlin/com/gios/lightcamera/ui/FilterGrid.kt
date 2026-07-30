@@ -118,7 +118,7 @@ fun FilterGrid(
                 .padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            LightText("FILTERS", LightTextVariant.Superfine, modifier = Modifier.padding(start = 8.dp))
+            LightText("FILTERS", LightTextVariant.Detail, modifier = Modifier.padding(start = 8.dp))
             Spacer(Modifier.weight(1f))
             // The viewfinder has no room for a settings icon any more, so it lives in the two
             // places you can reach in one tap from it: here, and the roll's header.
@@ -162,7 +162,7 @@ fun FilterGrid(
                     }
                     LightText(
                         text = filter.label.uppercase(),
-                        variant = LightTextVariant.Micro,
+                        variant = LightTextVariant.Superfine,
                         lighten = !selected,
                         align = TextAlign.Center,
                         modifier = Modifier.padding(top = 4.dp),

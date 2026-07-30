@@ -80,7 +80,7 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
         ) {
             LightText(
                 "SETTINGS",
-                LightTextVariant.Superfine,
+                LightTextVariant.Detail,
                 modifier = Modifier.padding(start = 8.dp),
             )
             Spacer(Modifier.weight(1f))
@@ -158,12 +158,12 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
             Setting("Sounds", if (sounds) "Focus beep" else "Off") {
                 vm.prefs.setSounds(!sounds)
             }
-            Setting("Wheel", if (wheel) "Zoom / EV" else "Off") {
+            Setting("Wheel", if (wheel) "Filters / EV" else "Off") {
                 vm.prefs.setWheelEnabled(!wheel)
             }
             Note(
                 if (LightKeys.wheelLabelsPresent()) {
-                    "Turn the wheel to zoom. Hold it in and turn for exposure. Click it for the torch. Either volume key is also a shutter."
+                    "Turn the wheel to change filter — it buzzes each notch, and catches on None for a moment so you can land on it. Hold it in and turn for exposure. Click it for the torch. Either volume key is a shutter."
                 } else {
                     "This build doesn't map the wheel keys, so turning it may do nothing. Either volume key is a shutter."
                 },
@@ -262,7 +262,7 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
                     ) {
                         LightText(
                             text = crash.lineSequence().take(14).joinToString("\n"),
-                            variant = LightTextVariant.Micro,
+                            variant = LightTextVariant.Superfine,
                         )
                     }
                 }
@@ -275,13 +275,13 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
             Box(Modifier.height(24.dp))
             LightText(
                 "github.com/gi-os/LightCamera",
-                LightTextVariant.Micro,
+                LightTextVariant.Superfine,
                 lighten = true,
             )
             Box(Modifier.height(8.dp))
             LightText(
                 "Icons and design tokens from lightphone/light-sdk, MIT.",
-                LightTextVariant.Micro,
+                LightTextVariant.Superfine,
                 color = colours.contentFaint,
             )
         }
@@ -292,7 +292,7 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
 private fun Section(title: String) {
     LightText(
         text = title.uppercase(),
-        variant = LightTextVariant.Superfine,
+        variant = LightTextVariant.Detail,
         lighten = true,
         modifier = Modifier.padding(top = 22.dp, bottom = 6.dp),
     )

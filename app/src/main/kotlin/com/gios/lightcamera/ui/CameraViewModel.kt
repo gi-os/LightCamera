@@ -315,11 +315,15 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     _countdown.value = null
                 }
 
-                val frame = runCatching { engine.capture() }
+                val attempt = runCatching { engine.capture() }
                     .onFailure { Log.e(TAG, "capture failed", it) }
-                    .getOrNull()
+                val frame = attempt.getOrNull()
                 if (frame == null) {
-                    showNotice("Shutter failed")
+                    // Say *what* went wrong. "Shutter failed" cost a round trip to work out that
+                    // zero-shutter-lag was accepting the configuration and then refusing every
+                    // capture; the camera's own message would have named it.
+                    val why = attempt.exceptionOrNull()?.message?.take(48)
+                    showNotice(if (why.isNullOrBlank()) "Shutter failed" else "Shutter: $why")
                     return@launch
                 }
                 _shutterTick.tryEmit(Unit)

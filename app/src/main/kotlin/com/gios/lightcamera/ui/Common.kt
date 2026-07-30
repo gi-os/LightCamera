@@ -85,7 +85,7 @@ fun Notice(text: String?, modifier: Modifier = Modifier) {
             .background(colors.scrim, RoundedCornerShape(2.dp))
             .padding(horizontal = 10.dp, vertical = 4.dp),
     ) {
-        LightText(text.uppercase(), LightTextVariant.Superfine)
+        LightText(text.uppercase(), LightTextVariant.Detail)
     }
 }
 
@@ -123,7 +123,7 @@ fun ChromeLabel(
 ) {
     LightText(
         text = text.uppercase(),
-        variant = LightTextVariant.Superfine,
+        variant = LightTextVariant.Detail,
         lighten = lighten,
         modifier = modifier
             .lightClickable { onClick() }

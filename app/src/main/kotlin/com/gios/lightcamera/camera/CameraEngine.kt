@@ -352,22 +352,16 @@ class CameraEngine(private val context: Context) {
             )
             .build()
 
-        // Zero shutter lag keeps a ring of recent frames and hands back the one from the instant
-        // the button went down, so the photograph is the moment you pressed rather than the
-        // moment the camera got round to it. It cannot be used with the flash, and CameraX
-        // quietly falls back to minimise-latency where the hardware won't do it — so this is
-        // free to ask for.
-        val zsl = flash == FlashMode.Off
+        // **No zero shutter lag.** v1.8 asked for `CAPTURE_MODE_ZERO_SHUTTER_LAG` on the strength
+        // of CameraX documenting a silent fallback where the hardware won't do it. The fallback
+        // covers *configuration*, not capture: this camera accepted the mode, bound without
+        // complaint, and then failed every `takePicture` — a dead shutter in exchange for a few
+        // hundred milliseconds that the resolution cap below had already found. Minimise-latency
+        // is what works here, and a shutter that fires is worth more than one that is early.
         val capture = ImageCapture.Builder()
             .setResolutionSelector(captureSelector)
             .setJpegQuality(92)
-            .setCaptureMode(
-                if (zsl) {
-                    ImageCapture.CAPTURE_MODE_ZERO_SHUTTER_LAG
-                } else {
-                    ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY
-                },
-            )
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
             // Whatever the phone's attitude was when the listener last spoke, so a rebind
             // mid-shoot doesn't silently reset the file's orientation to upright.
             .setTargetRotation(lastRotation)

@@ -361,7 +361,7 @@ fun CameraScreen(
                         RecordDot()
                         LightText(
                             " ${"%d:%02d".format(recordSeconds / 60, recordSeconds % 60)}",
-                            LightTextVariant.Micro,
+                            LightTextVariant.Superfine,
                         )
                     } else {
                         AfBadge(mode = afMode, state = afState)
@@ -369,35 +369,35 @@ fun CameraScreen(
                     if (torch) {
                         LightText(
                             " TORCH",
-                            LightTextVariant.Micro,
+                            LightTextVariant.Superfine,
                             modifier = Modifier.padding(start = 6.dp),
                         )
                     }
                     if (zoom > 1.02f) {
                         LightText(
                             " ${engine.zoomLabel()}",
-                            LightTextVariant.Micro,
+                            LightTextVariant.Superfine,
                             modifier = Modifier.padding(start = 6.dp),
                         )
                     }
                     if (ev != 0) {
                         LightText(
                             " EV ${engine.evLabel()}",
-                            LightTextVariant.Micro,
+                            LightTextVariant.Superfine,
                             modifier = Modifier.padding(start = 6.dp),
                         )
                     }
                     if (timer.seconds > 0 && mode != CaptureMode.Video) {
                         LightText(
                             " ${timer.label}",
-                            LightTextVariant.Micro,
+                            LightTextVariant.Superfine,
                             modifier = Modifier.padding(start = 6.dp),
                         )
                     }
                     if (filter.agsl != null && mode != CaptureMode.Video) {
                         LightText(
                             " ${filter.label.uppercase()}",
-                            LightTextVariant.Micro,
+                            LightTextVariant.Superfine,
                             modifier = Modifier.padding(start = 6.dp),
                         )
                     }
@@ -538,7 +538,7 @@ private fun ModeStrip(
                     ) {
                         LightText(
                             text = candidate.label.uppercase(),
-                            variant = LightTextVariant.Superfine,
+                            variant = LightTextVariant.Detail,
                             color = if (here) colours.background else colours.content,
                         )
                     }
@@ -628,7 +628,7 @@ private fun ExposureStrip(
                 )
                 LightText(
                     text = label,
-                    variant = LightTextVariant.Micro,
+                    variant = LightTextVariant.Superfine,
                     modifier = Modifier.width(32.dp),
                     align = TextAlign.End,
                 )
@@ -683,7 +683,7 @@ private fun AfBadge(mode: AfMode, state: AfState, modifier: Modifier = Modifier)
     ) {
         LightText(
             text = if (mode == AfMode.Single) "AF-S" else "AF-C",
-            variant = LightTextVariant.Micro,
+            variant = LightTextVariant.Superfine,
             color = when {
                 locked -> colours.background
                 state == AfState.Scanning -> colours.content

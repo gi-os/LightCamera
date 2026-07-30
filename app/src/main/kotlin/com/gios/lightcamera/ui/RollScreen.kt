@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -30,6 +31,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.gios.lightcamera.hw.WheelScroll
 import com.gios.lightcamera.media.DayLabels
@@ -111,13 +114,27 @@ fun RollScreen(
                 detail = "Swipe up and take a photograph.",
             )
 
-            else -> LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
-                state = gridState,
-                reverseLayout = true,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(top = 54.dp, bottom = 40.dp, start = 1.dp, end = 1.dp),
-            ) {
+            // **The newest photograph goes bottom right.**
+            //
+            // `reverseLayout` fills from the bottom, which is what puts the newest frame against
+            // the viewfinder — but rows still fill left to right, so the newest landed
+            // bottom-*left* and the corner nearest your thumb held the third-newest. Laying the
+            // grid out right-to-left fixes it in one line: the head of the list takes the
+            // bottom-right cell and the roll fills leftwards and upwards from there, which is
+            // also the direction a contact sheet fills.
+            else -> CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    state = gridState,
+                    reverseLayout = true,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        top = 54.dp,
+                        bottom = 40.dp,
+                        start = 1.dp,
+                        end = 1.dp,
+                    ),
+                ) {
                 items(
                     count = entries.size,
                     key = { index ->
@@ -141,13 +158,10 @@ fun RollScreen(
                                 .padding(start = 8.dp, end = 8.dp, top = 14.dp, bottom = 5.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            LightText(entry.label.uppercase(), LightTextVariant.Superfine)
-                            Spacer(Modifier.weight(1f))
-                            LightText(
-                                "${entry.count}",
-                                LightTextVariant.Micro,
-                                lighten = true,
-                            )
+                            // Just the day. The count of photographs in it was the sort of
+                            // number an interface offers because it happens to know it, not
+                            // because anybody wanted it.
+                            LightText(entry.label.uppercase(), LightTextVariant.Detail)
                         }
 
                         is RollEntry.Frame -> Thumb(
@@ -159,6 +173,7 @@ fun RollScreen(
                                 .lightClickable { onOpen(entry.photo) },
                         )
                     }
+                }
                 }
             }
         }
@@ -173,11 +188,11 @@ fun RollScreen(
                 .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            LightText("ROLL", LightTextVariant.Superfine)
+            LightText("ROLL", LightTextVariant.Detail)
             Spacer(Modifier.weight(1f))
             LightText(
                 text = scope.label.uppercase(),
-                variant = LightTextVariant.Micro,
+                variant = LightTextVariant.Superfine,
                 lighten = true,
                 modifier = Modifier
                     .lightClickable {
@@ -213,12 +228,12 @@ fun RollScreen(
                 ) {
                     LightText(
                         "ROLL ${loaded.number} · ${loaded.shot} OF ${loaded.length}",
-                        LightTextVariant.Micro,
+                        LightTextVariant.Superfine,
                     )
                     Spacer(Modifier.weight(1f))
                     LightText(
                         if (loaded.shot == 0) "UNLOAD" else "DEVELOP",
-                        LightTextVariant.Micro,
+                        LightTextVariant.Superfine,
                         modifier = Modifier.lightClickable { vm.developRoll() },
                     )
                 }
@@ -232,7 +247,7 @@ fun RollScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 LightIcon(LightIcons.Down, size = 9.dp, tint = colours.contentSecondary)
-                LightText("  CAMERA", LightTextVariant.Micro, lighten = true)
+                LightText("  CAMERA", LightTextVariant.Superfine, lighten = true)
             }
         }
     }
