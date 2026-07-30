@@ -1,28 +1,32 @@
-## Roll v2.6 — three date switches, and the picture turns without the interface
+## Roll v2.7 — Purikura
 
-**The date stamp is three settings now**
+**A new filter that knows where your face is**
 
-On plain photos, on filters, on coarse filters — separately, and coarse starts off. A date drawn at
-full pixel precision over a picture quantised to a few hundred cells reads as a caption pasted on
-rather than something the camera did, which is exactly why it looked wrong on the Game Boy and dither
-frames. Your existing setting carries forward onto plain photos and filters.
+Purikura, the Japanese photo-booth look, and the only shader in the app that gets told where the
+faces are. It does the four things a booth does, all of them too much on purpose:
 
-**Swiping goes the way the grid reads**
+- **Eyes about twice the size.** A radial magnification centred on each eye, sampled towards the
+  centre so what is there grows, and smoothed all the way to the rim — a hard edge would read as a
+  disc of face sitting on a face, which is the tell of a bad beauty filter. The eyes are worked out
+  from the face rectangle rather than detected: not every camera publishes eye landmarks, but every
+  camera publishes the rectangle.
+- **Skin blown out.** Luminance lifted hard and the top end crushed flat, so 0.8 and 1.0 come out
+  nearly the same white. Poreless and papery, which is the part people actually go for.
+- **Pink.** Cool rose in the shadows, warm rose in the highlights, saturation up, and nothing allowed
+  to be properly black — booth prints wash out in the shadows and that missing black is half of why
+  they look like booth prints.
+- **Glitter.** Four-pointed stars on a jittered hash grid, denser near a face, drifting with the seed
+  so they twinkle in the viewfinder.
 
-The newest frame sits bottom-right with the one before it to its left, so reading the grid the
-ordinary way — left to right, down the rows — walks forwards in time. The viewer now agrees:
-photographs run oldest to newest left to right, so swiping the picture leftwards moves towards newer,
-the same as Photos on an iPhone. The wheel's arithmetic flipped with it, so the dial moves the same
-photographs the same way it did before.
+With nobody in frame it is still the wash, the soft focus and the glitter. A booth with no one in it
+is a pink room.
 
-**The picture turns; the interface stays where you left it**
+**Why the photograph always comes off the viewfinder for this one**
 
-Hold the phone on its side and the photograph comes round to fill the long edge while the close
-button, the date and the bin stay exactly where your thumb expects them — the same split the
-viewfinder has always used. Rotating the whole screen meant every control moved the moment you
-tilted it, and a swipe that was horizontal a second ago became vertical.
+Faces are detected in the preview. Making the file out of a second, differently-cropped sensor frame
+would mean mapping those rectangles across — and that arithmetic is exactly how an eye ends up
+enlarged next to somebody's ear. Filtering the frame the faces were found in cannot be misaligned, so
+Purikura takes the panel frame the same way the coarse filters do, whatever the photo size is set to.
 
-Thumbnails do the same thing: the grid holds still and the contents of each square come round.
-
-Zoom and pan sit outside the rotation now, so dragging a zoomed photograph moves it the way your
-finger went rather than the way the phone happens to be held.
+The face-to-shader arithmetic — normalising, quarter turns, centred crops — is plain Kotlin with no
+Android imports and is checked off-device, because a sign error there is silent and specific.

@@ -67,17 +67,48 @@ object ShaderRuntime {
     }
 
     /**
+     * Hand the detected faces to a shader that asks for them.
+     *
+     * **Only when the filter declares them.** Setting a uniform a shader does not have throws, so
+     * this is gated on the flag rather than attempted and caught — and every slot is written every
+     * time, because a `RuntimeShader` keeps its uniforms between draws and a face left over from the
+     * last frame would go on warping an empty room.
+     */
+    private fun setFaces(shader: RuntimeShader, filter: Filters.Filter, faces: List<FaceQuad>) {
+        if (!filter.facesAware) return
+        val used = faces.take(FaceQuads.MAX)
+        shader.setFloatUniform("faceCount", used.size.toFloat())
+        for (slot in 0 until FaceQuads.MAX) {
+            val quad = used.getOrNull(slot)
+            shader.setFloatUniform(
+                "face$slot",
+                quad?.cx ?: 0f,
+                quad?.cy ?: 0f,
+                quad?.hw ?: 0f,
+                quad?.hh ?: 0f,
+            )
+        }
+    }
+
+    /**
      * The effect to hang on the preview.
      *
      * Returns null for [Filters.none], which the caller must read as "clear the effect"
      * rather than as a failure. A compile error also lands here as null — better an
      * unfiltered viewfinder than a black one.
      */
-    fun effectFor(filter: Filters.Filter, width: Int, height: Int, seed: Float): RenderEffect? {
+    fun effectFor(
+        filter: Filters.Filter,
+        width: Int,
+        height: Int,
+        seed: Float,
+        faces: List<FaceQuad> = emptyList(),
+    ): RenderEffect? {
         if (width <= 0 || height <= 0) return null
         val shader = shader(filter) ?: return null
         shader.setFloatUniform("size", width.toFloat(), height.toFloat())
         shader.setFloatUniform("seed", seed)
+        setFaces(shader, filter, faces)
         return runCatching { RenderEffect.createRuntimeShaderEffect(shader, "src") }
             .onFailure { Log.e(TAG, "effect failed for ${filter.id}", it) }
             .getOrNull()
@@ -87,11 +118,16 @@ object ShaderRuntime {
      * One-shot filtering of a still. Convenient, but it builds and tears down a renderer
      * each time; the filter grid uses a long-lived [Offscreen] instead.
      */
-    fun applyToBitmap(source: Bitmap, filter: Filters.Filter, seed: Float): Bitmap {
+    fun applyToBitmap(
+        source: Bitmap,
+        filter: Filters.Filter,
+        seed: Float,
+        faces: List<FaceQuad> = emptyList(),
+    ): Bitmap {
         if (filter.agsl == null) return source
         val renderer = Offscreen(source.width, source.height) ?: return source
         return try {
-            renderer.render(source, filter, seed) ?: source
+            renderer.render(source, filter, seed, faces) ?: source
         } finally {
             renderer.close()
         }
@@ -114,13 +150,19 @@ object ShaderRuntime {
         private val paint = Paint()
         private val owned = HashMap<String, RuntimeShader>()
 
-        fun render(source: Bitmap, filter: Filters.Filter, seed: Float): Bitmap? {
+        fun render(
+            source: Bitmap,
+            filter: Filters.Filter,
+            seed: Float,
+            faces: List<FaceQuad> = emptyList(),
+        ): Bitmap? {
             val shader = shader(filter, owned) ?: return null
             // The bitmap is sampled in its own pixel space, so `size` here is the image and
             // every pattern in the shader scales to it. Same numbers the preview uses,
             // which is what makes the capture match the viewfinder.
             shader.setFloatUniform("size", width.toFloat(), height.toFloat())
             shader.setFloatUniform("seed", seed)
+            setFaces(shader, filter, faces)
             val bitmapShader = BitmapShader(source, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
             // Scale the source into the node if the caller handed us a different size —
             // used by the filter grid, whose cells are smaller than the preview frame.

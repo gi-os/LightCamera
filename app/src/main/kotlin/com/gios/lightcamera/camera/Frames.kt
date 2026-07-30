@@ -5,6 +5,8 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import androidx.exifinterface.media.ExifInterface
 import com.gios.lightcamera.StampStyle
+import com.gios.lightcamera.filter.FaceQuad
+import com.gios.lightcamera.filter.FaceQuads
 import com.gios.lightcamera.filter.Filters
 import com.gios.lightcamera.filter.ShaderRuntime
 import java.io.ByteArrayInputStream
@@ -104,17 +106,28 @@ object Frames {
         seed: Float,
         stampAt: Long? = null,
         stampStyle: StampStyle = StampStyle.Dots,
+        /** Faces as found in the preview, normalised — carried through the turn and the crop below. */
+        faces: List<FaceQuad> = emptyList(),
     ): Processed {
         var bitmap = preview
+        var quads = faces
         if (rotationDegrees != 0) {
             val matrix = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
             val turned =
                 Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
             if (turned != bitmap) bitmap.recycle()
             bitmap = turned
+            quads = quads.map { FaceQuads.rotated(it, rotationDegrees) }
         }
-        if (aspect != FrameAspect.Full) bitmap = crop(bitmap, aspect)
-        if (filter.agsl != null) bitmap = ShaderRuntime.applyToBitmap(bitmap, filter, seed)
+        if (aspect != FrameAspect.Full) {
+            // Measured before and after, because the crop is centred and the shift depends on which
+            // way round the frame is. A face has to move with the picture or the warp lands beside it.
+            val wasW = bitmap.width
+            val wasH = bitmap.height
+            bitmap = crop(bitmap, aspect)
+            quads = quads.map { FaceQuads.cropped(it, wasW, wasH, bitmap.width, bitmap.height) }
+        }
+        if (filter.agsl != null) bitmap = ShaderRuntime.applyToBitmap(bitmap, filter, seed, quads)
         if (stampAt != null) bitmap = DateStamp.apply(bitmap, stampAt, stampStyle)
         val out = ByteArrayOutputStream(bitmap.width * bitmap.height / 4)
         bitmap.compress(Bitmap.CompressFormat.JPEG, QUALITY, out)

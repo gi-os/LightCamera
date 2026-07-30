@@ -10,6 +10,7 @@ import com.gios.lightcamera.Prefs
 import com.gios.lightcamera.camera.CameraEngine
 import com.gios.lightcamera.camera.FaceBox
 import com.gios.lightcamera.camera.Frames
+import com.gios.lightcamera.filter.FaceQuads
 import com.gios.lightcamera.filter.Filters
 import com.gios.lightcamera.hw.Beeps
 import com.gios.lightcamera.media.MediaStoreRepo
@@ -345,7 +346,10 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 // into those cells costs a second and a half and changes nothing in the file. So the
                 // size setting governs the photographs where resolution is a real quantity, and the
                 // ones where it isn't just take the panel.
-                if (prefs.photoSize.value.isPreviewGrab || filter.value.lowRes) {
+                if (prefs.photoSize.value.isPreviewGrab ||
+                    filter.value.lowRes ||
+                    filter.value.facesAware
+                ) {
                     val grabbed = engine.previewFrame()
                     if (grabbed == null) {
                         showNotice("Nothing on the viewfinder yet")
@@ -357,8 +361,24 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     val turn = engine.previewRotationDegrees()
                     val aspect = prefs.aspect.value
                     val stampAt = stampTime(activeFilter)
+                    // The faces as the preview found them, in the preview's own pixels. `fromPreview`
+                    // carries them through the turn and the crop, so the warp stays on the face.
+                    val faces = if (activeFilter.facesAware) {
+                        FaceQuads.of(engine.faces.value, grabbed.width, grabbed.height)
+                    } else {
+                        emptyList()
+                    }
                     val processed = withContext(Dispatchers.Default) {
-                        Frames.fromPreview(grabbed, turn, activeFilter, aspect, seed, stampAt, prefs.stampStyle.value)
+                        Frames.fromPreview(
+                            preview = grabbed,
+                            rotationDegrees = turn,
+                            filter = activeFilter,
+                            aspect = aspect,
+                            seed = seed,
+                            stampAt = stampAt,
+                            stampStyle = prefs.stampStyle.value,
+                            faces = faces,
+                        )
                     }
                     finish(processed, activeFilter.id)
                     return@launch

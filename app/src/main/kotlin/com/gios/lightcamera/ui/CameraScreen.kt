@@ -52,6 +52,7 @@ import com.gios.lightcamera.Colour
 import com.gios.lightcamera.camera.AfState
 import com.gios.lightcamera.camera.FaceMapper
 import com.gios.lightcamera.camera.FlashMode
+import com.gios.lightcamera.filter.FaceQuads
 import com.gios.lightcamera.filter.ShaderRuntime
 import com.gios.lightcamera.hw.CameraKeyAdvice
 import com.gios.lightcamera.hw.WheelTurns
@@ -179,9 +180,17 @@ fun CameraScreen(
     // is a property of the *view*, so it never reaches the recorded stream — a filtered preview
     // would be promising something the file wouldn't deliver.
     val liveFilter = if (mode == CaptureMode.Video) com.gios.lightcamera.filter.Filters.none else filter
-    LaunchedEffect(liveFilter, seed, frameWidth, frameHeight) {
+    // Purikura is the one filter that needs to know where the faces are, so the effect is rebuilt
+    // when they move — which the detector publishes about fifteen times a second. Every other filter
+    // keys on nothing that changes, so nothing extra happens for them.
+    val faceQuads = if (liveFilter.facesAware) {
+        FaceQuads.of(faces, frameWidth, frameHeight)
+    } else {
+        emptyList()
+    }
+    LaunchedEffect(liveFilter, seed, frameWidth, frameHeight, faceQuads) {
         previewView.setRenderEffect(
-            ShaderRuntime.effectFor(liveFilter, frameWidth, frameHeight, seed),
+            ShaderRuntime.effectFor(liveFilter, frameWidth, frameHeight, seed, faceQuads),
         )
     }
     DisposableEffect(Unit) { onDispose { previewView.setRenderEffect(null) } }

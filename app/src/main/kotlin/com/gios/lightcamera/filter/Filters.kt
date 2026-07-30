@@ -357,6 +357,145 @@ half4 main(float2 xy) {
 """
 
     /**
+     * **Purikura.** The Japanese photo-booth look, and the only shader here that knows where a face
+     * is.
+     *
+     * A booth does four things to you, all of them too much on purpose, and this does the same four:
+     *
+     *  1. **Eyes twice the size.** A radial magnification centred on each eye — sampled *towards*
+     *     the eye's centre, which is what makes it grow. The eyes are guessed from the face
+     *     rectangle rather than detected: a quarter of the face's width either side of centre, a
+     *     fifth of its height above the middle. That is where eyes are on a face, and the hardware
+     *     detector's landmarks are not available on every camera, whereas its rectangle always is.
+     *  2. **Skin blown out.** Luminance lifted hard and the top end crushed flat, so faces come out
+     *     poreless and papery. This is the part people actually go for.
+     *  3. **Pink.** A wash pulled towards a cool rose in the shadows and a warm one in the
+     *     highlights, saturation up, contrast down. Booth prints have almost no black in them.
+     *  4. **Glitter.** Four-pointed stars scattered on a hash grid, brighter near a face, drifting
+     *     with `seed` so they twinkle in the viewfinder.
+     *
+     * The face uniforms are `face0..face2` as (centre x, centre y, half width, half height) in
+     * fractions of the image, and `faceCount` says how many are real. Three separate `float4`s
+     * rather than an array because an unset uniform is a compile-time promise a `RuntimeShader`
+     * will not let you break, and three is a photo booth's worth of people.
+     *
+     * With no face in frame it is still the wash, the bloom and the glitter — a booth with nobody
+     * in it is a pink room.
+     */
+    private const val PURIKURA = """
+uniform float4 face0;
+uniform float4 face1;
+uniform float4 face2;
+uniform float faceCount;
+
+float4 faceAt(int i) {
+    if (i == 0) return face0;
+    if (i == 1) return face1;
+    return face2;
+}
+
+// Magnify around a point: sample nearer its centre, so what is there grows.
+float2 magnify(float2 p, float2 centre, float radius, float amount) {
+    float2 d = p - centre;
+    float dist = length(d);
+    if (dist >= radius || radius <= 0.0) return p;
+    float t = dist / radius;
+    // Smooth all the way to the rim, or the enlargement has a visible edge — a disc of face
+    // sitting on a face, which is the tell of a bad beauty filter.
+    float k = mix(1.0 / amount, 1.0, smoothstep(0.0, 1.0, t));
+    return centre + d * k;
+}
+
+half4 main(float2 xy) {
+    float2 p = xy;
+    int n = int(faceCount);
+
+    // ---- the eyes ----
+    // No `break` and no `continue`: SkSL wants a loop it can unroll, and a face that is not there
+    // is handled by a zero half-extent, which `magnify` refuses, rather than by leaving early.
+    for (int i = 0; i < 3; ++i) {
+        float4 f = faceAt(i);
+        float2 mid = float2(f.x, f.y) * size;
+        // `ext` — half the face's width and height in pixels. Not `half`, which is a type here.
+        float2 ext = float2(f.z, f.w) * size * (i < n ? 1.0 : 0.0);
+        float2 eyeL = mid + float2(-ext.x * 0.42, -ext.y * 0.28);
+        float2 eyeR = mid + float2(ext.x * 0.42, -ext.y * 0.28);
+        float radius = ext.x * 0.52;
+        p = magnify(p, eyeL, radius, 1.95);
+        p = magnify(p, eyeR, radius, 1.95);
+    }
+
+    // ---- soft focus ----
+    // A cross of taps rather than a box: five samples instead of nine for a blur this wide, and on
+    // skin the difference is not visible.
+    float u = unitPx() * 2.2;
+    float3 c = tap(p);
+    float3 soft = (
+        c +
+        tap(p + float2(u, 0.0)) + tap(p - float2(u, 0.0)) +
+        tap(p + float2(0.0, u)) + tap(p - float2(0.0, u))
+    ) / 5.0;
+    // Keep the eyes and any real edge, blur everything flat — an unsharp mask run backwards.
+    float detail = length(c - soft);
+    float3 col = mix(soft, c, clamp(detail * 4.0, 0.0, 0.55));
+
+    // ---- skin blown out ----
+    float l = lum(col);
+    // Lift, then crush the top: 0.55 arrives at 0.82, and 0.8 and 1.0 are nearly the same white.
+    float lifted = pow(clamp(l * 1.22 + 0.16, 0.0, 1.0), 0.62);
+    col = col + (lifted - l);
+
+    // ---- pink ----
+    float3 shadow = float3(1.02, 0.94, 1.02);
+    float3 light = float3(1.06, 0.93, 0.95);
+    col *= mix(shadow, light, clamp(lifted, 0.0, 1.0));
+    float grey = lum(col);
+    col = mix(float3(grey), col, 1.35);
+    // Nothing is allowed to be properly black. Booth prints wash out in the shadows and that
+    // missing black is half of why they look like booth prints.
+    col = mix(col, float3(1.0, 0.97, 0.98), 0.10);
+
+    // ---- glitter ----
+    // On a grid so the stars keep still between frames, jittered inside their cells so the grid
+    // cannot be seen, and only about one cell in twelve lights up.
+    float cell = unitPx() * 26.0;
+    float2 g = floor(p / cell);
+    float pick = hash(g);
+    float bright = 0.0;
+    if (pick > 0.90) {
+        float2 jitter = float2(hash(g + 3.1), hash(g + 7.7)) - 0.5;
+        float2 star = (g + 0.5 + jitter) * cell;
+        float2 d = abs(p - star);
+        float arm = cell * 0.34 * (0.55 + 0.45 * sin(seed * 0.11 + pick * 40.0));
+        // Two thin bars crossed, plus a hot centre: a four-pointed star, which is the shape a
+        // booth's sparkle overlay uses and also the cheapest one to draw.
+        float horiz = max(0.0, 1.0 - d.x / arm) * max(0.0, 1.0 - d.y / (arm * 0.13));
+        float vert = max(0.0, 1.0 - d.y / arm) * max(0.0, 1.0 - d.x / (arm * 0.13));
+        float core = max(0.0, 1.0 - length(d) / (arm * 0.22));
+        bright = clamp(horiz + vert + core * 0.9, 0.0, 1.0);
+    }
+    // Denser where the people are, because that is where a booth puts them.
+    float nearFace = 0.0;
+    for (int i = 0; i < 3; ++i) {
+        float4 f = faceAt(i);
+        float2 mid = float2(f.x, f.y) * size;
+        float2 ext = float2(f.z, f.w) * size;
+        float reach = max(max(ext.x, ext.y) * 2.4, 1.0);
+        float near = 1.0 - clamp(length(p - mid) / reach, 0.0, 1.0);
+        nearFace = max(nearFace, near * (i < n ? 1.0 : 0.0));
+    }
+    col += bright * (0.55 + 0.45 * nearFace);
+
+    // ---- a white glow in from the corners ----
+    float2 q = (p / size - 0.5) * 2.0;
+    float edge = clamp(length(q) - 0.72, 0.0, 1.0);
+    col = mix(col, float3(1.0, 0.98, 0.99), edge * 0.55);
+
+    return half4(float4(clamp(col, 0.0, 1.0), 1.0));
+}
+"""
+
+    /**
      * A filter, as the rest of the app sees it.
      *
      * [agsl] is null for [none] only. [animated] marks the ones whose look depends on
@@ -368,6 +507,12 @@ half4 main(float2 xy) {
      * 12MP frame and a panel-sized one both come out of a 160-cell dither as the same picture, so
      * these always take the viewfinder frame instead: instant, silent, and exactly what you were
      * looking at when you pressed.
+     *
+     * [facesAware] marks the one that is handed the detected faces as uniforms. It also takes the
+     * viewfinder frame, for a different and stricter reason: the faces are detected **in the
+     * preview**, and a photograph made from a second, differently-cropped frame would have to have
+     * those rectangles mapped across — which is exactly the arithmetic that puts an enlarged eye
+     * next to somebody's ear. Filtering the frame the faces were found in cannot be misaligned.
      */
     data class Filter(
         val id: String,
@@ -375,6 +520,7 @@ half4 main(float2 xy) {
         val agsl: String?,
         val animated: Boolean = false,
         val lowRes: Boolean = false,
+        val facesAware: Boolean = false,
     ) {
         /** The whole shader, prelude included. */
         val source: String? get() = agsl?.let { PRELUDE + it }
@@ -396,6 +542,7 @@ half4 main(float2 xy) {
         Filter("gameboy", "Game Boy", GAMEBOY, lowRes = true),
         Filter("gbcolor", "GB Color", GB_COLOR, lowRes = true),
         Filter("comic", "Comic", COMIC),
+        Filter("purikura", "Purikura", PURIKURA, animated = true, facesAware = true),
         Filter("thermal", "Thermal", THERMAL),
         Filter("xray", "X-Ray", X_RAY),
         Filter("glow", "Glow", GLOW),

@@ -69,14 +69,47 @@ class FiltersTest {
 
     @Test
     fun `shaders only read uniforms the runtime sets`() {
-        // ShaderRuntime sets size and seed and binds src. A shader that declared a fourth
-        // uniform would compile and then sample garbage.
+        // ShaderRuntime sets size and seed and binds src, and sets the four face uniforms for a
+        // filter that declares itself faces-aware. A shader declaring anything else would compile
+        // and then sample garbage; one that declares a face uniform without the flag would never
+        // have it written and would warp a stale rectangle for ever.
+        val always = setOf("src", "size", "seed")
+        val faceUniforms = setOf("faceCount", "face0", "face1", "face2")
         Filters.all.filter { it.agsl != null }.forEach { filter ->
             val declared = Regex("uniform\\s+\\w+\\s+(\\w+)\\s*;")
                 .findAll(filter.source!!)
                 .map { it.groupValues[1] }
                 .toSet()
-            assertEquals(setOf("src", "size", "seed"), declared)
+            val expected = if (filter.facesAware) always + faceUniforms else always
+            assertEquals("${filter.id} declares the wrong uniforms", expected, declared)
+        }
+    }
+
+    @Test
+    fun `a faces-aware filter is one the shutter can keep aligned`() {
+        // Faces are detected in the preview, so a faces-aware photograph has to be made from the
+        // preview frame — anything else would need those rectangles mapped across a different crop,
+        // which is how an eye ends up enlarged beside an ear.
+        Filters.all.filter { it.facesAware }.forEach { filter ->
+            assertTrue(
+                "${filter.id} reads faces but never uses faceCount",
+                filter.agsl!!.contains("faceCount"),
+            )
+        }
+    }
+
+    @Test
+    fun `no shader declares a variable named after a type`() {
+        // `half` is a type in AGSL, so `float2 half = ...` is a compile error — and one that only
+        // shows up as an unfiltered viewfinder and a line in logcat.
+        Filters.all.mapNotNull { f -> f.agsl?.let { f.id to it } }.forEach { (id, source) ->
+            val code = source.lines().filterNot { it.trimStart().startsWith("//") }
+            code.forEach { line ->
+                assertTrue(
+                    "$id declares a variable called half",
+                    !Regex("\\b(float2|float3|float4|float|int)\\s+half\\b").containsMatchIn(line),
+                )
+            }
         }
     }
 
