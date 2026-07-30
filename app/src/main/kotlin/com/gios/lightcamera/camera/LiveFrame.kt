@@ -42,22 +42,24 @@ class LiveFrame(
             val out = ByteArray(width * height * 3 / 2)
 
             // ---- luma ----
+            // **Bounds first, cleverness never.** The previous version indexed with `rowStride` and
+            // `remaining()` in a way that threw on the last row of a padded plane — and the exception was
+            // swallowed by a `runCatching`, so every frame was silently dropped and the shutter reported an
+            // empty viewfinder. Everything here is clamped to what the buffer actually holds.
             val y = image.planes[0]
             val yBuffer = y.buffer
             var offset = 0
-            if (y.rowStride == width) {
-                yBuffer.get(out, 0, width * height)
-                offset = width * height
-            } else {
-                // Padded rows: copy a row at a time and leave the padding behind.
-                val row = ByteArray(y.rowStride)
-                for (line in 0 until height) {
-                    yBuffer.position(line * y.rowStride)
-                    yBuffer.get(row, 0, minOf(y.rowStride, yBuffer.remaining() + 0))
-                    row.copyInto(out, offset, 0, width)
-                    offset += width
-                }
+            for (line in 0 until height) {
+                val start = line * y.rowStride
+                if (start >= yBuffer.limit()) break
+                val take = minOf(width, yBuffer.limit() - start)
+                if (take <= 0) break
+                yBuffer.position(start)
+                yBuffer.get(out, offset, take)
+                offset += take
             }
+            // A short luma plane is a frame we cannot use; better to say so than to encode green.
+            if (offset < width * height) return null
 
             // ---- chroma, V then U ----
             val u = image.planes[1]
@@ -69,7 +71,8 @@ class LiveFrame(
 
             if (v.pixelStride == 2 && v.rowStride == width && u.pixelStride == 2) {
                 // Already interleaved as VU with the right stride: the whole plane is the answer.
-                vBuffer.get(out, offset, minOf(vBuffer.remaining(), out.size - offset))
+                vBuffer.position(0)
+                vBuffer.get(out, offset, minOf(vBuffer.limit(), out.size - offset))
                 return LiveFrame(out, width, height, image.imageInfo.rotationDegrees)
             }
 
@@ -78,6 +81,7 @@ class LiveFrame(
                 var uIndex = line * u.rowStride
                 for (col in 0 until chromaWidth) {
                     if (offset + 1 >= out.size) break
+                    if (vIndex >= vBuffer.limit() || uIndex >= uBuffer.limit()) break
                     out[offset++] = vBuffer.get(vIndex)
                     out[offset++] = uBuffer.get(uIndex)
                     vIndex += v.pixelStride

@@ -594,11 +594,22 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 // fixed cost an app cannot reach. So Simple reads the live stream instead. `grabLive`
                 // includes our own JPEG encode, which is the only part of this with any weight.
                 val startedAt = System.nanoTime()
-                val frame = engine.grabLive(quality = 88)
-                    ?: run {
-                        showNotice("Nothing on the viewfinder yet")
-                        return@launch
-                    }
+                // **Wait briefly for the first frame.** Pressing the shutter within a moment of the camera
+                // binding — which is exactly what happens when you launch straight into a photograph — can
+                // beat the analyser's first delivery. Half a second of patience turns "nothing on the
+                // viewfinder yet" into a photograph; longer than that and something is genuinely wrong and
+                // saying so is the right answer.
+                var frame = engine.grabLive(quality = 88)
+                var waited = 0
+                while (frame == null && waited < 500) {
+                    delay(50)
+                    waited += 50
+                    frame = engine.grabLive(quality = 88)
+                }
+                if (frame == null) {
+                    showNotice("The live stream gave nothing — see logcat")
+                    return@launch
+                }
                 val captureMs = (System.nanoTime() - startedAt) / 1_000_000
                 _shutterTick.tryEmit(Unit)
 

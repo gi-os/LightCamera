@@ -220,6 +220,9 @@ class CameraEngine(private val context: Context) {
      */
     @Volatile private var latestFrame: LiveFrame? = null
 
+    /** Counts complaints so a broken stream logs three lines rather than thirty a second. */
+    @Volatile private var liveComplaints = 0
+
     /** Cleared for the rest of the process the first time a zero-shutter-lag capture fails. */
     @Volatile private var zslAllowed = true
 
@@ -577,6 +580,7 @@ class CameraEngine(private val context: Context) {
         // **Bound instead of `ImageCapture`, not alongside it.** This camera is LEVEL_3 and will not give
         // three streams at once — preview plus stills plus analysis fails to bind. Simple never calls
         // `takePicture`, so it does not need the stills unit at all.
+        liveComplaints = 0
         val analysis = if (mode.isSimple) {
             ImageAnalysis.Builder()
                 .setResolutionSelector(
@@ -586,8 +590,14 @@ class CameraEngine(private val context: Context) {
                             // often capped far lower than the sensor, so what arrives may be 1080p — which
                             // is why the achieved size is reported in the timing readout rather than
                             // assumed. Whatever it is, it is instant.
+                            // **2560x1920 rather than 4000x3000.** A 12MP analysis stream is a lot to ask:
+                            // the format is uncompressed YUV, so every frame is 18MB moving through memory
+                            // thirty times a second, and a camera that will not do it can simply decline —
+                            // which is one candidate for why the first attempt delivered no frames at all.
+                            // Five megapixels is a real photograph, is closer to what analysis streams
+                            // actually support, and the readout reports whatever arrives.
                             ResolutionStrategy(
-                                Size(4000, 3000),
+                                Size(2560, 1920),
                                 ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER,
                             ),
                         )
@@ -601,10 +611,25 @@ class CameraEngine(private val context: Context) {
                 .build()
                 .also { unit ->
                     unit.setAnalyzer(captureExecutor) { image ->
+                        // **Logged, not swallowed.** The first version of this wrapped the conversion in a
+                        // `runCatching` that discarded the reason, so a converter that threw on every frame
+                        // looked exactly like a camera that had not started: "nothing on the viewfinder yet",
+                        // for ever, with no clue why.
                         // Converted here rather than at the press, on the camera's own executor: NV21 out
                         // of three planes is a few milliseconds and doing it now means the shutter is a
                         // reference assignment. The previous frame is simply dropped.
-                        latestFrame = runCatching { LiveFrame.from(image) }.getOrNull() ?: latestFrame
+                        val converted = runCatching { LiveFrame.from(image) }
+                            .onFailure {
+                                if (liveComplaints++ < 3) {
+                                    Log.e(TAG, "live frame ${image.width}x${image.height} failed", it)
+                                }
+                            }
+                            .getOrNull()
+                        if (converted != null) {
+                            latestFrame = converted
+                        } else if (liveComplaints++ < 3) {
+                            Log.w(TAG, "live frame ${image.width}x${image.height} format ${image.format} unusable")
+                        }
                         image.close()
                     }
                 }
