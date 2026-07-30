@@ -108,7 +108,7 @@ class MainActivity : ComponentActivity() {
     private fun intentCaptureOutput(): Uri? {
         if (!isCaptureAction()) return null
         @Suppress("DEPRECATION")
-        return intent?.getParcelableExtra(MediaStore.EXTRA_OUTPUT) as? Uri
+        return intent?.getParcelableExtra<Uri>(MediaStore.EXTRA_OUTPUT)
     }
 
     private fun isCaptureAction(): Boolean = when (intent?.action) {

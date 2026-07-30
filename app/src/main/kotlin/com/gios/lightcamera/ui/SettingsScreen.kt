@@ -84,7 +84,7 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(scroll)
-                .padding(horizontal = 16.dp, bottom = 40.dp),
+                .padding(start = 16.dp, end = 16.dp, bottom = 40.dp),
         ) {
             Section("Frame")
             Setting("Shape", aspect.label) {
