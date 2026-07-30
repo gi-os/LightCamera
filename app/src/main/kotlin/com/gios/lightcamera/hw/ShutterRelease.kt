@@ -1,0 +1,95 @@
+package com.gios.lightcamera.hw
+
+/**
+ * A real two-stage shutter release, out of two ordinary key events.
+ *
+ * The LPIII's camera button has two detents and reports them as separate keys: `FOCUS` at
+ * the half press and `CAMERA` at the bottom. That is the same signal a Sony body sends
+ * over its shutter switch, so the same behaviour is available — half press to acquire and
+ * lock focus, press through to release — provided three awkward facts are handled.
+ *
+ *  1. **The order varies.** A full press produces both keys, and which arrives first is
+ *     not stable between presses. So the machine can't assume FOCUS precedes CAMERA; it
+ *     has to tolerate a half press that arrives *after* the shutter has already fired,
+ *     and swallow it rather than kicking off a pointless autofocus.
+ *  2. **Neither key repeats.** Holding the button down produces one DOWN and, much later,
+ *     one UP. Anything that depends on duration has to be timed by the caller.
+ *  3. **UP order varies too**, so the release is only over once both keys are up.
+ *
+ * Deliberately free of Android imports: this is the part where a subtle mistake means the
+ * shutter fires twice or the focus lock never lets go, and it is worth being able to test
+ * off-device.
+ */
+class ShutterRelease(
+    private val onHalfPress: () -> Unit,
+    private val onFullPress: () -> Unit,
+    private val onRelease: () -> Unit,
+    private val nowMs: () -> Long = { System.currentTimeMillis() },
+) {
+
+    private var focusDown = false
+    private var cameraDown = false
+
+    /** When the shutter last fired, so a trailing half press for the same press is ignored. */
+    private var firedAt = Long.MIN_VALUE
+
+    /** True while the current press has already released the shutter. */
+    private var fired = false
+
+    fun onKey(key: LightKey, down: Boolean): Boolean {
+        when (key) {
+            LightKey.Focus -> if (down) focusDown() else focusUp()
+            LightKey.Camera -> if (down) cameraDown() else cameraUp()
+            else -> return false
+        }
+        return true
+    }
+
+    private fun focusDown() {
+        if (focusDown) return
+        focusDown = true
+        // The other half of a full press whose CAMERA key won the race. Autofocusing now
+        // would hunt the lens immediately after the photo was taken.
+        if (fired || nowMs() - firedAt < SAME_PRESS_MS) return
+        onHalfPress()
+    }
+
+    private fun cameraDown() {
+        if (cameraDown) return
+        cameraDown = true
+        if (fired) return
+        fired = true
+        firedAt = nowMs()
+        onFullPress()
+    }
+
+    private fun focusUp() {
+        focusDown = false
+        settle()
+    }
+
+    private fun cameraUp() {
+        cameraDown = false
+        settle()
+    }
+
+    /**
+     * The press is over only when nothing is held. Sony keeps focus locked for as long as
+     * the button is at the half detent, and so does this: [onRelease] is what drops the
+     * lock, and it must not fire while the finger is still on the button.
+     */
+    private fun settle() {
+        if (focusDown || cameraDown) return
+        val hadFired = fired
+        fired = false
+        onRelease()
+        if (!hadFired) return
+        // Leave firedAt alone; a stray FOCUS arriving a few ms after both keys came up is
+        // still the tail of the press that just fired.
+    }
+
+    private companion object {
+        /** How long after the shutter a FOCUS key still counts as the same press. */
+        const val SAME_PRESS_MS = 500L
+    }
+}

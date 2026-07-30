@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- The roll above the viewfinder is the device's real camera roll, not a private
+         folder, so the whole of DCIM has to be readable. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <uses-feature android:name="android.hardware.camera.any" android:required="true" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
+    <application
+        android:allowBackup="true"
+        android:hardwareAccelerated="true"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="Roll"
+        android:supportsRtl="false"
+        android:theme="@style/Theme.LightCamera">
+
+        <!--
+            Everything below the launcher filter is what makes this installable *as the
+            phone's camera* rather than as another app that happens to have a viewfinder.
+
+            - STILL_IMAGE_CAMERA is what the hardware camera key and LightOS's own
+              shortcut resolve to. With two apps claiming it the system shows a chooser
+              with a "always" option, which is how this becomes the default.
+            - IMAGE_CAPTURE is the contract other apps use for "take a photo" — it must
+              honour EXTRA_OUTPUT and return a result, which MainActivity does.
+            - The *_SECURE variants are the lock-screen entry points; showWhenLocked plus
+              turnScreenOn is what lets the camera key work with the phone locked, and
+              the app deliberately refuses to open the roll in that state.
+        -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="Roll"
+            android:launchMode="singleTop"
+            android:screenOrientation="portrait"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:theme="@style/Theme.LightCamera">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter android:priority="1">
+                <action android:name="android.media.action.STILL_IMAGE_CAMERA" />
+                <action android:name="android.media.action.STILL_IMAGE_CAMERA_SECURE" />
+                <action android:name="android.intent.action.CAMERA_BUTTON" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter android:priority="1">
+                <action android:name="android.media.action.IMAGE_CAPTURE" />
+                <action android:name="android.media.action.IMAGE_CAPTURE_SECURE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

@@ -1,0 +1,261 @@
+package com.gios.lightcamera.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import com.gios.lightcamera.Chrome
+import com.gios.lightcamera.SelfTimer
+import com.gios.lightcamera.camera.AfMode
+import com.gios.lightcamera.camera.FrameAspect
+import com.gios.lightcamera.hw.LightKeys
+import com.gios.lightcamera.hw.WheelScroll
+import com.gios.lightcamera.ui.theme.LightIcons
+import com.gios.lightcamera.ui.theme.LightText
+import com.gios.lightcamera.ui.theme.LightTextVariant
+import com.gios.lightcamera.ui.theme.LightThemeTokens
+import com.gios.lightcamera.ui.theme.lightClickable
+
+/**
+ * Settings, and the roll.
+ *
+ * Every row is a value you cycle by tapping it rather than a switch or a dialog, which is
+ * how LightOS does settings and also the only shape that stays legible at this width. The
+ * roll lives at the bottom because loading and developing are the two most consequential
+ * things in the app and the top of a list is no place for them.
+ */
+@Composable
+fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
+    val colours = LightThemeTokens.colors
+    val scroll = rememberScrollState()
+    WheelScroll(scroll)
+
+    val aspect by vm.prefs.aspect.collectAsState()
+    val chrome by vm.prefs.chrome.collectAsState()
+    val afMode by vm.prefs.afMode.collectAsState()
+    val facePriority by vm.prefs.facePriority.collectAsState()
+    val timer by vm.prefs.timer.collectAsState()
+    val wheel by vm.prefs.wheelEnabled.collectAsState()
+    val rollLength by vm.prefs.rollLength.collectAsState()
+    val roll by vm.roll.collectAsState()
+    val facesSupported by vm.engine.facesSupported.collectAsState()
+
+    var confirmDiscard by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(46.dp)
+                .padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            LightText(
+                "SETTINGS",
+                LightTextVariant.Superfine,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+            Spacer(Modifier.weight(1f))
+            ChromeIcon(icon = LightIcons.Close, onClick = onClose)
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scroll)
+                .padding(horizontal = 16.dp, bottom = 40.dp),
+        ) {
+            Section("Frame")
+            Setting("Shape", aspect.label) {
+                val all = FrameAspect.entries
+                vm.prefs.setAspect(all[(all.indexOf(aspect) + 1) % all.size])
+            }
+            Setting("Viewfinder", chrome.label) {
+                val all = Chrome.entries
+                vm.prefs.setChrome(all[(all.indexOf(chrome) + 1) % all.size])
+            }
+            Note("The frame is the photograph. What falls outside it on screen is not saved.")
+
+            Section("Focus")
+            Setting("Mode", if (afMode == AfMode.Single) "Single" else "Continuous") {
+                vm.prefs.setAfMode(if (afMode == AfMode.Single) AfMode.Continuous else AfMode.Single)
+            }
+            Setting(
+                label = "Faces",
+                value = when {
+                    !facesSupported -> "Unavailable"
+                    facePriority -> "Priority"
+                    else -> "Ignore"
+                },
+                enabled = facesSupported,
+            ) {
+                vm.prefs.setFacePriority(!facePriority)
+            }
+            Note(
+                if (facesSupported) {
+                    "Half press the camera button to focus on the nearest face and hold it. Press through to take the photograph."
+                } else {
+                    "This camera doesn't report faces, so the half press focuses on the centre of the frame."
+                },
+            )
+
+            Section("Shutter")
+            Setting("Self timer", timer.label) {
+                val all = SelfTimer.entries
+                vm.prefs.setTimer(all[(all.indexOf(timer) + 1) % all.size])
+            }
+            Setting("Wheel", if (wheel) "Zoom / EV" else "Off") {
+                vm.prefs.setWheelEnabled(!wheel)
+            }
+            Note(
+                if (LightKeys.wheelLabelsPresent()) {
+                    "Turn the wheel to zoom. Hold it in and turn for exposure. Click it for the torch."
+                } else {
+                    "This build doesn't map the wheel keys, so turning it may do nothing."
+                },
+            )
+
+            Section("Film")
+            if (roll == null) {
+                Setting("Frames per roll", "$rollLength") {
+                    vm.prefs.setRollLength(
+                        when (rollLength) {
+                            12 -> 24
+                            24 -> 36
+                            else -> 12
+                        },
+                    )
+                }
+                Action("Load a roll") { vm.loadRoll(); onClose() }
+                Note(
+                    "With a roll loaded, photographs go onto the roll instead of into the gallery. No preview, no review — just a counter — until you develop it.",
+                )
+            } else {
+                val loaded = roll
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    LightText("Roll ${loaded?.number}", LightTextVariant.Copy)
+                    Spacer(Modifier.weight(1f))
+                    LightText(
+                        "${loaded?.shot} of ${loaded?.length}",
+                        LightTextVariant.Copy,
+                        lighten = true,
+                    )
+                }
+                RollCounter(roll = loaded, modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp))
+                Action(if ((loaded?.shot ?: 0) == 0) "Unload" else "Develop") {
+                    vm.developRoll()
+                    onClose()
+                }
+                if ((loaded?.shot ?: 0) > 0) {
+                    Action(
+                        if (confirmDiscard) "Tap again to throw the roll away" else "Discard",
+                        lighten = true,
+                    ) {
+                        if (confirmDiscard) {
+                            vm.discardRoll()
+                            confirmDiscard = false
+                            onClose()
+                        } else {
+                            confirmDiscard = true
+                        }
+                    }
+                }
+                Note("Developing writes every frame into the camera roll, each keeping the time it was taken.")
+            }
+
+            Section("About")
+            Note(
+                "Roll — a camera for the Light Phone III. Filters are AGSL shaders applied to the live preview and to the photograph by the same code, so the file matches the frame.",
+            )
+            Box(Modifier.height(24.dp))
+            LightText(
+                "github.com/gi-os/LightCamera",
+                LightTextVariant.Micro,
+                lighten = true,
+            )
+            Box(Modifier.height(8.dp))
+            LightText(
+                "Icons and design tokens from lightphone/light-sdk, MIT.",
+                LightTextVariant.Micro,
+                color = colours.contentFaint,
+            )
+        }
+    }
+}
+
+@Composable
+private fun Section(title: String) {
+    LightText(
+        text = title.uppercase(),
+        variant = LightTextVariant.Superfine,
+        lighten = true,
+        modifier = Modifier.padding(top = 22.dp, bottom = 6.dp),
+    )
+}
+
+@Composable
+private fun Setting(
+    label: String,
+    value: String,
+    enabled: Boolean = true,
+    onTap: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .lightClickable(enabled = enabled) { onTap() }
+            .padding(vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        LightText(label, LightTextVariant.Copy, lighten = !enabled)
+        Spacer(Modifier.weight(1f))
+        LightText(value, LightTextVariant.Copy, lighten = true)
+    }
+}
+
+@Composable
+private fun Action(label: String, lighten: Boolean = false, onTap: () -> Unit) {
+    LightText(
+        text = label.uppercase(),
+        variant = LightTextVariant.Button,
+        lighten = lighten,
+        modifier = Modifier
+            .fillMaxWidth()
+            .lightClickable { onTap() }
+            .padding(vertical = 12.dp),
+    )
+}
+
+@Composable
+private fun Note(text: String) {
+    LightText(
+        text = text,
+        variant = LightTextVariant.Detail,
+        lighten = true,
+        modifier = Modifier.padding(top = 2.dp, bottom = 4.dp),
+    )
+}

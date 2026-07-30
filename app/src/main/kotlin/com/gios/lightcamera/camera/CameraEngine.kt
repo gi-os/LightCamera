@@ -1,0 +1,570 @@
+package com.gios.lightcamera.camera
+
+import android.annotation.SuppressLint
+import android.content.Context
+import android.graphics.Rect
+import android.hardware.camera2.CameraCaptureSession
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CameraMetadata
+import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.CaptureResult
+import android.hardware.camera2.TotalCaptureResult
+import android.hardware.camera2.params.Face
+import android.util.Log
+import android.view.Surface
+import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.Camera2Interop
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
+import androidx.camera.core.Camera
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.ImageProxy
+import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.LifecycleOwner
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.suspendCancellableCoroutine
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlin.math.roundToInt
+
+enum class AfState { Idle, Scanning, Locked, Failed }
+
+enum class FlashMode { Off, On, Auto }
+
+/** Single locks on the half press and stays put; Continuous keeps the subject sharp. */
+enum class AfMode { Single, Continuous }
+
+/** A photo, straight off the sensor. */
+class CapturedFrame(val jpeg: ByteArray, val rotationDegrees: Int, val mirrored: Boolean)
+
+/**
+ * The camera itself: preview, autofocus, hardware face detection, zoom, exposure, capture.
+ *
+ * Two things here are worth more than the rest of the file.
+ *
+ * **Face detection is the camera's, not a library's.** Every camera HAL on Android can
+ * detect faces in hardware, publish them in each capture result, and — with
+ * `CONTROL_SCENE_MODE_FACE_PRIORITY` — meter and focus on them. Reaching that costs one
+ * [Camera2Interop] extender and a capture callback. The usual answer, ML Kit, would add
+ * several megabytes to the APK, run a second detector on the CPU over frames the HAL has
+ * already analysed, and still not tell the lens where to focus.
+ *
+ * **The AF state is read, not assumed.** `CONTROL_AF_STATE` in the capture result is what
+ * the lens is actually doing, so the focus bracket on screen snaps when the lens snaps
+ * rather than when a future completes. That is the difference between a viewfinder you
+ * trust and one you second-guess.
+ */
+@OptIn(ExperimentalCamera2Interop::class)
+class CameraEngine(private val context: Context) {
+
+    private val _faces = MutableStateFlow<List<FaceBox>>(emptyList())
+    val faces: StateFlow<List<FaceBox>> = _faces.asStateFlow()
+
+    private val _afState = MutableStateFlow(AfState.Idle)
+    val afState: StateFlow<AfState> = _afState.asStateFlow()
+
+    /** Where the last focus request was aimed, in view pixels, for drawing the bracket. */
+    private val _focusPoint = MutableStateFlow<Pair<Float, Float>?>(null)
+    val focusPoint: StateFlow<Pair<Float, Float>?> = _focusPoint.asStateFlow()
+
+    private val _zoom = MutableStateFlow(1f)
+    val zoom: StateFlow<Float> = _zoom.asStateFlow()
+
+    private val _maxZoom = MutableStateFlow(1f)
+    val maxZoom: StateFlow<Float> = _maxZoom.asStateFlow()
+
+    /** Exposure compensation, in the camera's own index steps. */
+    private val _ev = MutableStateFlow(0)
+    val ev: StateFlow<Int> = _ev.asStateFlow()
+
+    private val _evRange = MutableStateFlow(0..0)
+    val evRange: StateFlow<IntRange> = _evRange.asStateFlow()
+
+    /** EV index to stops, for the readout. Usually a third of a stop per step. */
+    private val _evStep = MutableStateFlow(1f / 3f)
+    val evStep: StateFlow<Float> = _evStep.asStateFlow()
+
+    private val _torch = MutableStateFlow(false)
+    val torch: StateFlow<Boolean> = _torch.asStateFlow()
+
+    private val _facesSupported = MutableStateFlow(false)
+    val facesSupported: StateFlow<Boolean> = _facesSupported.asStateFlow()
+
+    private val _lensFacing = MutableStateFlow(CameraSelector.LENS_FACING_BACK)
+    val lensFacing: StateFlow<Int> = _lensFacing.asStateFlow()
+
+    private val _ready = MutableStateFlow(false)
+    val ready: StateFlow<Boolean> = _ready.asStateFlow()
+
+    private var provider: ProcessCameraProvider? = null
+    private var camera: Camera? = null
+    private var preview: Preview? = null
+    private var imageCapture: ImageCapture? = null
+    private var previewView: PreviewView? = null
+    private var owner: LifecycleOwner? = null
+
+    private val captureExecutor = Executors.newSingleThreadExecutor()
+
+    /** Read from the camera callback thread, written from the UI. */
+    @Volatile private var viewWidth = 0
+
+    @Volatile private var viewHeight = 0
+
+    @Volatile private var sensorOrientation = 90
+
+    @Volatile private var activeArray: Rect? = null
+
+    @Volatile private var faceDetectMode = CameraMetadata.STATISTICS_FACE_DETECT_MODE_OFF
+
+    @Volatile private var lastFacePublish = 0L
+
+    /** True while a half press is holding focus, so continuous AF leaves the lens alone. */
+    @Volatile private var focusHeld = false
+
+    var afMode: AfMode = AfMode.Single
+    var facePriority: Boolean = true
+
+    /* ---------------- binding ---------------- */
+
+    fun onViewSized(width: Int, height: Int) {
+        viewWidth = width
+        viewHeight = height
+    }
+
+    fun bind(owner: LifecycleOwner, view: PreviewView, flash: FlashMode) {
+        this.owner = owner
+        this.previewView = view
+        val future = ProcessCameraProvider.getInstance(context)
+        future.addListener({
+            val provider = runCatching { future.get() }.getOrNull() ?: return@addListener
+            this.provider = provider
+            rebind(flash)
+        }, ContextCompat.getMainExecutor(context))
+    }
+
+    fun setLens(facing: Int, flash: FlashMode) {
+        if (_lensFacing.value == facing) return
+        _lensFacing.value = facing
+        _faces.value = emptyList()
+        _zoom.value = 1f
+        rebind(flash)
+    }
+
+    fun setFlash(mode: FlashMode) {
+        imageCapture?.flashMode = when (mode) {
+            FlashMode.Off -> ImageCapture.FLASH_MODE_OFF
+            FlashMode.On -> ImageCapture.FLASH_MODE_ON
+            FlashMode.Auto -> ImageCapture.FLASH_MODE_AUTO
+        }
+    }
+
+    /**
+     * Build the use cases and bind them.
+     *
+     * The face-detect mode has to be decided *before* binding, because it is a capture
+     * request option baked into the session. So the characteristics are read straight from
+     * [CameraManager] for the camera CameraX is about to choose, rather than from the
+     * bound camera. Post-bind the sensor orientation and active array are refreshed from
+     * the camera actually in use, in case the guess picked a different physical sensor.
+     */
+    private fun rebind(flash: FlashMode) {
+        val provider = provider ?: return
+        val owner = owner ?: return
+        val view = previewView ?: return
+
+        val hw = readHardware(_lensFacing.value)
+        sensorOrientation = hw.sensorOrientation
+        activeArray = hw.activeArray
+        faceDetectMode = hw.faceDetectMode
+        _facesSupported.value = hw.faceDetectMode != CameraMetadata.STATISTICS_FACE_DETECT_MODE_OFF
+
+        // 4:3 is the sensor's own shape. Narrower frames are drawn as frame lines and
+        // cropped at save time, which is what a camera with a fixed sensor actually does —
+        // asking the camera for 16:9 would throw away pixels before you had decided.
+        val selector = ResolutionSelector.Builder()
+            .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+            .build()
+
+        val previewBuilder = Preview.Builder()
+            .setResolutionSelector(selector)
+            .setTargetRotation(Surface.ROTATION_0)
+
+        // Only the face detector is switched on here, and deliberately nothing else.
+        //
+        // `CONTROL_SCENE_MODE_FACE_PRIORITY` looks like the right thing — it asks the HAL
+        // itself to meter and focus on faces — but it requires `CONTROL_MODE` to be
+        // `USE_SCENE_MODE`, which hands 3A to the scene profile and lets the HAL ignore the
+        // AF regions CameraX sets. That would trade a working tap-to-focus and half press
+        // for an opaque one, so face-priority AF is done here instead, from the boxes the
+        // detector publishes, via `startFocusAndMetering`.
+        Camera2Interop.Extender(previewBuilder).apply {
+            if (_facesSupported.value) {
+                setCaptureRequestOption(
+                    CaptureRequest.STATISTICS_FACE_DETECT_MODE,
+                    hw.faceDetectMode,
+                )
+            }
+            setSessionCaptureCallback(resultCallback)
+        }
+
+        val preview = previewBuilder.build()
+        this.preview = preview
+
+        val capture = ImageCapture.Builder()
+            .setResolutionSelector(selector)
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .setTargetRotation(Surface.ROTATION_0)
+            .build()
+        this.imageCapture = capture
+        setFlash(flash)
+
+        val cameraSelector = CameraSelector.Builder()
+            .requireLensFacing(_lensFacing.value)
+            .build()
+
+        runCatching {
+            provider.unbindAll()
+            preview.setSurfaceProvider(view.surfaceProvider)
+            val bound = provider.bindToLifecycle(owner, cameraSelector, preview, capture)
+            camera = bound
+            readCameraLimits(bound)
+            _ready.value = true
+        }.onFailure {
+            Log.e(TAG, "bind failed", it)
+            _ready.value = false
+        }
+    }
+
+    private class Hardware(
+        val sensorOrientation: Int,
+        val activeArray: Rect?,
+        val faceDetectMode: Int,
+    )
+
+    @SuppressLint("MissingPermission")
+    private fun readHardware(facing: Int): Hardware {
+        val manager = context.getSystemService(CameraManager::class.java)
+            ?: return Hardware(90, null, CameraMetadata.STATISTICS_FACE_DETECT_MODE_OFF)
+        val want = if (facing == CameraSelector.LENS_FACING_FRONT) {
+            CameraCharacteristics.LENS_FACING_FRONT
+        } else {
+            CameraCharacteristics.LENS_FACING_BACK
+        }
+        return runCatching {
+            val id = manager.cameraIdList.firstOrNull {
+                manager.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == want
+            } ?: return@runCatching Hardware(90, null, CameraMetadata.STATISTICS_FACE_DETECT_MODE_OFF)
+            val ch = manager.getCameraCharacteristics(id)
+            val modes = ch.get(CameraCharacteristics.STATISTICS_INFO_AVAILABLE_FACE_DETECT_MODES)
+                ?.toList().orEmpty()
+            // SIMPLE gives rectangles, FULL adds landmarks and ids we don't need. Prefer
+            // SIMPLE: it is the cheaper pipeline and far more widely implemented.
+            val mode = when {
+                modes.contains(CameraMetadata.STATISTICS_FACE_DETECT_MODE_SIMPLE) ->
+                    CameraMetadata.STATISTICS_FACE_DETECT_MODE_SIMPLE
+                modes.contains(CameraMetadata.STATISTICS_FACE_DETECT_MODE_FULL) ->
+                    CameraMetadata.STATISTICS_FACE_DETECT_MODE_FULL
+                else -> CameraMetadata.STATISTICS_FACE_DETECT_MODE_OFF
+            }
+            Hardware(
+                sensorOrientation = ch.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90,
+                activeArray = ch.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE),
+                faceDetectMode = mode,
+            )
+        }.getOrElse { Hardware(90, null, CameraMetadata.STATISTICS_FACE_DETECT_MODE_OFF) }
+    }
+
+    private fun readCameraLimits(bound: Camera) {
+        val info = bound.cameraInfo
+        _maxZoom.value = info.zoomState.value?.maxZoomRatio ?: 1f
+        _zoom.value = info.zoomState.value?.zoomRatio ?: 1f
+        val exposure = info.exposureState
+        if (exposure.isExposureCompensationSupported) {
+            val range = exposure.exposureCompensationRange
+            _evRange.value = range.lower..range.upper
+            _evStep.value = exposure.exposureCompensationStep.toFloat()
+            _ev.value = exposure.exposureCompensationIndex
+        } else {
+            _evRange.value = 0..0
+        }
+        runCatching {
+            val ch = Camera2CameraInfo.from(info)
+            ch.getCameraCharacteristic(CameraCharacteristics.SENSOR_ORIENTATION)
+                ?.let { sensorOrientation = it }
+            ch.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+                ?.let { activeArray = it }
+        }
+    }
+
+    /* ---------------- capture results: faces and AF ---------------- */
+
+    private val resultCallback = object : CameraCaptureSession.CaptureCallback() {
+        override fun onCaptureCompleted(
+            session: CameraCaptureSession,
+            request: CaptureRequest,
+            result: TotalCaptureResult,
+        ) {
+            readAf(result)
+            readFaces(result)
+        }
+    }
+
+    private fun readAf(result: TotalCaptureResult) {
+        val state = result.get(CaptureResult.CONTROL_AF_STATE) ?: return
+        val mapped = when (state) {
+            CaptureResult.CONTROL_AF_STATE_ACTIVE_SCAN,
+            CaptureResult.CONTROL_AF_STATE_PASSIVE_SCAN,
+            -> AfState.Scanning
+
+            CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED,
+            CaptureResult.CONTROL_AF_STATE_PASSIVE_FOCUSED,
+            -> AfState.Locked
+
+            CaptureResult.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED -> AfState.Failed
+            else -> AfState.Idle
+        }
+        // A passive lock with nothing requested is the camera idling in continuous AF; it
+        // shouldn't light the bracket, or the viewfinder is permanently claiming success.
+        if (mapped == AfState.Locked && !focusHeld && _afState.value == AfState.Idle) return
+        _afState.value = mapped
+    }
+
+    private fun readFaces(result: TotalCaptureResult) {
+        if (!_facesSupported.value) return
+        val now = System.currentTimeMillis()
+        // The camera reports at frame rate. Half of that is smoother than the eye needs and
+        // spares the overlay two thirds of its recompositions.
+        if (now - lastFacePublish < FACE_PUBLISH_MS) return
+        lastFacePublish = now
+
+        val detected: Array<Face> = result.get(CaptureResult.STATISTICS_FACES) ?: emptyArray()
+        if (detected.isEmpty()) {
+            if (_faces.value.isNotEmpty()) _faces.value = emptyList()
+            return
+        }
+        val crop = result.get(CaptureResult.SCALER_CROP_REGION) ?: activeArray ?: return
+        val resolution = preview?.resolutionInfo ?: return
+        val vw = viewWidth
+        val vh = viewHeight
+        if (vw == 0 || vh == 0) return
+        val mirrored = _lensFacing.value == CameraSelector.LENS_FACING_FRONT
+
+        val boxes = detected.mapNotNull { face ->
+            val r = face.bounds
+            FaceMapper.toView(
+                id = face.id,
+                score = face.score,
+                sensorRect = intArrayOf(r.left, r.top, r.right, r.bottom),
+                cropRect = intArrayOf(crop.left, crop.top, crop.right, crop.bottom),
+                rotationDegrees = resolution.rotationDegrees,
+                bufferWidth = resolution.resolution.width,
+                bufferHeight = resolution.resolution.height,
+                mirrored = mirrored,
+                viewWidth = vw,
+                viewHeight = vh,
+            )
+        }
+        _faces.value = boxes
+    }
+
+    /* ---------------- focus ---------------- */
+
+    /** The half press. Focus and meter, and hold it there until the button comes back up. */
+    fun halfPress() {
+        val target = if (facePriority) {
+            FaceMapper.priority(_faces.value, viewWidth, viewHeight)
+        } else {
+            null
+        }
+        focusHeld = true
+        if (target != null) {
+            focusAt(target.centreX, target.centreY, lock = true)
+        } else {
+            focusAt(viewWidth * 0.5f, viewHeight * 0.5f, lock = true)
+        }
+    }
+
+    /** Tap to focus, or the half press. [lock] disables the camera's own auto-cancel. */
+    fun focusAt(x: Float, y: Float, lock: Boolean) {
+        val control = camera?.cameraControl ?: return
+        val view = previewView ?: return
+        val point = runCatching { view.meteringPointFactory.createPoint(x, y) }.getOrNull()
+            ?: return
+        _focusPoint.value = x to y
+        _afState.value = AfState.Scanning
+        val builder = FocusMeteringAction.Builder(
+            point,
+            FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE,
+        )
+        if (lock) {
+            builder.disableAutoCancel()
+        } else {
+            builder.setAutoCancelDuration(TAP_FOCUS_HOLD_MS, TimeUnit.MILLISECONDS)
+        }
+        runCatching { control.startFocusAndMetering(builder.build()) }
+    }
+
+    /** The button came back up. Let the camera go back to deciding for itself. */
+    fun releaseFocus() {
+        focusHeld = false
+        if (afMode == AfMode.Continuous) {
+            runCatching { camera?.cameraControl?.cancelFocusAndMetering() }
+            _afState.value = AfState.Idle
+            _focusPoint.value = null
+        }
+    }
+
+    /**
+     * Continuous AF, driven from the face boxes.
+     *
+     * Called by the UI on each new face list rather than on a timer, so a still subject
+     * costs nothing. [FaceMapper.movedEnoughToRefocus] is the whole policy.
+     */
+    fun trackFaces(previous: FaceBox?, current: FaceBox?) {
+        if (afMode != AfMode.Continuous || focusHeld) return
+        if (!FaceMapper.movedEnoughToRefocus(previous, current, viewWidth, viewHeight)) return
+        val target = current ?: return
+        focusAt(target.centreX, target.centreY, lock = false)
+    }
+
+    /* ---------------- zoom, exposure, torch ---------------- */
+
+    /**
+     * One notch of the wheel.
+     *
+     * Geometric, not linear: a fixed ratio per notch means the framing changes by the same
+     * proportion at 1x and at 8x, which is how a zoom ring feels. A fixed *increment* would
+     * crawl at the wide end and leap at the long end.
+     */
+    fun stepZoom(notches: Int) {
+        val control = camera?.cameraControl ?: return
+        val max = _maxZoom.value
+        val next = (_zoom.value * ZOOM_PER_NOTCH.pow(notches)).coerceIn(1f, max)
+        _zoom.value = next
+        runCatching { control.setZoomRatio(next) }
+    }
+
+    fun setZoom(ratio: Float) {
+        val control = camera?.cameraControl ?: return
+        val next = ratio.coerceIn(1f, _maxZoom.value)
+        _zoom.value = next
+        runCatching { control.setZoomRatio(next) }
+    }
+
+    fun stepEv(notches: Int) {
+        val control = camera?.cameraControl ?: return
+        val range = _evRange.value
+        if (range.first == range.last) return
+        val next = (_ev.value + notches).coerceIn(range.first, range.last)
+        if (next == _ev.value) return
+        _ev.value = next
+        runCatching { control.setExposureCompensationIndex(next) }
+    }
+
+    fun resetEv() {
+        _ev.value = 0
+        runCatching { camera?.cameraControl?.setExposureCompensationIndex(0) }
+    }
+
+    fun toggleTorch() {
+        val control = camera?.cameraControl ?: return
+        val has = camera?.cameraInfo?.hasFlashUnit() ?: false
+        if (!has) return
+        val next = !_torch.value
+        _torch.value = next
+        runCatching { control.enableTorch(next) }
+    }
+
+    fun hasFlash(): Boolean = camera?.cameraInfo?.hasFlashUnit() ?: false
+
+    fun hasFrontCamera(): Boolean = runCatching {
+        provider?.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) ?: false
+    }.getOrDefault(false)
+
+    /* ---------------- capture ---------------- */
+
+    /**
+     * Take the photo.
+     *
+     * In-memory rather than to a file: the bytes go through a shader, get cropped to the
+     * chosen frame, and may end up in a roll that isn't in the gallery yet, so writing them
+     * to disk first would only be a file to clean up.
+     */
+    suspend fun capture(): CapturedFrame = suspendCancellableCoroutine { cont ->
+        val capture = imageCapture
+        if (capture == null) {
+            cont.resumeWithException(IllegalStateException("camera not bound"))
+            return@suspendCancellableCoroutine
+        }
+        capture.takePicture(
+            captureExecutor,
+            object : ImageCapture.OnImageCapturedCallback() {
+                override fun onCaptureSuccess(image: ImageProxy) {
+                    val frame = runCatching {
+                        val buffer = image.planes[0].buffer
+                        val bytes = ByteArray(buffer.remaining())
+                        buffer.get(bytes)
+                        CapturedFrame(
+                            jpeg = bytes,
+                            rotationDegrees = image.imageInfo.rotationDegrees,
+                            mirrored = _lensFacing.value == CameraSelector.LENS_FACING_FRONT,
+                        )
+                    }
+                    image.close()
+                    frame.fold({ if (cont.isActive) cont.resume(it) }, {
+                        if (cont.isActive) cont.resumeWithException(it)
+                    })
+                }
+
+                override fun onError(exception: ImageCaptureException) {
+                    if (cont.isActive) cont.resumeWithException(exception)
+                }
+            },
+        )
+    }
+
+    fun evLabel(): String {
+        val stops = _ev.value * _evStep.value
+        if (stops == 0f) return "0.0"
+        val rounded = (stops * 10).roundToInt() / 10f
+        return (if (rounded > 0) "+" else "") + String.format("%.1f", rounded)
+    }
+
+    fun zoomLabel(): String {
+        val z = _zoom.value
+        return if (z < 9.95f) String.format("%.1fx", z) else String.format("%.0fx", z)
+    }
+
+    fun shutdown() {
+        runCatching { provider?.unbindAll() }
+        captureExecutor.shutdown()
+    }
+
+    private fun Float.pow(n: Int): Float {
+        var out = 1f
+        repeat(kotlin.math.abs(n)) { out *= this }
+        return if (n >= 0) out else 1f / out
+    }
+
+    private companion object {
+        const val TAG = "CameraEngine"
+
+        /** ~11% per notch: nine notches to double, so a full 8x rack is a deliberate spin. */
+        const val ZOOM_PER_NOTCH = 1.08f
+
+        const val FACE_PUBLISH_MS = 66L
+        const val TAP_FOCUS_HOLD_MS = 4_000L
+    }
+}

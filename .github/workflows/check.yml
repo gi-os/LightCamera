@@ -1,0 +1,37 @@
+name: Check
+
+# Compiles and tests without publishing anything.
+#
+# The point of this workflow is that a push to main cuts a release, so main is a bad place
+# to find out that something doesn't compile. Any other branch runs this instead, which is
+# the same build minus the signing checks and the release.
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
+
+      - name: Compile
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: LightCamera-check-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
