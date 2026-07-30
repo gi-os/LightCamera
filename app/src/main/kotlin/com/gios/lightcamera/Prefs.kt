@@ -54,7 +54,24 @@ enum class Colour(val label: String) {
  * what makes it reachable without a hidden gesture.
  */
 enum class CaptureMode(val label: String) {
-    Photo("Camera"),
+    /**
+     * **The one the camera opens on, and the one that just takes a photograph.**
+     *
+     * Everything this app is proud of — the filters, the stamps, the crops, the booth — costs a decode
+     * and a re-encode, and a decode of a 50-megapixel JPEG is most of a second before anything else
+     * happens. Simple takes none of those options, which is not a restriction so much as the whole point:
+     * with no filter, no crop and no stamp, [com.gios.lightcamera.camera.Frames] writes **the sensor's own
+     * JPEG, untouched** — no decode, no re-encode, EXIF intact — and the shutter is as quick as the
+     * hardware is.
+     *
+     * Quality is not what is traded away. It shoots 12 megapixels, which is four times the largest print
+     * anybody makes from a phone, and the file is the ISP's own output rather than something this app
+     * re-compressed.
+     */
+    Simple("Simple"),
+
+    /** Everything: filters, sizes up to 50MP, crops, date backs, self timer, the booth. */
+    Photo("Pro"),
     Video("Video"),
     Selfie("Selfie"),
     ;
@@ -62,10 +79,14 @@ enum class CaptureMode(val label: String) {
     /** What the mode slot in the band reads. */
     val bandLabel: String
         get() = when (this) {
-            Photo -> "PHOTO"
+            Simple -> "SIMPLE"
+            Photo -> "PRO"
             Video -> "VIDEO"
             Selfie -> "SELFIE"
         }
+
+    /** True where the app gets out of the way: no filter, no crop, no stamp, no timer. */
+    val isSimple: Boolean get() = this == Simple
 }
 
 /**
@@ -140,7 +161,9 @@ class Prefs(context: Context) {
      * finding it still in video a day later, with the shutter recording instead of shooting, is
      * a photograph missed.
      */
-    private val _mode = MutableStateFlow(CaptureMode.Photo)
+    // Simple, every time the camera opens. Not remembered between launches on purpose: whatever you were
+    // doing in Pro last night, pressing the camera key today means you want to take a photograph.
+    private val _mode = MutableStateFlow(CaptureMode.Simple)
     val mode: StateFlow<CaptureMode> = _mode.asStateFlow()
 
     private val _aspect = MutableStateFlow(FrameAspect.byLabel(prefs.getString(ASPECT, null)))

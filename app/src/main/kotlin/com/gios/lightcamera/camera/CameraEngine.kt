@@ -306,7 +306,7 @@ class CameraEngine(private val context: Context) {
         if (_recording.value) return
         val lens = when (next) {
             CaptureMode.Selfie -> CameraSelector.LENS_FACING_FRONT
-            CaptureMode.Photo -> CameraSelector.LENS_FACING_BACK
+            CaptureMode.Simple, CaptureMode.Photo -> CameraSelector.LENS_FACING_BACK
             // Video keeps whichever lens you were using; it is a mode, not a camera.
             CaptureMode.Video -> _lensFacing.value
         }

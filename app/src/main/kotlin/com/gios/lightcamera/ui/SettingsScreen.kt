@@ -102,6 +102,9 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
                 .padding(start = 16.dp, end = 16.dp, bottom = 40.dp),
         ) {
             Section("Frame")
+            Note(
+                "These are Pro settings. Simple always shoots 12MP with no filter and no crop, which is what lets it write the sensor's own JPEG without decoding it — the difference between a shutter that feels instant and one that thinks about it.",
+            )
             Setting("Size", photoSize.label) {
                 val all = PhotoSize.entries
                 vm.prefs.setPhotoSize(all[(all.indexOf(photoSize) + 1) % all.size])

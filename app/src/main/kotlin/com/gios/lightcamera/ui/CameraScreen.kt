@@ -205,7 +205,14 @@ fun CameraScreen(
     // The live filter, attached in exactly one place. In video it is forced off: a RenderEffect
     // is a property of the *view*, so it never reaches the recorded stream — a filtered preview
     // would be promising something the file wouldn't deliver.
-    val liveFilter = if (mode == CaptureMode.Video) com.gios.lightcamera.filter.Filters.none else filter
+    // **Simple has no filter, and cannot be talked into one.** Not merely hidden: the shutter writes the
+    // sensor's JPEG untouched, so a filtered preview would be promising something the file would not
+    // deliver — the same reason video forces it off.
+    val liveFilter = if (mode == CaptureMode.Video || mode.isSimple) {
+        com.gios.lightcamera.filter.Filters.none
+    } else {
+        filter
+    }
     // Purikura is the one filter that needs to know where the faces are, so the effect is rebuilt
     // when they move — which the detector publishes about fifteen times a second. Every other filter
     // keys on nothing that changes, so nothing extra happens for them.
@@ -266,7 +273,10 @@ fun CameraScreen(
     // **Nothing scrolls while the Purikura menu is open.** The menu is a list of five things you are
     // reading; a wheel that walked the filters underneath it would change the picture behind the menu
     // and take Purikura away, closing the menu you were using.
-    WheelTurns(active = active && wheelEnabled && !evOpen && !puriOpen, armed = false) { notches ->
+    WheelTurns(
+        active = active && wheelEnabled && !evOpen && !puriOpen && !mode.isSimple,
+        armed = false,
+    ) { notches ->
         vm.stepFilter(if (notches > 0) 1 else -1)
     }
     // Exposure keeps both of its routes: the strip while it is open, and hold-and-turn always.
@@ -379,7 +389,7 @@ fun CameraScreen(
                                 )
                             },
                         )
-                        ChromeIcon(
+                        if (!mode.isSimple) ChromeIcon(
                             icon = LightIcons.Exposure,
                             lighten = !evOpen && ev == 0,
                             onClick = {
@@ -419,7 +429,7 @@ fun CameraScreen(
                                 engine.focusAt(x, y, lock = false)
                             },
                             onDoubleTap = { vm.flipLens() },
-                            onFilterStep = { vm.stepFilter(it) },
+                            onFilterStep = { if (!mode.isSimple) vm.stepFilter(it) },
                         ),
                 )
 
@@ -495,7 +505,9 @@ fun CameraScreen(
                 }
 
                 FrameOverlay(
-                    chrome = chrome,
+                    // Simple draws no grid: the one decoration that is only useful when you are composing
+                    // deliberately, in the mode for when you are not.
+                    chrome = if (mode.isSimple) Chrome.Clean else chrome,
                     faces = faces,
                     priority = priority,
                     afState = afState,

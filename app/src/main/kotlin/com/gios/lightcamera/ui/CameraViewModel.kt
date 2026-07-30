@@ -11,6 +11,8 @@ import com.gios.lightcamera.CaptureMode
 import com.gios.lightcamera.Prefs
 import com.gios.lightcamera.camera.CameraEngine
 import com.gios.lightcamera.camera.FaceBox
+import com.gios.lightcamera.PhotoSize
+import com.gios.lightcamera.camera.FrameAspect
 import com.gios.lightcamera.camera.Frames
 import com.gios.lightcamera.camera.PuriArt
 import com.gios.lightcamera.camera.PuriStrip
@@ -287,7 +289,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     /** The lens switch, which in Photo and Selfie is the same thing as switching mode. */
     fun flipLens() {
         when (prefs.mode.value) {
-            CaptureMode.Photo -> setMode(CaptureMode.Selfie)
+            CaptureMode.Simple, CaptureMode.Photo -> setMode(CaptureMode.Selfie)
             CaptureMode.Selfie -> setMode(CaptureMode.Photo)
             CaptureMode.Video -> {
                 if (engine.recording.value) return
@@ -406,6 +408,14 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         if (_shooting.value) return
+        // **Simple: the shortest route from a press to a file.** No filter, no crop, no stamp, no timer
+        // and no roll, so `Frames.process` recognises that there is nothing to do and writes the sensor's
+        // own JPEG straight out — no decode of a huge bitmap, no re-encode, EXIF intact. Everything below
+        // this branch exists to serve the options Simple does not have.
+        if (prefs.mode.value.isSimple) {
+            shootSimple()
+            return
+        }
         // Four shots and a strip, if that is what the menu says. Its own routine, because a booth
         // sequence is not a photograph taken four times: it counts you in, it cannot be stopped
         // halfway, and what it produces is one print.
@@ -520,6 +530,55 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 finish(processed, activeFilter.id)
             } finally {
                 _countdown.value = null
+                _shooting.value = false
+            }
+        }
+    }
+
+    /**
+     * A photograph, and nothing else.
+     *
+     * The three things that make this quick, in order of how much they matter:
+     *
+     *  1. **Nothing to process.** With no filter, no crop and no date the JPEG the ISP produced is the
+     *     file — `Frames.process` returns it whole. A filtered 12MP shot has to be decoded to a 48MB
+     *     bitmap, run through a shader and re-encoded; skipping that is most of a second.
+     *  2. **Twelve megapixels, not fifty.** Reading out and encoding the full sensor is most of the ISP's
+     *     second on its own, and each step down is roughly a halving. 12MP is four times the largest
+     *     print anyone makes from a phone.
+     *  3. **No waiting for focus.** Continuous AF is already running and already converged on whatever
+     *     you are pointing at; a press means take it now, not focus and then take it. The two-stage
+     *     shutter is a Pro feature.
+     *
+     * The size is set for the duration and put back afterwards, so a trip through Simple does not quietly
+     * rewrite a Pro setting.
+     */
+    private fun shootSimple() {
+        _shooting.value = true
+        viewModelScope.launch {
+            val wanted = prefs.photoSize.value
+            try {
+                if (wanted != PhotoSize.Large) prefs.setPhotoSize(PhotoSize.Large)
+                val attempt = runCatching { engine.capture() }
+                    .onFailure { Log.e(TAG, "simple capture failed", it) }
+                val frame = attempt.getOrNull()
+                if (frame == null) {
+                    val why = attempt.exceptionOrNull()?.message?.take(48)
+                    showNotice(if (why.isNullOrBlank()) "Shutter failed" else "Shutter: $why")
+                    return@launch
+                }
+                _shutterTick.tryEmit(Unit)
+                val processed = withContext(Dispatchers.Default) {
+                    Frames.process(
+                        frame = frame,
+                        filter = Filters.none,
+                        aspect = FrameAspect.Full,
+                        seed = 0f,
+                    )
+                }
+                finish(processed, Filters.none.id)
+            } finally {
+                if (prefs.photoSize.value != wanted) prefs.setPhotoSize(wanted)
                 _shooting.value = false
             }
         }
