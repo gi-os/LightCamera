@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -516,6 +517,49 @@ fun CameraScreen(
                     turn = turn,
                     modifier = Modifier.fillMaxSize(),
                 )
+
+                // **The held frame, over the live preview.** While a still is being made the viewfinder shows
+                // what you framed rather than carrying on live — the moment reads as taken, and the second and
+                // a half becomes "the file is being written" rather than "the camera has not answered". It is
+                // replaced by the real photograph the instant that exists.
+                //
+                // Under it, a bar timed to how long stills have *actually* been taking on this phone.
+                // Determinate on purpose: a bar that arrives at about the right moment feels far shorter than
+                // a spinner, and nothing feels longer than one that stalls near the end. It stops at nine
+                // tenths — the last tenth belongs to the photograph arriving.
+                val held by vm.held.collectAsState()
+                val stillMs by vm.stillMs.collectAsState()
+                val heldFrame = held
+                if (heldFrame != null) {
+                    val shot = remember(heldFrame) { heldFrame.asImageBitmap() }
+                    Image(
+                        bitmap = shot,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    var progress by remember(heldFrame) { mutableFloatStateOf(0f) }
+                    LaunchedEffect(heldFrame) {
+                        val expected = stillMs.coerceIn(300L, 4_000L)
+                        val started = System.currentTimeMillis()
+                        while (progress < 0.9f) {
+                            delay(40)
+                            progress = ((System.currentTimeMillis() - started).toFloat() / expected)
+                                .coerceAtMost(0.9f)
+                        }
+                    }
+                    Canvas(
+                        Modifier
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth()
+                            .height(2.dp),
+                    ) {
+                        drawRect(
+                            color = Color.White,
+                            size = Size(size.width * progress, size.height),
+                        )
+                    }
+                }
 
                 if (blink > 0f) {
                     Canvas(Modifier.fillMaxSize()) { drawRect(Color.Black.copy(alpha = blink)) }

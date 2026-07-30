@@ -106,6 +106,32 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private val _puriSeed = MutableStateFlow(Random.nextLong())
     val puriSeed: StateFlow<Long> = _puriSeed.asStateFlow()
 
+    /**
+     * The frame the viewfinder is holding while a still is being made, or null.
+     *
+     * **A stand-in, and honest about it.** In Pro the light does not land at your press: `takePicture` runs
+     * metering, then a burst, then stacking, so the exposure happens somewhere inside the next second and a
+     * half. Freezing the panel frame at t=0 therefore shows you *approximately* the photograph — the same
+     * framing, the same composition, from a moment slightly earlier. It is replaced by the real file the
+     * instant that exists, so any difference resolves itself in front of you rather than being discovered
+     * later in the roll.
+     *
+     * What this deliberately does not do is flash a shutter animation at the press, which would assert that
+     * the exposure happened then. It did not.
+     */
+    private val _held = MutableStateFlow<Bitmap?>(null)
+    val held: StateFlow<Bitmap?> = _held.asStateFlow()
+
+    /**
+     * A rolling average of how long a still has taken, in milliseconds.
+     *
+     * So the progress bar can finish at roughly the right moment. Accurate progress feels much shorter than
+     * indeterminate motion; a bar that stalls at nine tenths feels longer than no bar at all. Seeded at the
+     * 1.8 s this camera was measured at, and corrected by every shot after.
+     */
+    private val _stillMs = MutableStateFlow(1_800L)
+    val stillMs: StateFlow<Long> = _stillMs.asStateFlow()
+
     /** Short-lived lines of text for the viewfinder. */
     private val _notice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = _notice.asStateFlow()
@@ -530,8 +556,16 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     return@launch
                 }
 
+                // **Hold the composition.** Grabbed before the capture starts, so the viewfinder stops on
+                // what you framed instead of carrying on live while the camera thinks. A panel-sized bitmap
+                // copy, a couple of milliseconds.
+                _held.value = engine.previewFrame()
+                val startedAt = System.nanoTime()
                 val attempt = runCatching { engine.capture() }
                     .onFailure { Log.e(TAG, "capture failed", it) }
+                // Averaged over four, so one slow shot in the dark does not make every bar wrong afterwards.
+                val took = (System.nanoTime() - startedAt) / 1_000_000
+                _stillMs.value = (_stillMs.value * 3 + took) / 4
                 val frame = attempt.getOrNull()
                 if (frame == null) {
                     // Say *what* went wrong. "Shutter failed" cost a round trip to work out that
@@ -556,6 +590,9 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
 
                 finish(processed, activeFilter.id)
             } finally {
+                // Let the picture go, whatever happened: saved, failed, or cancelled. A viewfinder frozen for
+                // ever is a worse bug than a slow one.
+                _held.value = null
                 _countdown.value = null
                 _shooting.value = false
             }
