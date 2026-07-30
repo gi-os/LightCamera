@@ -212,7 +212,11 @@ private fun DrawScope.drawLevel(
     // along the panel's x axis in every pose put it across the picture at 90° to the thing it was
     // reporting on. `turn` is the same number the photograph is rotated by, so this is the one place
     // the level and the file agree by construction.
-    rotate(degrees = -tilt + turn, pivot = centre) {
+    // **Plus tilt, not minus.** The reading comes from `atan2(x, y)`, which grows as the phone turns
+    // anticlockwise, and `rotate` is clockwise-positive — so cancelling the phone's tilt means adding it.
+    // The same sign error as the viewer's rotation, in a different file, and it read as a line that
+    // leaned the wrong way by twice the angle.
+    rotate(degrees = tilt + turn, pivot = centre) {
         val colour = if (square) level else off.copy(alpha = 0.7f)
         if (gap == 0f) {
             drawLine(

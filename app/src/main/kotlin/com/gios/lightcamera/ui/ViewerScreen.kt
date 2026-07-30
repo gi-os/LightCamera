@@ -91,9 +91,21 @@ fun ViewerScreen(
         (photos.size - 1 - found).coerceAtLeast(0)
     }
     val pager = rememberPagerState(initialPage = startIndex, pageCount = { photos.size })
-    // Swapping to the strip's frames changes what page zero means, so go back to the start of the
-    // new list rather than staying on whichever index happened to be current.
-    LaunchedEffect(behind.size) { if (photos.isNotEmpty()) pager.scrollToPage(pager.pageCount - 1) }
+    // Swapping to the strip's frames changes what page zero means, so go to the end of the new list
+    // rather than staying on whichever index happened to be current.
+    //
+    // **Skipping the first run, which is the whole bug it caused.** A `LaunchedEffect` fires once on
+    // composition as well as on every change, so this was jumping the pager the moment the viewer opened
+    // — and tapping any photograph took you to the newest one instead of the one you tapped, throwing
+    // away the `initialPage` computed just above.
+    var swapped by remember { mutableStateOf(false) }
+    LaunchedEffect(behind.isNotEmpty()) {
+        if (!swapped) {
+            swapped = true
+            return@LaunchedEffect
+        }
+        if (photos.isNotEmpty()) pager.scrollToPage(pager.pageCount - 1)
+    }
     var chromeVisible by remember { mutableStateOf(true) }
 
     // Zoom lives here rather than per page so that leaving a photograph resets it — coming back to

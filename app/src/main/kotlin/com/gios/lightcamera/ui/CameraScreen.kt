@@ -278,8 +278,9 @@ fun CameraScreen(
         }
     }
 
-    val tilt by rememberTilt(active = active)
-    val levelVisible = rememberLevelVisible(tilt, enabled = active)
+    val levelOn by vm.prefs.level.collectAsState()
+    val tilt by rememberTilt(active = active && levelOn)
+    val levelVisible = rememberLevelVisible(tilt, enabled = active && levelOn)
     val priority = remember(faces, frameWidth, frameHeight, facePriority) {
         if (facePriority) FaceMapper.priority(faces, frameWidth, frameHeight) else null
     }

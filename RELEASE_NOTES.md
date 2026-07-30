@@ -1,37 +1,27 @@
-## Roll v2.13 — the face warps were wrong sideways
+## Roll v2.14 — three sign errors and a switch
 
-**The 2×2 no longer pushes the menu off the screen**
+**Tapping a photograph opens that photograph**
 
-`ContentScale.Fit` in a column with no width constraint takes the bitmap's intrinsic width, and the grid
-sheet is twice as wide as a single frame — so it shoved the rows off the side. The example now has a fixed
-width and the full height, and every layout fits inside it.
+My regression from v2.11. A `LaunchedEffect` fires once on composition as well as on every change, and the
+one that resets the pager when you swap to a strip's frames was therefore firing the moment the viewer
+opened — throwing away the page computed from the photo you tapped and jumping to the end of the roll. It
+now skips its first run.
 
-**No date on a four-shot, anywhere**
+**The chin shrinks the chin**
 
-Not in the panels, and not in the margin either. The layouts that want a printed date have their own
-footer, which the composer fills in.
+And the eyes are on the eyes. These were the same fault: the axis meaning "down the face" pointed up, so
+the jaw squeeze landed on the forehead — and the eye magnification, which is placed on the opposite side
+of the same axis, had been landing near the mouth all along. That is most of why the shaping looked wrong
+rather than merely strong. One sign, both faults.
 
-**The face shaping was measuring the wrong axes**
+**The level leans the right way**
 
-This is why it looked off, and it is a real bug rather than a matter of taste. The shader runs on the panel
-image, and the panel is locked to portrait — so with the phone held sideways a face lies on its side in
-that image, eyes one above the other. The eye positions were still being guessed left-and-right of centre,
-which put the magnification on a forehead and a chin, and the chin squeeze across the side of the head.
+Also a sign. The tilt reading comes from `atan2(x, y)`, which grows as the phone turns anticlockwise,
+while a rotation is clockwise-positive — so cancelling the tilt means adding it, not subtracting. It was
+leaning the wrong way by twice the angle. The same mistake as the viewer's rotation two releases ago, in a
+different file; three of those now, which is enough to be a pattern worth remembering.
 
-Every offset is now measured along the face's own axes, from a quarter-turn count the shader is told
-directly. Held upright nothing changes; held sideways it is correct for the first time.
+**The level has a switch**
 
-**And it is all gentler**
-
-The eyes were at nearly twice size with a radius of over half the face's width — on a detector box that
-usually takes in hair and forehead, that grabs eyebrows as readily as eyes. Eyes are now up to 1.55×
-within a tighter radius, the chin squeeze is 18% rather than 30%, and the head shrink 10% rather than 16%.
-
-**Where this can still go wrong, honestly**
-
-The eyes are *guessed* from the rectangle — a fifth of its width either side of centre, a quarter of its
-height above the middle. That is where eyes are on a face, but the hardware's rectangle is loose and
-varies between cameras, so on a box that sits high or wide the warp will still land slightly off. The real
-fix is the camera's own eye and mouth landmarks, which `STATISTICS_FACE_DETECT_MODE_FULL` publishes on the
-hardware that supports it. Roll currently asks for SIMPLE, which is the cheaper mode and carries only the
-rectangle. Moving to FULL where available, and falling back to the guess where not, is the next step.
+Settings → Camera. On by default, since it only appears when you are crooked and goes away a beat after
+you straighten up — but it is still a line through the middle of the frame.

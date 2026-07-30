@@ -298,6 +298,16 @@ class Prefs(context: Context) {
         turns = turns,
     )
 
+    /**
+     * The horizon line.
+     *
+     * On by default, because it only appears when the phone is crooked and disappears a beat after you
+     * straighten up — but it is still a line through the middle of the frame, and some people would
+     * rather compose without one.
+     */
+    private val _level = MutableStateFlow(prefs.getBoolean(LEVEL, true))
+    val level: StateFlow<Boolean> = _level.asStateFlow()
+
     /** The digicam focus beep and the shutter tick. */
     private val _sounds = MutableStateFlow(prefs.getBoolean(SOUNDS, true))
     val sounds: StateFlow<Boolean> = _sounds.asStateFlow()
@@ -343,6 +353,8 @@ class Prefs(context: Context) {
     fun setWheelEnabled(value: Boolean) = set(_wheelEnabled, value) { putBoolean(WHEEL, value) }
 
     fun setSounds(value: Boolean) = set(_sounds, value) { putBoolean(SOUNDS, value) }
+
+    fun setLevel(value: Boolean) = set(_level, value) { putBoolean(LEVEL, value) }
 
     // Nothing here writes to disk. See the note above: a booth does not remember.
     fun setPuriFrame(value: String) { _puriFrame.value = value }
@@ -402,6 +414,7 @@ class Prefs(context: Context) {
         const val ROLL_LENGTH = "rollLength"
         const val WHEEL = "wheel"
         const val SOUNDS = "sounds"
+        const val LEVEL = "level"
         /** Kept only so an existing setting can be read forward once. */
         const val DATE_STAMP = "dateStamp"
         const val STAMP_PLAIN = "stampPlain"

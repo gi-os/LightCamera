@@ -457,7 +457,12 @@ half4 main(float2 xy) {
     float ca = (turns == 0.0) ? 1.0 : ((turns == 2.0) ? -1.0 : 0.0);
     float sa = (turns == 1.0) ? 1.0 : ((turns == 3.0) ? -1.0 : 0.0);
     float2 ax = float2(ca, sa);
-    float2 ay = float2(-sa, ca);
+    // **Negated, and determined on the device rather than from first principles.** `ay` is "down the
+    // face", from brow to jaw. Built the obvious way round it pointed the other way: the chin squeeze
+    // appeared on the forehead, which also means the eye magnification — placed at minus ay — had been
+    // landing near the mouth this whole time. One sign, both faults. If a future change makes the warps
+    // look upside down again, this is the line.
+    float2 ay = -float2(-sa, ca);
 
     for (int i = 0; i < 3; ++i) {
         float4 f = faceAt(i);
