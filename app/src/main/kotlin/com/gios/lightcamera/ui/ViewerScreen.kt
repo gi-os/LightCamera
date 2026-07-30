@@ -83,6 +83,10 @@ fun ViewerScreen(
     // Every photograph gone means there is nothing left to look at.
     LaunchedEffect(photos.size) { if (photos.isEmpty()) onClose() }
 
+    // A photograph is the one thing on this phone that is definitely worth seeing in colour.
+    val colour by vm.prefs.colour.collectAsState()
+    ColourEffect(enabled = colour != com.gios.lightcamera.Colour.Off)
+
     // Decode no bigger than the panel. A 12MP JPEG at 1:1 is 48MB of heap for a 1080px view.
     val screenWidthPx = with(androidx.compose.ui.platform.LocalDensity.current) {
         LocalConfiguration.current.screenWidthDp.dp.roundToPx()

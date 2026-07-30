@@ -1,11 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- The roll above the viewfinder is the device's real camera roll, not a private
          folder, so the whole of DCIM has to be readable. -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!--
+        The panel is a full-colour AMOLED; Light's black and white is the accessibility
+        daltonizer pinned to monochromacy. Lifting it while the viewfinder is up is what makes
+        the picture appear in colour, and writing that setting needs this. It is
+        signature|privileged|development, so it cannot be granted by the installer and is not
+        requested at runtime — one adb line grants it, and without it the app just stays grey:
+
+            adb shell pm grant com.gios.lightcamera android.permission.WRITE_SECURE_SETTINGS
+    -->
+    <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
 
     <uses-feature android:name="android.hardware.camera.any" android:required="true" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />

@@ -24,6 +24,24 @@ enum class Chrome(val label: String) {
     Thirds("Thirds"),
 }
 
+/**
+ * When to lift LightOS's greyscale.
+ *
+ * See `ui/ColorMode.kt`. [Viewfinder] is the default because a camera showing you a grey
+ * version of the colour photograph it is about to save is misrepresenting the picture — and
+ * because half the filters in this app are about colour.
+ */
+enum class Colour(val label: String) {
+    /** Leave the phone as Light set it. */
+    Off("Off"),
+
+    /** Colour while the viewfinder or a photograph is on screen; grey everywhere else. */
+    Viewfinder("Viewfinder"),
+
+    /** Colour for the whole app, the roll included. */
+    Always("Whole app"),
+}
+
 /** Seconds before the shutter fires. */
 enum class SelfTimer(val seconds: Int, val label: String) {
     Off(0, "Off"),
@@ -90,6 +108,11 @@ class Prefs(context: Context) {
     private val _sounds = MutableStateFlow(prefs.getBoolean(SOUNDS, true))
     val sounds: StateFlow<Boolean> = _sounds.asStateFlow()
 
+    private val _colour = MutableStateFlow(
+        Colour.entries.firstOrNull { it.name == prefs.getString(COLOUR, null) } ?: Colour.Viewfinder,
+    )
+    val colour: StateFlow<Colour> = _colour.asStateFlow()
+
     /** Frames on a newly loaded roll. */
     private val _rollLength = MutableStateFlow(prefs.getInt(ROLL_LENGTH, 24))
     val rollLength: StateFlow<Int> = _rollLength.asStateFlow()
@@ -121,6 +144,8 @@ class Prefs(context: Context) {
 
     fun setSounds(value: Boolean) = set(_sounds, value) { putBoolean(SOUNDS, value) }
 
+    fun setColour(value: Colour) = set(_colour, value) { putString(COLOUR, value.name) }
+
     private fun <T> set(
         flow: MutableStateFlow<T>,
         value: T,
@@ -142,5 +167,6 @@ class Prefs(context: Context) {
         const val ROLL_LENGTH = "rollLength"
         const val WHEEL = "wheel"
         const val SOUNDS = "sounds"
+        const val COLOUR = "colour"
     }
 }

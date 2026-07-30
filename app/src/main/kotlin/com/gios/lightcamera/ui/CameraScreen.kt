@@ -196,6 +196,12 @@ fun CameraScreen(
         }
     }
 
+    // The viewfinder in colour. Everything else this app draws is white on black, so lifting
+    // the phone's greyscale while the camera is up reads as the picture being in colour — which
+    // is what the stock camera does with photographs too.
+    val colour by vm.prefs.colour.collectAsState()
+    ColourEffect(enabled = active && colour != com.gios.lightcamera.Colour.Off)
+
     val tilt by rememberTilt(active = active)
     val levelVisible = rememberLevelVisible(tilt, enabled = active)
     val priority = remember(faces, frameWidth, frameHeight, facePriority) {
@@ -230,6 +236,26 @@ fun CameraScreen(
                             // come off the camera's own AF result, in the view model.
                             LightHaptics.advance(context)
                             engine.focusAt(x, y, lock = false)
+                        },
+                        // The stock camera's band has four items and no lens switch, so the
+                        // switch is a double tap on the image — the same gesture every phone
+                        // camera has used for it since about 2015.
+                        onDoubleTap = {
+                            engine.setLens(
+                                if (lensFacing == CameraSelector.LENS_FACING_BACK) {
+                                    CameraSelector.LENS_FACING_FRONT
+                                } else {
+                                    CameraSelector.LENS_FACING_BACK
+                                },
+                                flash,
+                            )
+                            vm.showNotice(
+                                if (lensFacing == CameraSelector.LENS_FACING_BACK) {
+                                    "Front"
+                                } else {
+                                    "Back"
+                                },
+                            )
                         },
                         onFilterStep = { vm.stepFilter(it) },
                     ),
@@ -317,41 +343,30 @@ fun CameraScreen(
             )
         }
 
+        // Four controls, in the stock camera's own order and its own spacing: the album hard
+        // against the near end, brightness hard against the far end, the mode slot at the
+        // middle and flash between it and brightness. Counted and measured off a photograph of
+        // the real thing rather than guessed.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(58.dp)
-                .padding(horizontal = 6.dp),
+                .padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Album, exactly where the stock camera puts it.
             ChromeIcon(
                 icon = LightIcons.Album,
                 onClick = onOpenRoll,
                 lighten = !rollSwipeEnabled,
             )
-            ChromeIcon(
-                icon = LightIcons.FlipLens,
-                onClick = {
-                    engine.setLens(
-                        if (lensFacing == CameraSelector.LENS_FACING_BACK) {
-                            CameraSelector.LENS_FACING_FRONT
-                        } else {
-                            CameraSelector.LENS_FACING_BACK
-                        },
-                        flash,
-                    )
-                },
-            )
-            // The stock camera's "PHOTO ⌄" slot: what the camera is set to, and a chevron
-            // that opens the picker. Here that is the filter, which is the only thing about
-            // this camera that has modes.
+            Spacer(Modifier.weight(1f))
+            // The stock camera's "PHOTO ⌄": what the camera is set to, and a chevron that
+            // opens the picker. Here that is the filter, the only thing about this camera that
+            // has modes.
             Row(
                 modifier = Modifier
-                    .weight(1f)
                     .lightClickable { gridOpen = true }
-                    .padding(vertical = 10.dp),
-                horizontalArrangement = Arrangement.Center,
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 LightText(
@@ -359,28 +374,18 @@ fun CameraScreen(
                     variant = LightTextVariant.Button,
                     align = TextAlign.Center,
                 )
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(7.dp))
                 Canvas(Modifier.width(9.dp).height(6.dp)) {
-                    // A chevron, drawn rather than an icon: the SDK's arrow glyphs are all
-                    // bigger and heavier than the one next to "PHOTO" on the stock camera.
+                    // Drawn rather than an icon: every arrow glyph in the SDK is bigger and
+                    // heavier than the little chevron next to "PHOTO" on the stock camera.
                     val w = size.width
                     val h = size.height
-                    drawLine(
-                        colours.content,
-                        Offset(0f, 0f),
-                        Offset(w / 2f, h),
-                        1.4.dp.toPx(),
-                        StrokeCap.Round,
-                    )
-                    drawLine(
-                        colours.content,
-                        Offset(w, 0f),
-                        Offset(w / 2f, h),
-                        1.4.dp.toPx(),
-                        StrokeCap.Round,
-                    )
+                    val stroke = 1.4.dp.toPx()
+                    drawLine(colours.content, Offset(0f, 0f), Offset(w / 2f, h), stroke, StrokeCap.Round)
+                    drawLine(colours.content, Offset(w, 0f), Offset(w / 2f, h), stroke, StrokeCap.Round)
                 }
             }
+            Spacer(Modifier.weight(1f))
             ChromeIcon(
                 icon = when (flash) {
                     FlashMode.Off -> LightIcons.FlashOff
@@ -398,8 +403,8 @@ fun CameraScreen(
                     )
                 },
             )
-            // Brightness, the stock camera's rightmost control. Exposure compensation is what
-            // it means on a camera with no manual controls.
+            // Brightness: the stock camera's last control, and on a camera with no manual
+            // exposure that means compensation.
             ChromeIcon(
                 icon = LightIcons.Exposure,
                 lighten = !evOpen && ev == 0,
@@ -559,12 +564,16 @@ private fun AfBadge(mode: AfMode, state: AfState, modifier: Modifier = Modifier)
 private fun Modifier.viewfinderGestures(
     enabled: Boolean,
     onTapFocus: (Float, Float) -> Unit,
+    onDoubleTap: () -> Unit,
     onFilterStep: (Int) -> Unit,
 ): Modifier = this.then(
     Modifier.pointerInput(enabled) {
         if (!enabled) return@pointerInput
         val slopPx = 14.dp.toPx()
         val swipePx = 52.dp.toPx()
+        // Kept across gestures, which is the only way to see a double tap: two taps are two
+        // complete gestures, and the second only means anything in the light of the first.
+        var lastTapAt = 0L
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
             var dx = 0f
@@ -592,8 +601,21 @@ private fun Modifier.viewfinderGestures(
                 }
             }
             if (!decided && abs(dx) < slopPx && abs(dy) < slopPx) {
-                onTapFocus(down.position.x, down.position.y)
+                val now = System.currentTimeMillis()
+                if (now - lastTapAt < DOUBLE_TAP_MS) {
+                    lastTapAt = 0L
+                    onDoubleTap()
+                } else {
+                    lastTapAt = now
+                    // The first tap focuses regardless. Waiting to find out whether a second
+                    // is coming would put a third of a second of lag on every tap to focus, to
+                    // save one pointless autofocus on the rare double.
+                    onTapFocus(down.position.x, down.position.y)
+                }
             }
         }
     },
 )
+
+/** Long enough to be deliberate, short enough that two taps to focus aren't one gesture. */
+private const val DOUBLE_TAP_MS = 320L

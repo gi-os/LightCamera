@@ -20,6 +20,7 @@ import com.gios.lightcamera.hw.LocalWheelBus
 import com.gios.lightcamera.hw.ShutterRelease
 import com.gios.lightcamera.hw.WheelBus
 import com.gios.lightcamera.ui.CameraViewModel
+import com.gios.lightcamera.ui.ColorMode
 import com.gios.lightcamera.ui.Shell
 import com.gios.lightcamera.ui.theme.LightCameraTheme
 
@@ -93,6 +94,25 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * Greyscale comes back the moment the app is not in front, and colour returns if it comes
+     * back with the viewfinder still open.
+     *
+     * The daltonizer is a display-wide setting, so leaving it lifted while the user is
+     * somewhere else on the phone would quietly turn the whole of LightOS colour — which is
+     * their setting to make, not ours. `holders` survives the stop, so this is only about the
+     * foreground and not about closing anything.
+     */
+    override fun onStart() {
+        super.onStart()
+        ColorMode.onAppVisible(this)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        ColorMode.onAppHidden(this)
     }
 
     /**

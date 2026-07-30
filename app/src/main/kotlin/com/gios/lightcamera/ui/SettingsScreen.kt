@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.gios.lightcamera.Chrome
+import com.gios.lightcamera.Colour
 import com.gios.lightcamera.SelfTimer
 import com.gios.lightcamera.camera.AfMode
 import com.gios.lightcamera.camera.FrameAspect
@@ -55,6 +56,7 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
     val facePriority by vm.prefs.facePriority.collectAsState()
     val timer by vm.prefs.timer.collectAsState()
     val sounds by vm.prefs.sounds.collectAsState()
+    val colour by vm.prefs.colour.collectAsState()
     val wheel by vm.prefs.wheelEnabled.collectAsState()
     val rollLength by vm.prefs.rollLength.collectAsState()
     val roll by vm.roll.collectAsState()
@@ -100,6 +102,19 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
             }
             Note(
                 "The viewfinder fills the screen and the sensor is 4:3, so the photograph keeps a little more than you saw — at the top and bottom of the frame.",
+            )
+
+            Section("Colour")
+            Setting("Show", colour.label) {
+                val all = Colour.entries
+                vm.prefs.setColour(all[(all.indexOf(colour) + 1) % all.size])
+            }
+            Note(
+                if (ColorMode.granted(context)) {
+                    "The panel is a full-colour AMOLED — Light's black and white is the accessibility daltonizer pinned to monochromacy. Roll lifts it while the camera is up and puts it back when you leave."
+                } else {
+                    "Needs one adb grant, then the viewfinder is in colour:\n\nadb shell pm grant com.gios.lightcamera android.permission.WRITE_SECURE_SETTINGS\n\nUntil then everything stays grey, which is harmless — the write is simply refused."
+                },
             )
 
             Section("Focus")
