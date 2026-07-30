@@ -425,14 +425,16 @@ fun CameraScreen(
                             canvas = AndroidCanvas(bitmap),
                             w = ow,
                             h = oh,
-                            frame = PuriArt.frameById(puriFrameId),
+                            // Random resolved from the same seed the shutter will use, so the frame
+                            // you are looking at is the frame you are about to get.
+                            frame = PuriArt.resolveFrame(puriFrameId, puriSeed),
                             plan = PuriArt.plan(
                                 seed = puriSeed,
                                 // Faces are in panel space, so they turn with everything else.
                                 faces = faceQuads.map { FaceQuads.rotated(it, turn) },
                                 faceStickers = puriFaceStickers,
                                 marginStickers = puriMarginStickers,
-                                withDate = puriDates,
+                                dateId = puriDates,
                             ),
                             millis = System.currentTimeMillis(),
                         )
