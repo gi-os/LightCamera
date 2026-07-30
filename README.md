@@ -20,13 +20,19 @@ at the half press, `CAMERA` at the bottom. Nothing in LightOS uses the first one
 |---|---|
 | Camera button, half press | Autofocus and lock on the nearest face, or the centre |
 | Camera button, pressed through | Shutter |
+| Either volume key | Shutter, as a fallback |
 | Turn the wheel | Zoom, geometrically — the wheel is a lens ring |
 | Hold the wheel in and turn | Exposure compensation, in thirds of a stop |
 | Click the wheel | Torch |
 | Tap the frame | Focus there |
 | Swipe the frame sideways | Next filter |
 | Swipe down | The roll |
-| Press and hold the on-screen shutter | Focus; lift to fire |
+
+There is **no shutter button on screen**, on purpose: the phone has one on its side, and a
+circle on the glass duplicating it only costs image area and teaches the wrong gesture. If the
+camera button does nothing, an accessibility service is swallowing it — most likely
+[LightControl](https://github.com/gi-os/LightControl), which binds that key by default. From
+v1.1.6 it hands both stages to whatever camera is in front; update it.
 
 The two keys arrive in an unpredictable order, so the release is a state machine
 (`hw/ShutterRelease.kt`) rather than a pair of key handlers — see the tests for the cases
@@ -49,9 +55,10 @@ up — synthesised PCM rather than shipped audio, on the sonification stream, si
 phone is. It fires off the camera's own `CONTROL_AF_STATE`, so it means the lens has it, not
 that a request was sent.
 
-The viewfinder is otherwise empty: preview edge to edge, chrome floating in the system-bar
-insets over a gradient that fades out before it reaches the picture, and a horizon line that
-appears only while the phone is crooked.
+The viewfinder is otherwise as empty as the stock camera's: the image on top with only the
+focus marks and an `AF-S`/`AF-C` badge on it, one black band underneath holding album, lens,
+mode, flash and brightness, and a horizon line that appears only while the phone is crooked.
+The system bars are hidden, so the picture starts at the panel's top edge.
 
 ## Filters are AGSL, and the photo matches the frame
 
