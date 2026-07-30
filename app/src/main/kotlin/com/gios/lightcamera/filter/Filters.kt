@@ -394,6 +394,20 @@ float4 faceAt(int i) {
     return face2;
 }
 
+// How much this colour looks like skin: warm, red above green above blue, not too saturated.
+// Deliberately generous — it decides how hard to smooth, not whether to, so being wrong about a
+// wooden floor costs a slightly soft floor.
+float skinness(float3 c) {
+    float mx = max(max(c.r, c.g), c.b);
+    float mn = min(min(c.r, c.g), c.b);
+    float sat = mx - mn;
+    float warm = clamp((c.r - c.b) * 3.0, 0.0, 1.0);
+    float order = (c.r >= c.g && c.g >= c.b) ? 1.0 : 0.35;
+    float bright = smoothstep(0.15, 0.45, mx);
+    float notNeon = 1.0 - smoothstep(0.45, 0.8, sat);
+    return clamp(warm * order * bright * notNeon, 0.0, 1.0);
+}
+
 // Magnify around a point: sample nearer its centre, so what is there grows.
 float2 magnify(float2 p, float2 centre, float radius, float amount) {
     float2 d = p - centre;
@@ -425,19 +439,56 @@ half4 main(float2 xy) {
         p = magnify(p, eyeR, radius, 1.95);
     }
 
-    // ---- soft focus ----
-    // A cross of taps rather than a box: five samples instead of nine for a blur this wide, and on
-    // skin the difference is not visible.
-    float u = unitPx() * 2.2;
-    float3 c = tap(p);
-    float3 soft = (
-        c +
-        tap(p + float2(u, 0.0)) + tap(p - float2(u, 0.0)) +
-        tap(p + float2(0.0, u)) + tap(p - float2(0.0, u))
-    ) / 5.0;
-    // Keep the eyes and any real edge, blur everything flat — an unsharp mask run backwards.
-    float detail = length(c - soft);
-    float3 col = mix(soft, c, clamp(detail * 4.0, 0.0, 0.55));
+    // ---- skin smoothing ----
+    // **Edge-preserving, and only on skin.** A plain blur is what makes a beauty filter look like
+    // a smear: it takes the eyelashes and the hairline with it. This weights each tap by how far
+    // its colour is from the centre pixel — a cross-bilateral filter — so a tap that has fallen
+    // off the face onto hair or background contributes almost nothing, and the edge survives while
+    // the pores inside it average away.
+    //
+    // Two rings of six taps at different radii rather than one dense ring: the wide ring does the
+    // smoothing and the tight one keeps it from banding, for twelve samples instead of the
+    // twenty-five a 5x5 kernel would need.
+    float3 here = tap(p);
+    float smoothing = mix(0.35, 1.0, skinness(here));
+    float rad = unitPx() * 3.4 * smoothing;
+    float3 sum = here;
+    float weight = 1.0;
+    for (int i = 0; i < 6; ++i) {
+        float a = float(i) * 1.0471976;
+        float2 dir = float2(cos(a), sin(a));
+        for (int ring = 1; ring <= 2; ++ring) {
+            float2 q = p + dir * rad * float(ring);
+            float3 t = tap(q);
+            // Colour distance decides everything. 9.0 is tuned so that skin-to-skin variation
+            // passes and skin-to-anything-else does not.
+            float w = exp(-dot(t - here, t - here) * 9.0) / float(ring);
+            sum += t * w;
+            weight += w;
+        }
+    }
+    float3 smoothed = sum / weight;
+
+    // Put a little of the real detail back, or the face reads as plastic rather than as a booth
+    // print. Booth prints are soft, not featureless.
+    float3 col = mix(smoothed, here, 0.12);
+    // And keep the eyes sharp — they are the one thing a purikura wants crisp, having just doubled
+    // them in size.
+    float sharpness = 0.0;
+    for (int i = 0; i < 3; ++i) {
+        float4 f = faceAt(i);
+        float2 mid = float2(f.x, f.y) * size;
+        float2 ext = float2(f.z, f.w) * size;
+        float2 eyeL = mid + float2(-ext.x * 0.42, -ext.y * 0.28);
+        float2 eyeR = mid + float2(ext.x * 0.42, -ext.y * 0.28);
+        float reach = max(ext.x * 0.42, 1.0);
+        float near = max(
+            1.0 - clamp(length(p - eyeL) / reach, 0.0, 1.0),
+            1.0 - clamp(length(p - eyeR) / reach, 0.0, 1.0)
+        );
+        sharpness = max(sharpness, near * (i < n ? 1.0 : 0.0));
+    }
+    col = mix(col, here, sharpness * 0.75);
 
     // ---- skin blown out ----
     float l = lum(col);

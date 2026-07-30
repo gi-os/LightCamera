@@ -31,6 +31,7 @@ import com.gios.lightcamera.camera.AfMode
 import com.gios.lightcamera.camera.FrameAspect
 import com.gios.lightcamera.hw.CameraKeyAdvice
 import com.gios.lightcamera.hw.LightKeys
+import com.gios.lightcamera.camera.PuriArt
 import com.gios.lightcamera.hw.WheelScroll
 import com.gios.lightcamera.ui.theme.LightIcons
 import com.gios.lightcamera.ui.theme.LightText
@@ -63,6 +64,8 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
     val stampPlain by vm.prefs.stampPlain.collectAsState()
     val stampFiltered by vm.prefs.stampFiltered.collectAsState()
     val stampCoarse by vm.prefs.stampCoarse.collectAsState()
+    val puriFrame by vm.prefs.puriFrame.collectAsState()
+    val puriStickers by vm.prefs.puriStickers.collectAsState()
     val stampStyle by vm.prefs.stampStyle.collectAsState()
     val colour by vm.prefs.colour.collectAsState()
     val sendChat by vm.prefs.sendToLightChat.collectAsState()
@@ -145,6 +148,15 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
             }
             Note(
                 "The date back off a 1990s compact: month, day, apostrophe-year, in leaning amber dots in the corner of the frame. Coarse filters are separate and start off — Dither 16, 1-Bit, Halftone and the two Game Boys quantise the picture onto a grid of a few hundred cells, and a date drawn at full precision over that reads as a caption pasted on rather than something the camera did. It is printed into the photograph, so it costs a decode and a re-encode on a shot that would otherwise be saved exactly as the camera made it — and there is no taking it off afterwards.",
+            )
+
+            Section("Purikura")
+            Setting("Frame", PuriArt.frameById(puriFrame).label) { vm.stepPuriFrame() }
+            Setting("Stickers", if (puriStickers) "Random" else "Off") {
+                vm.prefs.setPuriStickers(!puriStickers)
+            }
+            Note(
+                "Fourteen frames, and the same chip appears in the viewfinder band while Purikura is on so you can walk them without coming in here. Stickers are chosen for you — cat ears sit on a head, blush on the cheeks, and the rest land in the margins away from anybody's face — and they are reshuffled after every shot. A Purikura also brings its own date, one of eight, replacing the date back when the date is switched on for filters.",
             )
 
             Section("Colour")

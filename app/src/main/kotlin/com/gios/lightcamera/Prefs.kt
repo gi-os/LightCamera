@@ -232,6 +232,20 @@ class Prefs(context: Context) {
     )
     val stampStyle: StateFlow<StampStyle> = _stampStyle.asStateFlow()
 
+    /**
+     * The Purikura frame, by id, and whether it gets stickers.
+     *
+     * The frame is a *setting* and the stickers are *random*, which sounds inconsistent and is not:
+     * a booth lets you choose the border and then decorates the print for you. Choosing between
+     * fourteen frames on a phone with one dial is a job for a chip you tap; choosing which of twelve
+     * stickers land where is a job nobody wants.
+     */
+    private val _puriFrame = MutableStateFlow(prefs.getString(PURI_FRAME, null) ?: "lace")
+    val puriFrame: StateFlow<String> = _puriFrame.asStateFlow()
+
+    private val _puriStickers = MutableStateFlow(prefs.getBoolean(PURI_STICKERS, true))
+    val puriStickers: StateFlow<Boolean> = _puriStickers.asStateFlow()
+
     /** The digicam focus beep and the shutter tick. */
     private val _sounds = MutableStateFlow(prefs.getBoolean(SOUNDS, true))
     val sounds: StateFlow<Boolean> = _sounds.asStateFlow()
@@ -278,6 +292,11 @@ class Prefs(context: Context) {
 
     fun setSounds(value: Boolean) = set(_sounds, value) { putBoolean(SOUNDS, value) }
 
+    fun setPuriFrame(value: String) = set(_puriFrame, value) { putString(PURI_FRAME, value) }
+
+    fun setPuriStickers(value: Boolean) =
+        set(_puriStickers, value) { putBoolean(PURI_STICKERS, value) }
+
     fun setStampPlain(value: Boolean) = set(_stampPlain, value) { putBoolean(STAMP_PLAIN, value) }
 
     fun setStampFiltered(value: Boolean) =
@@ -320,6 +339,8 @@ class Prefs(context: Context) {
         const val STAMP_PLAIN = "stampPlain"
         const val STAMP_FILTERED = "stampFiltered"
         const val STAMP_COARSE = "stampCoarse"
+        const val PURI_FRAME = "puriFrame"
+        const val PURI_STICKERS = "puriStickers"
         const val STAMP_STYLE = "stampStyle"
         const val COLOUR = "colour"
         const val SEND_LIGHTCHAT = "sendLightChat"

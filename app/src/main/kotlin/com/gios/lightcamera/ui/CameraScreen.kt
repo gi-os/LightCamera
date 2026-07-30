@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
@@ -34,6 +35,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -43,6 +46,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.graphics.createBitmap
+import android.graphics.Canvas as AndroidCanvas
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -53,6 +58,7 @@ import com.gios.lightcamera.camera.AfState
 import com.gios.lightcamera.camera.FaceMapper
 import com.gios.lightcamera.camera.FlashMode
 import com.gios.lightcamera.filter.FaceQuads
+import com.gios.lightcamera.camera.PuriArt
 import com.gios.lightcamera.filter.ShaderRuntime
 import com.gios.lightcamera.hw.CameraKeyAdvice
 import com.gios.lightcamera.hw.WheelTurns
@@ -188,6 +194,12 @@ fun CameraScreen(
     } else {
         emptyList()
     }
+    val puriFrameId by vm.prefs.puriFrame.collectAsState()
+    val puriStickers by vm.prefs.puriStickers.collectAsState()
+    val puriSeed by vm.puriSeed.collectAsState()
+    // The Purikura date follows the same switch the filtered photographs do — it is a filter, and
+    // "on filters" is what that setting means.
+    val puriDates by vm.prefs.stampFiltered.collectAsState()
     LaunchedEffect(liveFilter, seed, frameWidth, frameHeight, faceQuads) {
         previewView.setRenderEffect(
             ShaderRuntime.effectFor(liveFilter, frameWidth, frameHeight, seed, faceQuads),
@@ -276,6 +288,20 @@ fun CameraScreen(
                             Chevron(pointingUp = modeOpen)
                         }
                         Spacer(Modifier.weight(1f))
+                        // The frame chip, and only while Purikura is on. Tap to walk the borders.
+                        // It lives in the band rather than on a wheel gesture because there are
+                        // fourteen of them and the wheel already has a job it does well.
+                        if (liveFilter.facesAware) {
+                            LightText(
+                                text = PuriArt.frameById(puriFrameId).label.uppercase(),
+                                variant = LightTextVariant.Button,
+                                align = TextAlign.Center,
+                                modifier = Modifier
+                                    .lightClickable { vm.stepPuriFrame() }
+                                    .padding(horizontal = 6.dp, vertical = 10.dp),
+                            )
+                            Spacer(Modifier.weight(1f))
+                        }
                         ChromeIcon(
                             icon = when (flash) {
                                 FlashMode.Off -> LightIcons.FlashOff
@@ -336,6 +362,52 @@ fun CameraScreen(
                             onFilterStep = { vm.stepFilter(it) },
                         ),
                 )
+
+                // **The frame, the stickers and the date, live.** Rendered by the same
+                // `PuriArt.draw` the shutter calls, from the same seed, so this is not an
+                // impression of the photograph — it is the photograph's furniture, drawn once into a
+                // bitmap and laid over the preview.
+                //
+                // Half resolution, because it is redrawn whenever a face moves and a full-panel
+                // ARGB bitmap fifteen times a second is not a thing to do to a phone. Everything in
+                // it is vector work scaled from the short edge, so scaling the result back up costs
+                // a little softness on a hairline and nothing else.
+                //
+                // The face positions are quantised to fiftieths before they key the redraw, or the
+                // detector's jitter alone would rebuild this constantly while nothing visibly moved.
+                if (liveFilter.facesAware && frameWidth > 0 && frameHeight > 0) {
+                    val settled = faceQuads.map { q ->
+                        listOf(q.cx, q.cy, q.hw, q.hh).map { (it * 50f).toInt() }
+                    }
+                    val overlay = remember(
+                        puriFrameId,
+                        puriSeed,
+                        puriStickers,
+                        puriDates,
+                        settled,
+                        frameWidth,
+                        frameHeight,
+                    ) {
+                        val ow = (frameWidth / 2).coerceAtLeast(1)
+                        val oh = (frameHeight / 2).coerceAtLeast(1)
+                        val bitmap = createBitmap(ow, oh)
+                        PuriArt.draw(
+                            canvas = AndroidCanvas(bitmap),
+                            w = ow,
+                            h = oh,
+                            frame = PuriArt.frameById(puriFrameId),
+                            plan = PuriArt.plan(puriSeed, faceQuads, puriStickers, puriDates),
+                            millis = System.currentTimeMillis(),
+                        )
+                        bitmap.asImageBitmap()
+                    }
+                    Image(
+                        bitmap = overlay,
+                        contentDescription = null,
+                        contentScale = ContentScale.FillBounds,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
 
                 FrameOverlay(
                     chrome = chrome,

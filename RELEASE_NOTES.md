@@ -1,32 +1,43 @@
-## Roll v2.7 — Purikura
+## Roll v2.8 — Purikura gets a booth
 
-**A new filter that knows where your face is**
+**Skin smoothing**
 
-Purikura, the Japanese photo-booth look, and the only shader in the app that gets told where the
-faces are. It does the four things a booth does, all of them too much on purpose:
+The old soft focus was a five-tap cross that blurred everything equally, eyelashes and hairline
+included, which is what makes a beauty filter look like a smear. This is a twelve-tap cross-bilateral
+pass: two rings of six, each tap weighted by how far its colour is from the centre pixel, so a tap
+that has fallen off the face onto hair or background contributes almost nothing. Pores average away,
+edges survive. The radius follows a skin-tone test, a little real detail goes back on top so the face
+is not plastic, and the eyes stay sharp — having just been doubled in size, they are the one thing
+that should be crisp.
 
-- **Eyes about twice the size.** A radial magnification centred on each eye, sampled towards the
-  centre so what is there grows, and smoothed all the way to the rim — a hard edge would read as a
-  disc of face sitting on a face, which is the tell of a bad beauty filter. The eyes are worked out
-  from the face rectangle rather than detected: not every camera publishes eye landmarks, but every
-  camera publishes the rectangle.
-- **Skin blown out.** Luminance lifted hard and the top end crushed flat, so 0.8 and 1.0 come out
-  nearly the same white. Poreless and papery, which is the part people actually go for.
-- **Pink.** Cool rose in the shadows, warm rose in the highlights, saturation up, and nothing allowed
-  to be properly black — booth prints wash out in the shadows and that missing black is half of why
-  they look like booth prints.
-- **Glitter.** Four-pointed stars on a jittered hash grid, denser near a face, drifting with the seed
-  so they twinkle in the viewfinder.
+**Fourteen frames, on a chip you tap**
 
-With nobody in frame it is still the wash, the soft focus and the glitter. A booth with no one in it
-is a pink room.
+Lace, Hearts, Ribbon, Film, Stars, Neon, Window, Glitter — plus five that are not trying to be
+tasteful: Googly (eyes all round the border, pupils genuinely pointing at the middle of the frame),
+Leopard, Checker, Flames and Slime. Plus None. While Purikura is on, the frame's name appears in the
+viewfinder band; tap it to walk them.
 
-**Why the photograph always comes off the viewfinder for this one**
+**Stickers, chosen for you**
 
-Faces are detected in the preview. Making the file out of a second, differently-cropped sensor frame
-would mean mapping those rectangles across — and that arithmetic is exactly how an eye ends up
-enlarged next to somebody's ear. Filtering the frame the faces were found in cannot be misaligned, so
-Purikura takes the panel frame the same way the coarse filters do, whatever the photo size is set to.
+Cat ears sit on a head, blush on the cheeks, sunglasses across the eyes — the face rectangles are
+already tracked, so they land where they should. Hearts, sparkles, cherries, a paw print, a daisy and
+the rest scatter into the margins, and deliberately away from every face: a booth decorates the edges
+of a print, having just spent all that effort on the eyes. Reshuffled after each shot.
 
-The face-to-shader arithmetic — normalising, quarter turns, centred crops — is plain Kotlin with no
-Android imports and is checked off-device, because a sign error there is silent and specific.
+**Its own date, one of eight, at random**
+
+A bubble capsule, marker pen, ticket stub, sticker text, booth serial number, a cloud, a star tag or
+a diary serif. It replaces the date back rather than printing beside it, and it follows the same "on
+filters" switch the other filtered photographs do.
+
+**Why the viewfinder can be trusted**
+
+The frame, stickers and date are drawn with `Canvas`, not AGSL — hard-edged vector work with text in
+it, which a fragment shader is a miserable way to make. So the viewfinder draws them by calling the
+same function the shutter calls, with the same seed, into a half-resolution overlay laid over the
+preview. There is one implementation, and the stickers you are looking at are the stickers you are
+about to get.
+
+That seed is held still between shots on purpose. The shader's own seed moves ten times a second so
+the glitter twinkles; if the stickers came off that they would rearrange themselves while you were
+composing.

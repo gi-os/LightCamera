@@ -108,6 +108,13 @@ object Frames {
         stampStyle: StampStyle = StampStyle.Dots,
         /** Faces as found in the preview, normalised — carried through the turn and the crop below. */
         faces: List<FaceQuad> = emptyList(),
+        /**
+         * Drawn on last, over the finished picture, given the faces after the turn and the crop.
+         *
+         * A lambda rather than the frame-and-stickers themselves, because this file's job is
+         * bytes: it should not know what a Purikura is.
+         */
+        overlay: ((android.graphics.Canvas, Int, Int, List<FaceQuad>) -> Unit)? = null,
     ): Processed {
         var bitmap = preview
         var quads = faces
@@ -128,6 +135,17 @@ object Frames {
             quads = quads.map { FaceQuads.cropped(it, wasW, wasH, bitmap.width, bitmap.height) }
         }
         if (filter.agsl != null) bitmap = ShaderRuntime.applyToBitmap(bitmap, filter, seed, quads)
+        if (overlay != null) {
+            // The shader hands back an immutable bitmap; a frame has to be drawn into a mutable one.
+            if (!bitmap.isMutable) {
+                val copy = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+                if (copy != null) {
+                    bitmap.recycle()
+                    bitmap = copy
+                }
+            }
+            overlay(android.graphics.Canvas(bitmap), bitmap.width, bitmap.height, quads)
+        }
         if (stampAt != null) bitmap = DateStamp.apply(bitmap, stampAt, stampStyle)
         val out = ByteArrayOutputStream(bitmap.width * bitmap.height / 4)
         bitmap.compress(Bitmap.CompressFormat.JPEG, QUALITY, out)

@@ -10,6 +10,7 @@ import com.gios.lightcamera.Prefs
 import com.gios.lightcamera.camera.CameraEngine
 import com.gios.lightcamera.camera.FaceBox
 import com.gios.lightcamera.camera.Frames
+import com.gios.lightcamera.camera.PuriArt
 import com.gios.lightcamera.filter.FaceQuads
 import com.gios.lightcamera.filter.Filters
 import com.gios.lightcamera.hw.Beeps
@@ -68,6 +69,17 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     /** Seconds left on the self timer, or null. */
     private val _countdown = MutableStateFlow<Int?>(null)
     val countdown: StateFlow<Int?> = _countdown.asStateFlow()
+
+    /**
+     * The seed everything random about a Purikura comes from — which stickers, where, which date.
+     *
+     * **Held still between shots, and that is the whole point of it existing.** The shader's own
+     * `seed` moves ten times a second so the glitter twinkles; if the stickers came off that they
+     * would rearrange themselves while you were composing, and the viewfinder would be showing you
+     * something other than what you were about to get. This one changes when you take a photograph.
+     */
+    private val _puriSeed = MutableStateFlow(Random.nextLong())
+    val puriSeed: StateFlow<Long> = _puriSeed.asStateFlow()
 
     /** Short-lived lines of text for the viewfinder. */
     private val _notice = MutableStateFlow<String?>(null)
@@ -290,6 +302,55 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     /* ---------------- the shutter ---------------- */
 
     /**
+     * A new arrangement of stickers. Called after each Purikura, and when the frame changes so that
+     * flicking through the borders also reshuffles what is on them.
+     */
+    fun reshufflePuri() {
+        _puriSeed.value = Random.nextLong()
+    }
+
+    /** The frame the chip is showing, resolved from the stored id. */
+    fun puriFrame(): PuriArt.Frame = PuriArt.frameById(prefs.puriFrame.value)
+
+    /** Walk to the next frame, and reshuffle, because a new border wants new decoration. */
+    fun stepPuriFrame(by: Int = 1) {
+        val all = PuriArt.frames
+        val at = all.indexOfFirst { it.id == prefs.puriFrame.value }.coerceAtLeast(0)
+        val next = all[((at + by) % all.size + all.size) % all.size]
+        prefs.setPuriFrame(next.id)
+        reshufflePuri()
+        showNotice("Frame: ${next.label}")
+    }
+
+    /**
+     * What to draw on top of a Purikura, or null if this is not one.
+     *
+     * Built here rather than in the shutter so the viewfinder can call the same function with the
+     * same seed and show the truth. [faces] arrive after the turn and the crop, which is why this is
+     * a lambda taking them rather than a plan made in advance.
+     */
+    fun puriOverlay(
+        filter: Filters.Filter,
+        withDate: Boolean,
+        millis: Long,
+    ): ((android.graphics.Canvas, Int, Int, List<com.gios.lightcamera.filter.FaceQuad>) -> Unit)? {
+        if (!filter.facesAware) return null
+        val frame = puriFrame()
+        val stickers = prefs.puriStickers.value
+        val seed = _puriSeed.value
+        return { canvas, w, h, faces ->
+            PuriArt.draw(
+                canvas = canvas,
+                w = w,
+                h = h,
+                frame = frame,
+                plan = PuriArt.plan(seed, faces, stickers, withDate),
+                millis = millis,
+            )
+        }
+    }
+
+    /**
      * When to write a date on this frame, or null for no stamp.
      *
      * Three separate settings rather than one, because the stamp belongs on a plain photograph and
@@ -368,6 +429,14 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     } else {
                         emptyList()
                     }
+                    // A Purikura brings its own date — a bubble capsule, a ticket stub, one of
+                    // eight — so the ordinary date back stands down rather than both of them
+                    // printing into the same corner.
+                    val puri = puriOverlay(
+                        filter = activeFilter,
+                        withDate = stampAt != null,
+                        millis = stampAt ?: System.currentTimeMillis(),
+                    )
                     val processed = withContext(Dispatchers.Default) {
                         Frames.fromPreview(
                             preview = grabbed,
@@ -375,12 +444,16 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                             filter = activeFilter,
                             aspect = aspect,
                             seed = seed,
-                            stampAt = stampAt,
+                            stampAt = if (puri != null) null else stampAt,
                             stampStyle = prefs.stampStyle.value,
                             faces = faces,
+                            overlay = puri,
                         )
                     }
                     finish(processed, activeFilter.id)
+                    // A fresh arrangement for the next one, so two shots in a row are not the same
+                    // print with a different face in it.
+                    if (puri != null) reshufflePuri()
                     return@launch
                 }
 
