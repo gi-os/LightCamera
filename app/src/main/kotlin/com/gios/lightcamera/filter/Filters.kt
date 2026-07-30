@@ -136,6 +136,69 @@ half4 main(float2 xy) {
 }
 """
 
+    /**
+     * Thirty-two colours, ordered-dithered — one step up from [DITHER16].
+     *
+     * Eight greys and eight hues at three brightnesses, matched by nearest distance exactly as the
+     * sixteen-colour one is. **The extra sixteen entries mostly go into the greys and the dark end**, which is
+     * where a 16-colour palette shows its seams worst: EGA has one mid-grey and nothing between black and half
+     * brightness, so skin and shadow both collapse onto the same few swatches. Photographs spend most of their
+     * range there.
+     *
+     * The dither offset is smaller than DITHER16's — with twice the palette the error to spread is half the
+     * size, and reusing the wider offset would scatter pixels past the entries either side of the right one.
+     */
+    private const val DITHER32 = """
+void nearer(float3 c, float3 cand, inout float3 best, inout float bd) {
+    float3 e = c - cand;
+    float d = dot(e, e);
+    if (d < bd) { bd = d; best = cand; }
+}
+
+half4 main(float2 xy) {
+    float3 c = tap(xy);
+    c = clamp((c - 0.5) * 1.12 + 0.5, 0.0, 1.0);
+    float t = bayer8(xy / (unitPx() * 2.0)) - 0.5;
+    c = clamp(c + t * 0.15, 0.0, 1.0);
+
+    float3 best = float3(0.0, 0.0, 0.0);
+    float bd = 1000.0;
+    nearer(c, float3(0.00, 0.00, 0.00), best, bd);
+    nearer(c, float3(0.14, 0.14, 0.14), best, bd);
+    nearer(c, float3(0.29, 0.29, 0.29), best, bd);
+    nearer(c, float3(0.43, 0.43, 0.43), best, bd);
+    nearer(c, float3(0.57, 0.57, 0.57), best, bd);
+    nearer(c, float3(0.71, 0.71, 0.71), best, bd);
+    nearer(c, float3(0.86, 0.86, 0.86), best, bd);
+    nearer(c, float3(1.00, 1.00, 1.00), best, bd);
+    nearer(c, float3(0.34, 0.00, 0.00), best, bd);
+    nearer(c, float3(0.00, 0.34, 0.00), best, bd);
+    nearer(c, float3(0.00, 0.00, 0.34), best, bd);
+    nearer(c, float3(0.34, 0.34, 0.00), best, bd);
+    nearer(c, float3(0.34, 0.00, 0.34), best, bd);
+    nearer(c, float3(0.00, 0.34, 0.34), best, bd);
+    nearer(c, float3(0.34, 0.17, 0.00), best, bd);
+    nearer(c, float3(0.17, 0.00, 0.34), best, bd);
+    nearer(c, float3(0.62, 0.00, 0.00), best, bd);
+    nearer(c, float3(0.00, 0.62, 0.00), best, bd);
+    nearer(c, float3(0.00, 0.00, 0.62), best, bd);
+    nearer(c, float3(0.62, 0.62, 0.00), best, bd);
+    nearer(c, float3(0.62, 0.00, 0.62), best, bd);
+    nearer(c, float3(0.00, 0.62, 0.62), best, bd);
+    nearer(c, float3(0.62, 0.31, 0.00), best, bd);
+    nearer(c, float3(0.31, 0.00, 0.62), best, bd);
+    nearer(c, float3(1.00, 0.00, 0.00), best, bd);
+    nearer(c, float3(0.00, 1.00, 0.00), best, bd);
+    nearer(c, float3(0.00, 0.00, 1.00), best, bd);
+    nearer(c, float3(1.00, 1.00, 0.00), best, bd);
+    nearer(c, float3(1.00, 0.00, 1.00), best, bd);
+    nearer(c, float3(0.00, 1.00, 1.00), best, bd);
+    nearer(c, float3(1.00, 0.50, 0.00), best, bd);
+    nearer(c, float3(0.50, 0.00, 1.00), best, bd);
+    return half4(float4(best, 1.0));
+}
+"""
+
     private const val DITHER16 = """
 void nearer(float3 c, float3 cand, inout float3 best, inout float bd) {
     float3 e = c - cand;
@@ -681,6 +744,7 @@ half4 main(float2 xy) {
         Filter("film", "Film", FILM, animated = true),
         Filter("mono", "Mono", MONO),
         Filter("dither16", "Dither 16", DITHER16, lowRes = true),
+        Filter("dither32", "Dither 32", DITHER32, lowRes = true),
         Filter("dithergrey", "Dither BW", DITHER_GREY, lowRes = true),
         Filter("onebit", "1-Bit", ONE_BIT, lowRes = true),
         Filter("halftone", "Halftone", HALFTONE, lowRes = true),

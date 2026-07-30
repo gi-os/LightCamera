@@ -1,18 +1,19 @@
-## Roll v2.29 — Dither BW
+## Roll v2.30 — Dither 32
 
-**Dither 16 was already sixteen colours**
+Thirty-two colours, between Dither 16 and an undithered photograph: eight greys and eight hues at three
+brightnesses, matched by nearest distance exactly as the sixteen-colour one is.
 
-Worth saying, since it was the half you asked me to check: it matches each pixel against a fixed sixteen-entry
-EGA palette by nearest distance, with an ordered dither applied before the match. Not four levels per channel —
-that would be sixty-four colours and a different, softer look.
+**Where the extra sixteen entries went**
 
-**So the grayscale one is what was missing**
+Into the greys and the dark end, which is where a 16-colour palette shows its seams worst. EGA has one mid-grey
+and nothing at all between black and half brightness, so skin and shadow collapse onto the same few swatches —
+and photographs spend most of their range there. Eight evenly spaced greys plus a 0.34 brightness rung for
+every hue is most of what the second sixteen buys you.
 
-**Dither BW**, next to it on the wheel: sixteen greys, ordered-dithered, and marked coarse like the rest of the
-dithers so it takes the instant panel frame rather than a 1.8 s still.
+**And a smaller dither offset**
 
-It is not the colour one desaturated. Quantising *after* a colour match lands on whichever of the sixteen EGA
-entries was nearest and then flattens it, throwing away most of the tonal range — so this quantises luminance
-directly and all sixteen steps get used. A little contrast goes on first, because sixteen levels across a flat
-photograph is mud, and the dither offset is a step and a half wide rather than one: at exactly one step the
-pattern is nearly invisible on a photograph, and being able to see it is the entire point.
+0.15 rather than 0.26. With twice the palette the error to spread is half the size; keeping the wider offset
+would scatter pixels past the entries either side of the right one, which reads as noise rather than as
+dithering.
+
+Coarse like its siblings, so it takes the instant panel frame rather than a 1.8 s still.
