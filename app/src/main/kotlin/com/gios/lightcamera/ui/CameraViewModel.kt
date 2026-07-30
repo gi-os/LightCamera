@@ -10,12 +10,14 @@ import com.gios.lightcamera.camera.CameraEngine
 import com.gios.lightcamera.camera.FaceBox
 import com.gios.lightcamera.camera.Frames
 import com.gios.lightcamera.filter.Filters
+import com.gios.lightcamera.hw.Beeps
 import com.gios.lightcamera.media.MediaStoreRepo
 import com.gios.lightcamera.media.Photo
 import com.gios.lightcamera.media.RollScope
 import com.gios.lightcamera.media.Thumbs
 import com.gios.lightcamera.roll.FilmRoll
 import com.gios.lightcamera.roll.Roll
+import com.gios.lightcamera.ui.theme.LightHaptics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -43,6 +45,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     val thumbs = Thumbs(app)
     private val repo = MediaStoreRepo(app)
     val filmRoll = FilmRoll(app)
+    private val beeps = Beeps(app)
 
     val roll: StateFlow<Roll?> get() = filmRoll.roll
 
@@ -111,6 +114,22 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         }
         viewModelScope.launch {
             prefs.scope.collect { refreshRoll() }
+        }
+        // Focus confirmation: two blips and a buzz, the way a compact camera does it. Fired
+        // from the camera's own AF result, so it lands when the lens lands — not when a
+        // request was sent.
+        viewModelScope.launch {
+            engine.focusOutcome.collect { locked ->
+                if (locked) {
+                    LightHaptics.click(getApplication<Application>())
+                    if (prefs.sounds.value) beeps.focusLocked()
+                } else {
+                    if (prefs.sounds.value) beeps.focusFailed()
+                }
+            }
+        }
+        viewModelScope.launch {
+            shutterTick.collect { if (prefs.sounds.value) beeps.shutter() }
         }
     }
 
@@ -307,6 +326,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         observer?.let { runCatching { it.close() } }
         observer = null
         engine.shutdown()
+        beeps.release()
         thumbs.clear()
         super.onCleared()
     }

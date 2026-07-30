@@ -13,9 +13,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -28,6 +32,7 @@ import com.gios.lightcamera.ui.theme.LightText
 import com.gios.lightcamera.ui.theme.LightTextVariant
 import com.gios.lightcamera.ui.theme.LightThemeTokens
 import com.gios.lightcamera.ui.theme.lightClickable
+import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.atan2
 
@@ -153,3 +158,32 @@ private const val SMOOTHING = 0.12f
 
 /** Whether the phone is level enough to say so. A degree either way is within a hand's steadiness. */
 fun Float.isLevel(): Boolean = abs(this) < 1.0f
+
+/**
+ * Whether the horizon line is worth drawing.
+ *
+ * A level that is always on screen is a line through the middle of every photograph you
+ * frame. This one appears when the phone is crooked, which is when it has something to say,
+ * and lingers for a beat after you straighten up so you see it close — the confirmation is
+ * the entire point of a level, and a line that vanished the instant it was satisfied would
+ * never be seen doing it.
+ */
+@Composable
+fun rememberLevelVisible(tilt: Float, enabled: Boolean = true): Boolean {
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(enabled, tilt.isLevel()) {
+        if (!enabled) {
+            visible = false
+            return@LaunchedEffect
+        }
+        if (!tilt.isLevel()) {
+            visible = true
+        } else if (visible) {
+            delay(LEVEL_LINGER_MS)
+            visible = false
+        }
+    }
+    return enabled && visible
+}
+
+private const val LEVEL_LINGER_MS = 1_100L

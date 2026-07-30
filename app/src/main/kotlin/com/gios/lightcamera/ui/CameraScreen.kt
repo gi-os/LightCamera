@@ -1,5 +1,7 @@
 package com.gios.lightcamera.ui
 
+import androidx.camera.core.CameraSelector
+import androidx.camera.view.PreviewView
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -11,12 +13,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -26,28 +29,26 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.camera.core.CameraSelector
-import androidx.camera.view.PreviewView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.gios.lightcamera.Chrome
+import com.gios.lightcamera.camera.AfMode
 import com.gios.lightcamera.camera.AfState
 import com.gios.lightcamera.camera.FaceMapper
 import com.gios.lightcamera.camera.FlashMode
+import com.gios.lightcamera.camera.FrameAspect
 import com.gios.lightcamera.filter.ShaderRuntime
 import com.gios.lightcamera.hw.WheelTurns
 import com.gios.lightcamera.ui.theme.LightHaptics
@@ -58,24 +59,28 @@ import com.gios.lightcamera.ui.theme.LightTextVariant
 import com.gios.lightcamera.ui.theme.LightThemeTokens
 import com.gios.lightcamera.ui.theme.lightClickable
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.random.Random
 
 /**
- * The viewfinder.
+ * The viewfinder: the image, edge to edge, and as little else as possible.
  *
- * The layout is the argument. The frame is a box in the **exact aspect ratio the photo will
- * be saved in**, with black margins above and below it, rather than a preview stretched to
- * the whole panel with the crop implied by a pair of lines. Two things follow from that,
- * both of them the point:
+ * The Light Phone's own camera is one unbroken picture with a couple of marks on it, and
+ * that is the right answer on a 3.92" panel — every pixel of chrome is a pixel of the
+ * photograph you can't see. So:
  *
- *  - **What you see is what is saved.** The preview fills the frame box and crops the
- *    overhang; the capture is centre-cropped to the same ratio. There is no third
- *    interpretation of where the edges are.
- *  - **There is somewhere to put the controls.** The margins hold the sprocket strips, the
- *    frame counter and the shutter, so nothing sits on top of the picture. On a 3.92" panel
- *    that is the difference between chrome you can read and chrome you resent.
+ *  - **The preview fills the screen.** No frame box, no letterbox, no mattes. An earlier
+ *    version drew the exact save-aspect as a bordered box with the controls in the margins,
+ *    which was honest about cropping and horrible to look through.
+ *  - **Chrome floats in the system-bar insets**, over a gradient that fades to nothing before
+ *    it reaches the middle of the frame. Against a dark scene it is invisible; against a
+ *    bright one it is the only reason the icons are legible.
+ *  - **Focus and faces are the only marks on the image**, and they use LightOS's own drawing
+ *    — brackets while hunting, a closed box on lock. See [FrameOverlay].
+ *
+ * The cost of filling the screen is that the sensor is 4:3 and the panel is not, so the file
+ * contains a little more than the viewfinder showed. That is how every phone camera works and
+ * it is the trade the stock app makes too; the settings screen says so out loud.
  */
 @Composable
 fun CameraScreen(
@@ -87,7 +92,6 @@ fun CameraScreen(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val scope = rememberCoroutineScope()
     val colours = LightThemeTokens.colors
     val engine = vm.engine
 
@@ -96,12 +100,13 @@ fun CameraScreen(
     val chrome by vm.prefs.chrome.collectAsState()
     val flash by vm.prefs.flash.collectAsState()
     val timer by vm.prefs.timer.collectAsState()
+    val afMode by vm.prefs.afMode.collectAsState()
+    val facePriority by vm.prefs.facePriority.collectAsState()
     val wheelEnabled by vm.prefs.wheelEnabled.collectAsState()
     val roll by vm.roll.collectAsState()
     val faces by engine.faces.collectAsState()
     val afState by engine.afState.collectAsState()
     val focusPoint by engine.focusPoint.collectAsState()
-    val facesSupported by engine.facesSupported.collectAsState()
     val lensFacing by engine.lensFacing.collectAsState()
     val zoom by engine.zoom.collectAsState()
     val maxZoom by engine.maxZoom.collectAsState()
@@ -150,9 +155,7 @@ fun CameraScreen(
             ShaderRuntime.effectFor(filter, frameWidth, frameHeight, seed),
         )
     }
-    DisposableEffect(Unit) {
-        onDispose { previewView.setRenderEffect(null) }
-    }
+    DisposableEffect(Unit) { onDispose { previewView.setRenderEffect(null) } }
 
     /* ---- the wheel ---- */
 
@@ -186,183 +189,178 @@ fun CameraScreen(
         }
     }
 
-    val facePriority by vm.prefs.facePriority.collectAsState()
-    val tilt by rememberTilt(active = active && chrome != Chrome.Clean)
+    val tilt by rememberTilt(active = active)
+    val levelVisible = rememberLevelVisible(tilt, enabled = active)
     val priority = remember(faces, frameWidth, frameHeight, facePriority) {
         if (facePriority) FaceMapper.priority(faces, frameWidth, frameHeight) else null
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black),
     ) {
-        /* ---- top deck ---- */
-        Row(
+        /* ---- the image ---- */
+        AndroidView(
+            factory = { previewView },
             modifier = Modifier
-                .fillMaxWidth()
-                .height(46.dp)
-                .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ChromeIcon(
-                icon = when (flash) {
-                    FlashMode.Off -> LightIcons.FlashOff
-                    FlashMode.On -> LightIcons.FlashOn
-                    FlashMode.Auto -> LightIcons.FlashAuto
-                },
-                lighten = flash == FlashMode.Off,
-                onClick = {
-                    vm.prefs.setFlash(
-                        when (flash) {
-                            FlashMode.Off -> FlashMode.Auto
-                            FlashMode.Auto -> FlashMode.On
-                            FlashMode.On -> FlashMode.Off
-                        },
-                    )
-                },
-            )
-            if (torch) {
-                LightText("TORCH", LightTextVariant.Micro, modifier = Modifier.padding(start = 2.dp))
-            }
-            Spacer(Modifier.weight(1f))
-            LightText(
-                text = filter.label.uppercase(),
-                variant = LightTextVariant.Superfine,
-                lighten = filter.agsl == null,
-                modifier = Modifier.lightClickable { gridOpen = true },
-            )
-            Spacer(Modifier.weight(1f))
-            ChromeLabel(
-                text = aspect.label,
-                lighten = true,
-                onClick = {
-                    val next = com.gios.lightcamera.camera.FrameAspect.entries.let {
-                        it[(it.indexOf(aspect) + 1) % it.size]
-                    }
-                    vm.prefs.setAspect(next)
-                    vm.showNotice(next.label)
-                },
-            )
-            ChromeIcon(icon = LightIcons.Settings, lighten = true, onClick = onOpenSettings)
-        }
-
-        if (chrome == Chrome.Film) SprocketStrip(offsetFrames = roll?.shot ?: 0)
-
-        /* ---- the frame ---- */
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            contentAlignment = Alignment.Center,
-        ) {
-            Box(
-                modifier = Modifier
-                    // Portrait: the ratio inverts, so 4:3 becomes a 3:4 box.
-                    .aspectRatio(1f / (aspect.ratio ?: (4f / 3f)))
-                    .clipToBounds()
-                    .onSizeChanged {
-                        frameWidth = it.width
-                        frameHeight = it.height
-                        vm.onViewSized(it.width, it.height)
-                    }
-                    .viewfinderGestures(
-                        enabled = active,
-                        onTapFocus = { x, y ->
-                            LightHaptics.click(context)
-                            engine.focusAt(x, y, lock = false)
-                        },
-                        onFilterStep = { vm.stepFilter(it) },
-                    ),
-            ) {
-                AndroidView(
-                    factory = { previewView },
-                    modifier = Modifier.fillMaxSize(),
-                )
-                FrameOverlay(
-                    chrome = chrome,
-                    faces = faces,
-                    priority = priority,
-                    afState = afState,
-                    focusPoint = focusPoint,
-                    tilt = tilt,
-                    facesSupported = facesSupported,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                ShutterBlink(alpha = blink)
-
-                if (countdown != null) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        LightText("$countdown", LightTextVariant.Title)
-                    }
+                .fillMaxSize()
+                .onSizeChanged {
+                    frameWidth = it.width
+                    frameHeight = it.height
+                    vm.onViewSized(it.width, it.height)
                 }
+                .viewfinderGestures(
+                    enabled = active,
+                    onTapFocus = { x, y ->
+                        // A buzz for the *ask*. The buzz and beep for the lens actually
+                        // landing come off the camera's AF result, in the view model.
+                        LightHaptics.advance(context)
+                        engine.focusAt(x, y, lock = false)
+                    },
+                    onFilterStep = { vm.stepFilter(it) },
+                ),
+        )
 
-                Notice(
-                    text = notice,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 10.dp),
-                )
+        FrameOverlay(
+            chrome = chrome,
+            faces = faces,
+            priority = priority,
+            afState = afState,
+            focusPoint = focusPoint,
+            tilt = tilt,
+            levelVisible = levelVisible,
+            modifier = Modifier.fillMaxSize(),
+        )
+
+        if (blink > 0f) {
+            Canvas(Modifier.fillMaxSize()) { drawRect(Color.Black.copy(alpha = blink)) }
+        }
+
+        if (countdown != null) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                LightText("$countdown", LightTextVariant.Title)
             }
         }
 
-        if (chrome == Chrome.Film) SprocketStrip(offsetFrames = roll?.shot ?: 0)
-
-        /* ---- bottom deck ---- */
+        /* ---- top chrome ---- */
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 6.dp, bottom = 10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Black.copy(alpha = 0.55f),
+                        1f to Color.Transparent,
+                    ),
+                )
+                .statusBarsPadding(),
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+                    .padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (zoom > 1.02f) {
-                    LightText(engine.zoomLabel(), LightTextVariant.Micro)
-                } else if (maxZoom > 1.5f) {
-                    LightText("1.0x", LightTextVariant.Micro, lighten = true)
+                ChromeIcon(
+                    icon = when (flash) {
+                        FlashMode.Off -> LightIcons.FlashOff
+                        FlashMode.On -> LightIcons.FlashOn
+                        FlashMode.Auto -> LightIcons.FlashAuto
+                    },
+                    lighten = flash == FlashMode.Off,
+                    onClick = {
+                        vm.prefs.setFlash(
+                            when (flash) {
+                                FlashMode.Off -> FlashMode.Auto
+                                FlashMode.Auto -> FlashMode.On
+                                FlashMode.On -> FlashMode.Off
+                            },
+                        )
+                    },
+                )
+                // The one indicator that is always on: which autofocus mode is live, lit up
+                // the moment the lens locks. A camera that focuses silently and invisibly is
+                // a camera you press twice.
+                AfBadge(
+                    mode = afMode,
+                    state = afState,
+                    modifier = Modifier.lightClickable {
+                        val next = if (afMode == AfMode.Single) AfMode.Continuous else AfMode.Single
+                        vm.prefs.setAfMode(next)
+                        vm.showNotice(if (next == AfMode.Single) "AF-S" else "AF-C")
+                    },
+                )
+                if (torch) {
+                    LightText(
+                        "TORCH",
+                        LightTextVariant.Micro,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
                 }
                 Spacer(Modifier.weight(1f))
+                if (zoom > 1.02f) {
+                    LightText(engine.zoomLabel(), LightTextVariant.Micro)
+                    Spacer(Modifier.width(8.dp))
+                }
+                if (ev != 0) {
+                    LightText("EV ${engine.evLabel()}", LightTextVariant.Micro)
+                    Spacer(Modifier.width(8.dp))
+                }
                 if (timer.seconds > 0) {
                     LightText(timer.label, LightTextVariant.Micro)
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(8.dp))
                 }
-                if (ev != 0) LightText("EV ${engine.evLabel()}", LightTextVariant.Micro)
+                ChromeIcon(icon = LightIcons.Settings, lighten = true, onClick = onOpenSettings)
             }
+        }
+
+        /* ---- bottom chrome ---- */
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = 0.72f),
+                    ),
+                )
+                .systemBarsPadding(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Notice(text = notice, modifier = Modifier.padding(bottom = 8.dp))
 
             if (roll != null) {
+                SprocketStrip(offsetFrames = roll?.shot ?: 0)
                 RollCounter(
                     roll = roll,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 6.dp)
+                        .padding(top = 4.dp)
                         .lightClickable { onOpenSettings() },
-                )
-            } else {
-                LightText(
-                    text = "LOAD A ROLL",
-                    variant = LightTextVariant.Micro,
-                    lighten = true,
-                    modifier = Modifier
-                        .padding(top = 6.dp)
-                        .lightClickable { vm.loadRoll() },
                 )
             }
 
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 8.dp),
+                    .padding(top = 10.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                ChromeIcon(
-                    icon = LightIcons.Grid,
-                    onClick = { gridOpen = true },
-                    modifier = Modifier.padding(start = 10.dp),
-                )
+                Column(
+                    modifier = Modifier.padding(start = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    ChromeIcon(icon = LightIcons.Grid, onClick = { gridOpen = true })
+                    LightText(
+                        text = filter.label.uppercase(),
+                        variant = LightTextVariant.Micro,
+                        lighten = filter.agsl == null,
+                        modifier = Modifier.lightClickable { gridOpen = true },
+                    )
+                }
                 SoftShutter(
                     shooting = shooting,
                     rollLoaded = roll != null,
@@ -372,54 +370,96 @@ fun CameraScreen(
                         engine.releaseFocus()
                     },
                 )
-                ChromeIcon(
-                    icon = if (rollSwipeEnabled) LightIcons.FlipLens else LightIcons.Close,
-                    lighten = !engine.hasFrontCamera(),
-                    onClick = {
-                        engine.setLens(
-                            if (lensFacing == CameraSelector.LENS_FACING_BACK) {
-                                CameraSelector.LENS_FACING_FRONT
-                            } else {
-                                CameraSelector.LENS_FACING_BACK
-                            },
-                            flash,
-                        )
-                    },
-                    modifier = Modifier.padding(end = 10.dp),
-                )
+                Column(
+                    modifier = Modifier.padding(end = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    ChromeIcon(
+                        icon = LightIcons.FlipLens,
+                        onClick = {
+                            engine.setLens(
+                                if (lensFacing == CameraSelector.LENS_FACING_BACK) {
+                                    CameraSelector.LENS_FACING_FRONT
+                                } else {
+                                    CameraSelector.LENS_FACING_BACK
+                                },
+                                flash,
+                            )
+                        },
+                    )
+                    LightText(
+                        text = if (aspect == FrameAspect.Full) "4:3" else aspect.label,
+                        variant = LightTextVariant.Micro,
+                        lighten = true,
+                        modifier = Modifier.lightClickable {
+                            val all = FrameAspect.entries
+                            val next = all[(all.indexOf(aspect) + 1) % all.size]
+                            vm.prefs.setAspect(next)
+                            vm.showNotice(next.label)
+                        },
+                    )
+                }
             }
 
             if (rollSwipeEnabled) {
                 Row(
                     modifier = Modifier
-                        .padding(top = 2.dp)
-                        .lightClickable { onOpenRoll() },
+                        .fillMaxWidth()
+                        .lightClickable { onOpenRoll() }
+                        .padding(bottom = 4.dp),
+                    horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     LightIcon(
                         icon = LightIcons.Up,
-                        size = 9.dp,
+                        size = 8.dp,
                         tint = colours.contentSecondary,
                     )
-                    LightText(
-                        "  ROLL",
-                        LightTextVariant.Micro,
-                        lighten = true,
-                    )
+                    LightText("  ROLL", LightTextVariant.Micro, lighten = true)
                 }
             }
         }
-    }
 
-    if (gridOpen) {
-        FilterGrid(
-            vm = vm,
-            previewView = previewView,
-            onPick = { id ->
-                vm.setFilter(id)
-                gridOpen = false
+        // Inside the Box on purpose: as a sibling of it, the stacking order would be at the
+        // mercy of whatever layout the pager wraps a page in.
+        if (gridOpen) {
+            FilterGrid(
+                vm = vm,
+                previewView = previewView,
+                onPick = { id ->
+                    vm.setFilter(id)
+                    gridOpen = false
+                },
+                onClose = { gridOpen = false },
+            )
+        }
+    }
+}
+
+/**
+ * The autofocus badge. `AF-S` or `AF-C`, inverted while the lens is locked.
+ *
+ * Inversion rather than a colour, because the panel has no colours to spare and LightOS
+ * carries state by swapping foreground and background everywhere else too.
+ */
+@Composable
+private fun AfBadge(mode: AfMode, state: AfState, modifier: Modifier = Modifier) {
+    val colours = LightThemeTokens.colors
+    val locked = state == AfState.Locked
+    val label = if (mode == AfMode.Single) "AF-S" else "AF-C"
+    Box(
+        modifier = modifier
+            .background(if (locked) colours.content else Color.Transparent)
+            .padding(horizontal = 5.dp, vertical = 2.dp),
+    ) {
+        LightText(
+            text = label,
+            variant = LightTextVariant.Micro,
+            color = when {
+                locked -> colours.background
+                state == AfState.Scanning -> colours.content
+                else -> colours.contentSecondary
             },
-            onClose = { gridOpen = false },
         )
     }
 }
@@ -447,7 +487,7 @@ private fun SoftShutter(
     )
     Box(
         modifier = Modifier
-            .size(74.dp)
+            .size(72.dp)
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
@@ -475,9 +515,9 @@ private fun SoftShutter(
             drawCircle(
                 color = colours.content,
                 radius = size.minDimension / 2f - ring,
-                style = androidx.compose.ui.graphics.drawscope.Stroke(width = ring),
+                style = Stroke(width = ring),
             )
-            val r = (size.minDimension / 2f - 8.dp.toPx()) * inner
+            val r = (size.minDimension / 2f - 7.dp.toPx()) * inner
             if (rollLoaded) {
                 // A loaded roll gets a square release, so a glance at the shutter tells you
                 // the photograph is going onto film and not into the gallery.
@@ -500,9 +540,9 @@ private fun SoftShutter(
 /**
  * Tap to focus, swipe sideways for the next filter.
  *
- * Written against [PointerEventPass.Initial] and arbitrating by hand, because the frame sits
- * inside a vertical pager: on the main pass the pager has already claimed the gesture. The
- * axis is decided once, past the slop, and only a horizontal decision is consumed — a
+ * Written against [PointerEventPass.Initial] and arbitrating by hand, because the viewfinder
+ * sits inside a vertical pager: on the main pass the pager has already claimed the gesture.
+ * The axis is decided once, past the slop, and only a horizontal decision is consumed — a
  * vertical drag is left entirely alone so pulling the roll down still feels native.
  */
 private fun Modifier.viewfinderGestures(

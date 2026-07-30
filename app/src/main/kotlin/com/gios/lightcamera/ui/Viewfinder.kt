@@ -3,9 +3,7 @@ package com.gios.lightcamera.ui
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -13,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -34,16 +33,21 @@ import kotlin.math.abs
 import kotlin.math.min
 
 /**
- * Everything drawn over the live image.
+ * The marks on the live image, and nothing else.
  *
- * One `Canvas` for the lot, because these marks have to agree with each other pixel for
- * pixel — a focus bracket that lands a device pixel off a face bracket looks broken in a way
- * that is hard to name and impossible to unsee. Composables per mark would each round their
- * own way.
+ * The language is LightOS's own, taken from the drawables its camera ships in
+ * `lightphone/light-sdk`: `ic_camera_focus_locking` is four corner brackets and
+ * `ic_camera_focus_locked` is a closed square. So a hunting lens draws brackets, and the
+ * moment it locks they close into a box. Those two frames are the entire focus vocabulary of
+ * the stock camera and they are worth matching exactly — it is the one animation on the
+ * screen that carries information, and it is the one a Light Phone owner already knows.
  *
- * Nothing here is a Material component and nothing animates on a spring. A viewfinder mark
- * either is somewhere or it isn't; the only motion is the focus bracket snapping in, which
- * is 90ms because that is roughly how long the lens takes and the two should agree.
+ * Faces are closed rectangles, heavier on the one the lens is working on. Everything is
+ * stroked at the same two weights and there is no fill anywhere, because the point of a
+ * viewfinder is the photograph and not the marks.
+ *
+ * One `Canvas` for all of it: these marks have to agree with each other pixel for pixel, and
+ * a composable per mark would each round its own way.
  */
 @Composable
 fun FrameOverlay(
@@ -53,115 +57,118 @@ fun FrameOverlay(
     afState: AfState,
     focusPoint: Pair<Float, Float>?,
     tilt: Float,
-    facesSupported: Boolean,
+    /** True while the phone has been crooked recently enough for the level to be useful. */
+    levelVisible: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val colors = LightThemeTokens.colors
+    val colours = LightThemeTokens.colors
 
-    // 1.0 while hunting, 0.78 once locked: the bracket closes on the subject, which is the
-    // one piece of animation in the app that carries information.
-    val bracket by animateFloatAsState(
-        targetValue = if (afState == AfState.Locked) 0.78f else 1f,
+    // The brackets close as the lens locks. 90 ms because that is roughly how long the lens
+    // takes, and the two should agree.
+    val closing by animateFloatAsState(
+        targetValue = if (afState == AfState.Locked) 1f else 0f,
         animationSpec = tween(durationMillis = 90),
-        label = "focus-bracket",
+        label = "focus-close",
     )
 
     Canvas(modifier = modifier) {
-        val hair = 1.dp.toPx()
-        val heavy = 1.8.dp.toPx()
+        val hair = 1.4.dp.toPx()
+        val heavy = 2.4.dp.toPx()
 
-        if (chrome == Chrome.Thirds) drawThirds(colors.contentSecondary.copy(alpha = 0.35f), hair)
-        if (chrome == Chrome.Film) drawRangefinderPatch(colors.content.copy(alpha = 0.55f), hair)
+        if (chrome == Chrome.Thirds) {
+            drawThirds(colours.contentSecondary.copy(alpha = 0.30f), hair)
+        }
 
-        // Faces the camera can see but is not focusing on: present, unemphatic.
+        // Every face the camera can see gets a box. The one it is focusing on is drawn by the
+        // focus indicator below instead, so it isn't boxed twice.
         faces.forEach { face ->
             if (face === priority) return@forEach
-            drawCornerBrackets(
-                rect = face.toRect(),
-                colour = colors.contentSecondary.copy(alpha = 0.55f),
-                stroke = hair,
-                armFraction = 0.20f,
+            drawRect(
+                color = colours.content.copy(alpha = 0.62f),
+                topLeft = face.topLeft(),
+                size = face.boxSize(),
+                style = Stroke(width = hair),
             )
         }
 
-        // The face the lens is actually working on.
-        if (priority != null) {
-            drawCornerBrackets(
-                rect = priority.toRect().inflate((bracket - 1f) * priority.width * 0.5f),
+        // The subject: a face if there is one, otherwise wherever focus was asked for, and
+        // failing that the centre of the frame while a focus run is in flight.
+        val target = when {
+            priority != null -> priority.squared()
+            focusPoint != null -> squareAt(focusPoint.first, focusPoint.second, 62.dp.toPx())
+            afState != AfState.Idle -> squareAt(size.width / 2f, size.height / 2f, 62.dp.toPx())
+            else -> null
+        }
+        if (target != null && (afState != AfState.Idle || priority != null)) {
+            drawFocusIndicator(
+                rect = target,
+                progress = closing,
                 colour = when (afState) {
-                    AfState.Locked -> colors.content
-                    AfState.Failed -> colors.contentSecondary
-                    else -> colors.content.copy(alpha = 0.75f)
+                    AfState.Failed -> colours.contentSecondary
+                    AfState.Idle -> colours.content.copy(alpha = 0.62f)
+                    else -> colours.content
                 },
                 stroke = if (afState == AfState.Locked) heavy else hair,
-                armFraction = 0.28f,
             )
         }
 
-        // A tapped or centre focus point, when it isn't on a face.
-        if (focusPoint != null && priority == null && afState != AfState.Idle) {
-            val side = 60.dp.toPx() * bracket
-            val rect = Rect(
-                Offset(focusPoint.first - side / 2f, focusPoint.second - side / 2f),
-                Size(side, side),
-            )
-            drawCornerBrackets(
-                rect = rect,
-                colour = if (afState == AfState.Failed) {
-                    colors.contentSecondary
-                } else {
-                    colors.content
-                },
-                stroke = if (afState == AfState.Locked) heavy else hair,
-                armFraction = 0.30f,
-            )
-            if (afState == AfState.Locked) {
-                drawLine(
-                    color = colors.content,
-                    start = Offset(rect.center.x - 5.dp.toPx(), rect.center.y),
-                    end = Offset(rect.center.x + 5.dp.toPx(), rect.center.y),
-                    strokeWidth = hair,
-                )
-            }
-        }
-
-        if (chrome != Chrome.Clean) drawLevel(tilt, colors.content, colors.contentSecondary, hair)
-
-        // A camera that can't see faces should say so once, quietly, by drawing nothing —
-        // but the centre mark has to be there or a half press looks like it did nothing.
-        if (!facesSupported && chrome == Chrome.Clean && afState == AfState.Idle) {
-            drawCentreTick(colors.contentSecondary.copy(alpha = 0.4f), hair)
+        if (levelVisible) {
+            drawLevel(tilt, colours.content, colours.contentSecondary, hair)
         }
     }
 }
 
-private fun FaceBox.toRect(): Rect = Rect(left, top, right, bottom)
+private fun FaceBox.topLeft() = Offset(left, top)
 
-private fun Rect.inflate(by: Float): Rect =
-    Rect(left - by, top - by, right + by, bottom + by)
+private fun FaceBox.boxSize() = Size(width, height)
 
 /**
- * Four corners, not a rectangle.
- *
- * A closed box over someone's face hides the face, which on a 3.92" panel is most of what
- * you were looking at. Corners mark the same area and leave it visible — the reason every
- * camera that has ever been good at this draws corners.
+ * Faces come back as tall or wide rectangles depending on the detector's mood. The focus box
+ * is square, so the subject is squared off around the same centre — it reads as the camera's
+ * focus box landing on the face rather than as the face's outline changing weight.
  */
-private fun DrawScope.drawCornerBrackets(
+private fun FaceBox.squared(): Rect {
+    val side = maxOf(width, height)
+    return squareAt(centreX, centreY, side)
+}
+
+private fun squareAt(x: Float, y: Float, side: Float) =
+    Rect(Offset(x - side / 2f, y - side / 2f), Size(side, side))
+
+/**
+ * The stock camera's focus mark, tweened between its two states.
+ *
+ * At `progress` 0 it is `ic_camera_focus_locking`: four corner brackets, each arm 18% of the
+ * side, which is the ratio in the drawable (53 of 300). At 1 it is
+ * `ic_camera_focus_locked`: one closed square, drawn 6% tighter so the lock reads as the box
+ * snapping shut on the subject. In between the arms simply grow, which is the cheapest
+ * possible interpolation between those two drawings and happens to look exactly right.
+ */
+private fun DrawScope.drawFocusIndicator(
     rect: Rect,
+    progress: Float,
     colour: Color,
     stroke: Float,
-    armFraction: Float,
 ) {
-    val arm = min(rect.width, rect.height) * armFraction
-    if (arm <= 0f) return
-    val corners = listOf(
-        Triple(rect.left, rect.top, 1f to 1f),
-        Triple(rect.right, rect.top, -1f to 1f),
-        Triple(rect.left, rect.bottom, 1f to -1f),
-        Triple(rect.right, rect.bottom, -1f to -1f),
+    val inset = rect.width * 0.06f * progress
+    val box = Rect(
+        rect.left + inset,
+        rect.top + inset,
+        rect.right - inset,
+        rect.bottom - inset,
     )
-    corners.forEach { (x, y, dir) ->
+    if (progress >= 0.999f) {
+        drawRect(colour, box.topLeft, box.size, style = Stroke(width = stroke))
+        return
+    }
+    // Arms run from 18% of the side to half of it, at which point the box is closed.
+    val arm = min(box.width, box.height) * (0.18f + 0.32f * progress)
+    listOf(
+        Triple(box.left, box.top, 1f to 1f),
+        Triple(box.right, box.top, -1f to 1f),
+        Triple(box.left, box.bottom, 1f to -1f),
+        Triple(box.right, box.bottom, -1f to -1f),
+    ).forEach { (x, y, dir) ->
         val (dx, dy) = dir
         drawLine(colour, Offset(x, y), Offset(x + arm * dx, y), stroke, StrokeCap.Square)
         drawLine(colour, Offset(x, y), Offset(x, y + arm * dy), stroke, StrokeCap.Square)
@@ -178,62 +185,20 @@ private fun DrawScope.drawThirds(colour: Color, stroke: Float) {
 }
 
 /**
- * The rangefinder patch.
- *
- * On a coupled rangefinder this is the bright window where two images converge when the
- * lens is focused. There is nothing to converge here, so it is doing a plainer job: marking
- * where the camera will focus if you half press without picking a subject, and giving the
- * eye somewhere to put the thing it cares about. Which is most of what the patch on an M3
- * does in practice too.
- */
-private fun DrawScope.drawRangefinderPatch(colour: Color, stroke: Float) {
-    val w = size.width * 0.30f
-    val h = w * 0.72f
-    val rect = Rect(
-        Offset((size.width - w) / 2f, (size.height - h) / 2f),
-        Size(w, h),
-    )
-    drawRect(
-        color = colour,
-        topLeft = rect.topLeft,
-        size = rect.size,
-        style = Stroke(width = stroke),
-    )
-    val tick = w * 0.06f
-    drawLine(
-        colour,
-        Offset(rect.center.x - tick, rect.center.y),
-        Offset(rect.center.x + tick, rect.center.y),
-        stroke,
-    )
-    drawLine(
-        colour,
-        Offset(rect.center.x, rect.center.y - tick),
-        Offset(rect.center.x, rect.center.y + tick),
-        stroke,
-    )
-}
-
-private fun DrawScope.drawCentreTick(colour: Color, stroke: Float) {
-    val tick = 7.dp.toPx()
-    val c = Offset(size.width / 2f, size.height / 2f)
-    drawLine(colour, Offset(c.x - tick, c.y), Offset(c.x + tick, c.y), stroke)
-    drawLine(colour, Offset(c.x, c.y - tick), Offset(c.x, c.y + tick), stroke)
-}
-
-/**
  * The horizon.
  *
- * Two segments with a gap while the phone is tilted, one continuous line when it isn't.
- * Closing the gap is the whole signal — it can be read out of the corner of your eye, which
- * is the only way a level is any use while you are looking at the picture.
+ * Two segments with a gap while the phone is tilted, one continuous line the moment it isn't.
+ * Closing the gap is the whole signal, and it can be read out of the corner of your eye — the
+ * only way a level is any use while you are looking at the picture. It is drawn only when it
+ * has something to say; see [rememberLevelVisible].
  */
 private fun DrawScope.drawLevel(tilt: Float, level: Color, off: Color, stroke: Float) {
     val centre = Offset(size.width / 2f, size.height / 2f)
-    val half = size.width * 0.22f
-    val gap = if (abs(tilt) < 1f) 0f else size.width * 0.075f
+    val half = size.width * 0.20f
+    val square = abs(tilt) < 1f
+    val gap = if (square) 0f else size.width * 0.07f
     rotate(degrees = -tilt, pivot = centre) {
-        val colour = if (abs(tilt) < 1f) level else off.copy(alpha = 0.75f)
+        val colour = if (square) level else off.copy(alpha = 0.7f)
         if (gap == 0f) {
             drawLine(
                 colour,
@@ -259,17 +224,17 @@ private fun DrawScope.drawLevel(tilt: Float, level: Color, off: Color, stroke: F
 }
 
 /**
- * A strip of sprocket holes.
+ * A strip of sprocket holes, shown only while a roll is loaded.
  *
- * Two of these, one above the frame and one below, and the viewfinder stops being a
- * rectangle on a phone and starts being a frame on a strip of film. They are drawn in the
- * black margin rather than over the image, because film sprockets are outside the exposed
- * area and because covering the picture with decoration would be a poor trade.
+ * It sits in the black band under the viewfinder with the frame counter, never over the
+ * image. Film sprockets are outside the exposed area anyway, and a viewfinder is no place for
+ * decoration — but a loaded roll changes what the shutter does, and this is how the app says
+ * so at a glance.
  */
 @Composable
 fun SprocketStrip(
     modifier: Modifier = Modifier,
-    height: Dp = 13.dp,
+    height: Dp = 11.dp,
     /** Advances with the frame count, so the film moves when you take a photograph. */
     offsetFrames: Int = 0,
 ) {
@@ -279,16 +244,16 @@ fun SprocketStrip(
         val holeW = holeH * 1.25f
         val pitch = holeW * 1.9f
         val y = (size.height - holeH) / 2f
-        // A third of a pitch per frame: the strip visibly steps along, without any one shot
+        // A third of a pitch per frame: the strip visibly steps along without any one shot
         // seeming to drag the whole roll past the gate.
         val shift = (offsetFrames * pitch / 3f) % pitch
         var x = -pitch + shift
         while (x < size.width + pitch) {
             drawRoundRect(
-                color = colours.contentSecondary.copy(alpha = 0.55f),
+                color = colours.contentSecondary.copy(alpha = 0.5f),
                 topLeft = Offset(x, y),
                 size = Size(holeW, holeH),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(holeH * 0.28f),
+                cornerRadius = CornerRadius(holeH * 0.28f),
             )
             x += pitch
         }
@@ -298,26 +263,23 @@ fun SprocketStrip(
 /**
  * The frame counter, as a row of ticks and a number.
  *
- * A number alone tells you where you are; the ticks tell you how much is left without
- * arithmetic, which is the thing you actually want to know with a camera at your eye. Both,
- * because the ticks stop being countable somewhere around twenty.
+ * The number tells you where you are; the ticks tell you how much is left without arithmetic,
+ * which is the thing you actually want to know with a camera at your eye. Both, because ticks
+ * stop being countable somewhere around twenty.
  */
 @Composable
 fun RollCounter(roll: Roll?, modifier: Modifier = Modifier) {
     val colours = LightThemeTokens.colors
     if (roll == null) return
     Row(
-        modifier = modifier.padding(horizontal = 14.dp),
+        modifier = modifier.padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        LightText(
-            text = "%02d".format(roll.shot),
-            variant = LightTextVariant.Superfine,
-        )
+        LightText(text = "%02d".format(roll.shot), variant = LightTextVariant.Superfine)
         Canvas(
             modifier = Modifier
                 .padding(horizontal = 8.dp)
-                .height(10.dp)
+                .height(9.dp)
                 .weight(1f),
         ) {
             if (roll.length <= 0) return@Canvas
@@ -327,8 +289,12 @@ fun RollCounter(roll: Roll?, modifier: Modifier = Modifier) {
                 val x = pitch * i + pitch / 2f
                 val exposed = i < roll.shot
                 drawLine(
-                    color = if (exposed) colours.content else colours.contentSecondary.copy(alpha = 0.35f),
-                    start = Offset(x, if (exposed) 0f else size.height * 0.3f),
+                    color = if (exposed) {
+                        colours.content
+                    } else {
+                        colours.contentSecondary.copy(alpha = 0.35f)
+                    },
+                    start = Offset(x, if (exposed) 0f else size.height * 0.35f),
                     end = Offset(x, size.height),
                     strokeWidth = tick,
                     cap = StrokeCap.Square,
@@ -340,20 +306,5 @@ fun RollCounter(roll: Roll?, modifier: Modifier = Modifier) {
             variant = LightTextVariant.Superfine,
             lighten = true,
         )
-    }
-}
-
-/** The frame blinks when the shutter fires. Nothing else says "that happened" as clearly. */
-@Composable
-fun ShutterBlink(alpha: Float, modifier: Modifier = Modifier) {
-    if (alpha <= 0f) return
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(0.dp),
-    ) {
-        Canvas(Modifier.fillMaxSize()) {
-            drawRect(color = Color.Black.copy(alpha = alpha))
-        }
     }
 }

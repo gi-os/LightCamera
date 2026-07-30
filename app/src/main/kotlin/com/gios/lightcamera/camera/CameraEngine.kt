@@ -29,8 +29,11 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.concurrent.Executors
@@ -81,6 +84,16 @@ class CameraEngine(private val context: Context) {
     /** Where the last focus request was aimed, in view pixels, for drawing the bracket. */
     private val _focusPoint = MutableStateFlow<Pair<Float, Float>?>(null)
     val focusPoint: StateFlow<Pair<Float, Float>?> = _focusPoint.asStateFlow()
+
+    /**
+     * Fires once per focus run that was actually asked for — true locked, false gave up.
+     *
+     * Separate from [afState] because that also carries the camera's own passive hunting,
+     * which happens continuously and must not beep. Only a half press or a tap opens the
+     * window this emits from.
+     */
+    private val _focusOutcome = MutableSharedFlow<Boolean>(extraBufferCapacity = 4)
+    val focusOutcome: SharedFlow<Boolean> = _focusOutcome.asSharedFlow()
 
     private val _zoom = MutableStateFlow(1f)
     val zoom: StateFlow<Float> = _zoom.asStateFlow()
@@ -135,6 +148,9 @@ class CameraEngine(private val context: Context) {
 
     /** True while a half press is holding focus, so continuous AF leaves the lens alone. */
     @Volatile private var focusHeld = false
+
+    /** True between a focus request and the result that settles it. Gates the beep. */
+    @Volatile private var awaitingFocus = false
 
     var afMode: AfMode = AfMode.Single
     var facePriority: Boolean = true
@@ -342,6 +358,12 @@ class CameraEngine(private val context: Context) {
         // shouldn't light the bracket, or the viewfinder is permanently claiming success.
         if (mapped == AfState.Locked && !focusHeld && _afState.value == AfState.Idle) return
         _afState.value = mapped
+
+        // Only a focus run somebody asked for gets to make a noise.
+        if (awaitingFocus && (mapped == AfState.Locked || mapped == AfState.Failed)) {
+            awaitingFocus = false
+            _focusOutcome.tryEmit(mapped == AfState.Locked)
+        }
     }
 
     private fun readFaces(result: TotalCaptureResult) {
@@ -407,6 +429,7 @@ class CameraEngine(private val context: Context) {
             ?: return
         _focusPoint.value = x to y
         _afState.value = AfState.Scanning
+        awaitingFocus = true
         val builder = FocusMeteringAction.Builder(
             point,
             FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE,
@@ -422,6 +445,7 @@ class CameraEngine(private val context: Context) {
     /** The button came back up. Let the camera go back to deciding for itself. */
     fun releaseFocus() {
         focusHeld = false
+        awaitingFocus = false
         if (afMode == AfMode.Continuous) {
             runCatching { camera?.cameraControl?.cancelFocusAndMetering() }
             _afState.value = AfState.Idle

@@ -9,13 +9,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** What the viewfinder draws over the image. */
+/**
+ * What the viewfinder draws over the image, beyond focus and faces.
+ *
+ * Deliberately short. The stock Light camera puts nothing on the picture at all, and an
+ * unobstructed viewfinder turned out to be the single biggest improvement to this app — so
+ * the only thing on offer here is a grid, for anyone who wants one.
+ */
 enum class Chrome(val label: String) {
-    /** Nothing but the readouts. */
+    /** Focus, faces and the level. Nothing else. */
     Clean("Clean"),
-
-    /** Sprocket edges, frame lines, a mechanical counter. */
-    Film("Film"),
 
     /** Rule-of-thirds lines. */
     Thirds("Thirds"),
@@ -47,7 +50,7 @@ class Prefs(context: Context) {
     val aspect: StateFlow<FrameAspect> = _aspect.asStateFlow()
 
     private val _chrome = MutableStateFlow(
-        Chrome.entries.firstOrNull { it.name == prefs.getString(CHROME, null) } ?: Chrome.Film,
+        Chrome.entries.firstOrNull { it.name == prefs.getString(CHROME, null) } ?: Chrome.Clean,
     )
     val chrome: StateFlow<Chrome> = _chrome.asStateFlow()
 
@@ -69,10 +72,23 @@ class Prefs(context: Context) {
     )
     val timer: StateFlow<SelfTimer> = _timer.asStateFlow()
 
+    /**
+     * The roll shows **everything** by default.
+     *
+     * Narrowing it to `DCIM` is technically the definition of a camera roll, but in practice
+     * that hides screenshots, saved pictures and anything a messaging app wrote elsewhere —
+     * so the roll appeared to be missing photographs that are plainly on the phone. All
+     * images, with a toggle in the header for anyone who wants only their own.
+     */
     private val _scope = MutableStateFlow(
-        RollScope.entries.firstOrNull { it.name == prefs.getString(SCOPE, null) } ?: RollScope.Camera,
+        RollScope.entries.firstOrNull { it.name == prefs.getString(SCOPE, null) }
+            ?: RollScope.Everything,
     )
     val scope: StateFlow<RollScope> = _scope.asStateFlow()
+
+    /** The digicam focus beep and the shutter tick. */
+    private val _sounds = MutableStateFlow(prefs.getBoolean(SOUNDS, true))
+    val sounds: StateFlow<Boolean> = _sounds.asStateFlow()
 
     /** Frames on a newly loaded roll. */
     private val _rollLength = MutableStateFlow(prefs.getInt(ROLL_LENGTH, 24))
@@ -103,6 +119,8 @@ class Prefs(context: Context) {
 
     fun setWheelEnabled(value: Boolean) = set(_wheelEnabled, value) { putBoolean(WHEEL, value) }
 
+    fun setSounds(value: Boolean) = set(_sounds, value) { putBoolean(SOUNDS, value) }
+
     private fun <T> set(
         flow: MutableStateFlow<T>,
         value: T,
@@ -123,5 +141,6 @@ class Prefs(context: Context) {
         const val SCOPE = "scope"
         const val ROLL_LENGTH = "rollLength"
         const val WHEEL = "wheel"
+        const val SOUNDS = "sounds"
     }
 }

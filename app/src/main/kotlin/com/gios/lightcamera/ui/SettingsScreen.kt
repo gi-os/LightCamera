@@ -52,6 +52,7 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
     val afMode by vm.prefs.afMode.collectAsState()
     val facePriority by vm.prefs.facePriority.collectAsState()
     val timer by vm.prefs.timer.collectAsState()
+    val sounds by vm.prefs.sounds.collectAsState()
     val wheel by vm.prefs.wheelEnabled.collectAsState()
     val rollLength by vm.prefs.rollLength.collectAsState()
     val roll by vm.roll.collectAsState()
@@ -91,11 +92,13 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
                 val all = FrameAspect.entries
                 vm.prefs.setAspect(all[(all.indexOf(aspect) + 1) % all.size])
             }
-            Setting("Viewfinder", chrome.label) {
+            Setting("Grid", chrome.label) {
                 val all = Chrome.entries
                 vm.prefs.setChrome(all[(all.indexOf(chrome) + 1) % all.size])
             }
-            Note("The frame is the photograph. What falls outside it on screen is not saved.")
+            Note(
+                "The viewfinder fills the screen and the sensor is 4:3, so the photograph keeps a little more than you saw — at the top and bottom of the frame.",
+            )
 
             Section("Focus")
             Setting("Mode", if (afMode == AfMode.Single) "Single" else "Continuous") {
@@ -114,7 +117,7 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
             }
             Note(
                 if (facesSupported) {
-                    "Half press the camera button to focus on the nearest face and hold it. Press through to take the photograph."
+                    "Half press the camera button to focus on the nearest face and hold it. Press through to take the photograph. The mark closes into a box, and beeps, when the lens has it."
                 } else {
                     "This camera doesn't report faces, so the half press focuses on the centre of the frame."
                 },
@@ -124,6 +127,9 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
             Setting("Self timer", timer.label) {
                 val all = SelfTimer.entries
                 vm.prefs.setTimer(all[(all.indexOf(timer) + 1) % all.size])
+            }
+            Setting("Sounds", if (sounds) "Focus beep" else "Off") {
+                vm.prefs.setSounds(!sounds)
             }
             Setting("Wheel", if (wheel) "Zoom / EV" else "Off") {
                 vm.prefs.setWheelEnabled(!wheel)
