@@ -303,11 +303,6 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             showNotice("Stop recording first")
             return
         }
-        // **Simple starts on the instant shutter.** It is the mode whose argument is speed, and on this
-        // camera a still costs 1.8 s no matter what is asked of it — so the default is the panel frame, which
-        // is immediate. Choose any other size in Settings and Simple takes a real still instead, with the
-        // wait that comes with it. The timing readout shows which you got, in megapixels.
-        if (next.isSimple && !prefs.photoSize.value.isPreviewGrab) prefs.setPhotoSize(PhotoSize.Screen)
         // **Simple drops Auto flash.** Auto is not free even when it decides not to fire: the HAL runs a
         // precapture metering sequence — often a preflash — before it will start the frame you asked for,
         // which is most of a second that a mode whose whole argument is speed should not be spending. Off
@@ -593,38 +588,30 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 // each shot and put it back after — which rebinds the camera, and a rebind mid-capture is
                 // what made changing the megapixels in Simple answer "camera is closed".
 
-                // **Screen size is the instant option, and it is the one that works.** It is the path the
-                // coarse filters already use: the frame is on the panel, so there is nothing to capture.
-                // Panel resolution, about 2.5MP — a real photograph for sending and for the screen, not one
-                // for cropping or printing.
+                // **Simple never reads the size setting, and never writes it.** Size belongs to Pro.
+                // Reading it made Simple's behaviour depend on a Pro choice; *writing* it — which an earlier
+                // version did on entering the mode — changed that choice behind your back and rebound the
+                // camera into the bargain. Both are gone: Simple has exactly one way of taking a photograph.
                 //
-                // Any other size takes a still, which on this camera is the 1.8 s the measurements found and
-                // which no app-side change has moved.
+                // That way is the panel frame. It is the only path on this camera that is actually immediate,
+                // it is what the coarse filters have always used, and the picture is already on the screen so
+                // there is nothing to capture. Panel resolution — real for sending and for looking at, not
+                // for cropping or printing. A still costs 1.8 s on this hardware and that is what Pro is for.
                 val startedAt = System.nanoTime()
-                val frame = if (prefs.photoSize.value.isPreviewGrab) {
-                    val grabbed = engine.previewFrame()
-                    if (grabbed == null) {
-                        showNotice("Nothing on the viewfinder yet")
-                        return@launch
-                    }
-                    val made = withContext(Dispatchers.Default) {
-                        Frames.fromPreview(
-                            preview = grabbed,
-                            rotationDegrees = engine.previewRotationDegrees(),
-                            filter = Filters.none,
-                            aspect = FrameAspect.Full,
-                            seed = 0f,
-                        )
-                    }
+                val grabbed = engine.previewFrame()
+                if (grabbed == null) {
+                    showNotice("Nothing on the viewfinder yet")
+                    return@launch
+                }
+                val frame = withContext(Dispatchers.Default) {
+                    val made = Frames.fromPreview(
+                        preview = grabbed,
+                        rotationDegrees = engine.previewRotationDegrees(),
+                        filter = Filters.none,
+                        aspect = FrameAspect.Full,
+                        seed = 0f,
+                    )
                     CapturedFrame(jpeg = made.jpeg, rotationDegrees = 0, mirrored = false)
-                } else {
-                    val attempt = runCatching { engine.capture() }
-                        .onFailure { Log.e(TAG, "simple capture failed", it) }
-                    attempt.getOrNull() ?: run {
-                        val why = attempt.exceptionOrNull()?.message?.take(48)
-                        showNotice(if (why.isNullOrBlank()) "Shutter failed" else "Shutter: $why")
-                        return@launch
-                    }
                 }
                 val captureMs = (System.nanoTime() - startedAt) / 1_000_000
                 _shutterTick.tryEmit(Unit)
