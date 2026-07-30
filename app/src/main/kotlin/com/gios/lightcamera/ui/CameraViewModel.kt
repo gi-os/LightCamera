@@ -21,6 +21,7 @@ import com.gios.lightcamera.camera.PuriArt
 import com.gios.lightcamera.camera.PuriStrip
 import com.gios.lightcamera.filter.FaceQuads
 import com.gios.lightcamera.filter.Filters
+import com.gios.lightcamera.filter.ShaderRuntime
 import com.gios.lightcamera.hw.Beeps
 import com.gios.lightcamera.media.MediaStoreRepo
 import com.gios.lightcamera.media.Photo
@@ -556,10 +557,30 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     return@launch
                 }
 
+                // **The click goes here, at the press.** It used to fire when the capture *returned*, a second
+                // and a half after your finger — which is the wrong end of the event. A shutter sound is
+                // feedback for the press; the file landing has its own sound now.
+                _shutterTick.tryEmit(Unit)
+
                 // **Hold the composition.** Grabbed before the capture starts, so the viewfinder stops on
                 // what you framed instead of carrying on live while the camera thinks. A panel-sized bitmap
                 // copy, a couple of milliseconds.
-                _held.value = engine.previewFrame()
+                // **Filtered, if the photograph will be.** `previewFrame` hands back the *unfiltered* surface
+                // — the live filter is a `RenderEffect` on the view, which never reaches the bitmap. Holding
+                // that over a filtered viewfinder would show a plain picture and then save a Game Boy one,
+                // which is the same class of dishonesty as the Purikura preview showing one thing and saving
+                // another. So the same shader runs over the held frame, at panel size, where it is a few
+                // milliseconds.
+                _held.value = engine.previewFrame()?.let { panel ->
+                    val look = filter.value
+                    if (look.agsl == null) {
+                        panel
+                    } else {
+                        runCatching {
+                            ShaderRuntime.applyToBitmap(panel, look, Random.nextFloat() * 1000f)
+                        }.getOrDefault(panel)
+                    }
+                }
                 val startedAt = System.nanoTime()
                 val attempt = runCatching { engine.capture() }
                     .onFailure { Log.e(TAG, "capture failed", it) }
@@ -575,8 +596,6 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     showNotice(if (why.isNullOrBlank()) "Shutter failed" else "Shutter: $why")
                     return@launch
                 }
-                _shutterTick.tryEmit(Unit)
-
                 val activeFilter = filter.value
                 val aspect = prefs.aspect.value
                 // A fresh seed per frame, so two shots of the same scene don't carry
@@ -844,7 +863,12 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             width = processed.width,
             height = processed.height,
         )
-        if (uri == null) showNotice("Couldn't save")
+        if (uri == null) {
+            showNotice("Couldn't save")
+        } else if (prefs.sounds.value) {
+            // The other end of the bracket: click at the press, this when the file exists.
+            beeps.saved()
+        }
     }
 
     /* ---------------- the roll of film ---------------- */

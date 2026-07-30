@@ -32,6 +32,7 @@ class Beeps(context: Context) {
     private val confirm by lazy { track(confirmPcm()) }
     private val warn by lazy { track(warnPcm()) }
     private val click by lazy { track(clickPcm()) }
+    private val savedTone by lazy { track(savedPcm()) }
 
     /** Focus acquired. Two blips, the way every digicam has done it since 1996. */
     fun focusLocked() = play(confirm)
@@ -42,8 +43,18 @@ class Beeps(context: Context) {
     /** The shutter. A tick rather than a mirror slap; there is no mirror. */
     fun shutter() = play(click)
 
+    /**
+     * The photograph exists. Two notes rising, quiet.
+     *
+     * Deliberately *unlike* the focus confirmation, which is two of the same note: rising says finished
+     * rather than ready. It plays when the file is on disk, so the ear brackets the wait — click when you
+     * press, this when it lands — and a second and a half becomes a process with two ends instead of a
+     * delay with one.
+     */
+    fun saved() = play(savedTone)
+
     fun release() {
-        listOf(confirm, warn, click).forEach { t ->
+        listOf(confirm, warn, click, savedTone).forEach { t ->
             runCatching {
                 t?.stop()
                 t?.release()
@@ -96,6 +107,10 @@ class Beeps(context: Context) {
     }
 
     private fun warnPcm(): ShortArray = tone(freq = 640.0, ms = 110, amplitude = 0.20)
+
+    /** A fifth up, softer than the focus blips: finished, not ready. */
+    private fun savedPcm(): ShortArray =
+        tone(freq = 1180.0, ms = 34, amplitude = 0.16) + tone(freq = 1760.0, ms = 46, amplitude = 0.14)
 
     /**
      * The shutter tick.

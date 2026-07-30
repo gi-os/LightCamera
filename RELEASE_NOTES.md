@@ -1,28 +1,25 @@
-## Roll v2.26 — the viewfinder holds what you framed
+## Roll v2.27 — the held frame carries the filter, and the wait has two ends
 
-The camera still takes 1.8 s to make a still and nothing here changes that. What changes is that the second
-and a half stops feeling like no response.
+**Filtered photographs hold a filtered frame**
 
-**The frame is held at the press**
+The hold worked for filters already, but it was holding the wrong picture. `previewFrame` returns the
+*unfiltered* surface — the live filter is a `RenderEffect` on the view and never reaches the bitmap — so a
+Game Boy shot froze on a plain one and then saved a dithered one. That is the same dishonesty as the Purikura
+preview showing one thing and saving another, which you caught me on twice.
 
-The panel frame is grabbed the moment you press — a couple of milliseconds — and shown over the preview, so
-the viewfinder stops on your composition instead of carrying on live while the camera works. The moment reads
-as taken, and the wait becomes "the file is being written" rather than "nothing happened". The real photograph
-replaces it the instant it exists.
+The same shader now runs over the held frame at panel size, where it costs a few milliseconds. What you hold is
+what you get.
 
-**A bar timed to this phone, not to a guess**
+**The click moved to the press**
 
-Underneath, a two-pixel bar that fills over however long stills have actually been taking — a rolling average
-of the last few shots, seeded at the 1.8 s measured here. Determinate on purpose: a bar arriving at about the
-right moment feels far shorter than a spinner, and nothing feels longer than one that stalls near the end. It
-stops at nine tenths, because the last tenth belongs to the photograph actually arriving.
+It was firing when the capture *returned* — a second and a half after your finger, which is the wrong end of
+the event entirely. A shutter sound is feedback for the press.
 
-**What it deliberately does not do**
+**And the file landing has its own sound**
 
-No shutter flash at the press. In Pro the light does not land when you press — `takePicture` meters, then
-bursts, then stacks, so the exposure happens somewhere inside that second and a half. A flash animation at t=0
-would assert otherwise. The held frame is honest about being a stand-in: same framing, from a moment slightly
-earlier, replaced by the real thing in front of you rather than a difference you discover later in the roll.
+Two notes rising, quiet, when the photograph is actually on disk. Deliberately unlike the focus confirmation,
+which is two of the *same* note: rising says finished rather than ready. So the ear brackets the wait — click
+when you press, chime when it lands — and the second and a half becomes a process with two ends rather than a
+delay with one.
 
-Simple is unaffected — the frame it saves *is* the frame that was on the panel, so there is nothing to stand
-in for.
+It plays for every photograph that reaches disk, Simple and Pro alike, and follows the existing Sounds switch.
