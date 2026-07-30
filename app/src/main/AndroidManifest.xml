@@ -7,14 +7,6 @@
          folder, so the whole of DCIM has to be readable. -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.VIBRATE" />
-    <!--
-        The send picker is a list of people, not a grid of apps. Android gives a third-party app
-        no way to read another app's sharing shortcuts — the row of faces in the system chooser
-        is published by the sending app for the system's own UI — so to ask "who is this photo
-        for" at all, this app has to read the address book itself. Read on the phone, never sent
-        anywhere; asked for at the moment the picker is first opened rather than at launch.
-    -->
-    <uses-permission android:name="android.permission.READ_CONTACTS" />
     <!-- Video mode, and only asked for when you switch to it. A recording with no sound is
          worth more than a permission dialog in front of the thing you were filming. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -44,13 +36,6 @@
         <package android:name="com.gios.lightchat" />
         <intent>
             <action android:name="android.intent.action.SEND" />
-            <data android:mimeType="image/*" />
-        </intent>
-        <!-- Several photographs at once is a different action with different extras, and an app
-             that only registered for the singular one must not be sent the plural. So it has to
-             be resolvable separately. -->
-        <intent>
-            <action android:name="android.intent.action.SEND_MULTIPLE" />
             <data android:mimeType="image/*" />
         </intent>
     </queries>

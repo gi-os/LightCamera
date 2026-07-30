@@ -588,6 +588,10 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 // Averaged over four, so one slow shot in the dark does not make every bar wrong afterwards.
                 val took = (System.nanoTime() - startedAt) / 1_000_000
                 _stillMs.value = (_stillMs.value * 3 + took) / 4
+                Log.i(TAG, "pro: shot ${took}ms")
+                // Reported here as well as in Simple: a diagnostic that only measures the fast path cannot
+                // tell you whether a change to the slow one helped.
+                if (prefs.timings.value) showNotice("${took}ms shot")
                 val frame = attempt.getOrNull()
                 if (frame == null) {
                     // Say *what* went wrong. "Shutter failed" cost a round trip to work out that

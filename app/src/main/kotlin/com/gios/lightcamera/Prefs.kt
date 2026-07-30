@@ -264,28 +264,27 @@ class Prefs(context: Context) {
      * Everything about a Purikura that is not the shader: the frame, the two kinds of sticker, its
      * own date, and whether the shutter takes four.
      *
-     * **Random by default, and none of it written down.** A booth does not remember what you chose
-     * last week; you sit down and it hands you something. So the frame and the date both start on
-     * Random — which is resolved per photograph from the seed, so it changes when you shoot rather
-     * than while you compose — and the stickers start on a coin flip. The menu overrules any of it for
-     * the rest of the session, in memory only.
+     * **Remembered, all of it.** The first version of this was not: the argument was that a booth does not
+     * recall what you chose last week, which is true of booths and wrong for a camera you own. Turning the
+     * stickers off and finding them back on tomorrow is not charm, it is a setting that does not work.
      *
-     * Four-shot always starts off: a strip is something you decide to do, not something that happens
-     * to you on the first photograph of the day.
+     * The frame and the date still *default* to Random, which is resolved per photograph from the seed — so
+     * the surprise is per shot rather than per launch, which is where it belonged all along. Four-shot still
+     * defaults off, because a strip is something you decide to do.
      */
-    private val _puriFrame = MutableStateFlow(PuriArt.RANDOM)
+    private val _puriFrame = MutableStateFlow(prefs.getString(PURI_FRAME, null) ?: PuriArt.RANDOM)
     val puriFrame: StateFlow<String> = _puriFrame.asStateFlow()
 
-    private val _puriFaceStickers = MutableStateFlow(Random.nextBoolean())
+    private val _puriFaceStickers = MutableStateFlow(prefs.getBoolean(PURI_FACE, true))
     val puriFaceStickers: StateFlow<Boolean> = _puriFaceStickers.asStateFlow()
 
-    private val _puriMarginStickers = MutableStateFlow(Random.nextBoolean())
+    private val _puriMarginStickers = MutableStateFlow(prefs.getBoolean(PURI_MARGIN, true))
     val puriMarginStickers: StateFlow<Boolean> = _puriMarginStickers.asStateFlow()
 
-    private val _puriDate = MutableStateFlow(PuriArt.RANDOM)
+    private val _puriDate = MutableStateFlow(prefs.getString(PURI_DATE, null) ?: PuriArt.RANDOM)
     val puriDate: StateFlow<String> = _puriDate.asStateFlow()
 
-    private val _puriStrip = MutableStateFlow(PuriStrip.OFF)
+    private val _puriStrip = MutableStateFlow(prefs.getString(PURI_STRIP, null) ?: PuriStrip.OFF)
     val puriStrip: StateFlow<String> = _puriStrip.asStateFlow()
 
     /**
@@ -297,19 +296,19 @@ class Prefs(context: Context) {
      * effect; the chin and the slimming start off because they are the two that can look uncanny on a
      * face the detector has boxed slightly wrong.
      */
-    private val _puriWash = MutableStateFlow(true)
+    private val _puriWash = MutableStateFlow(prefs.getBoolean(PURI_WASH, true))
     val puriWash: StateFlow<Boolean> = _puriWash.asStateFlow()
 
-    private val _puriSkin = MutableStateFlow(true)
+    private val _puriSkin = MutableStateFlow(prefs.getBoolean(PURI_SKIN, true))
     val puriSkin: StateFlow<Boolean> = _puriSkin.asStateFlow()
 
-    private val _puriEyes = MutableStateFlow(true)
+    private val _puriEyes = MutableStateFlow(prefs.getBoolean(PURI_EYES, true))
     val puriEyes: StateFlow<Boolean> = _puriEyes.asStateFlow()
 
-    private val _puriChin = MutableStateFlow(false)
+    private val _puriChin = MutableStateFlow(prefs.getBoolean(PURI_CHIN, false))
     val puriChin: StateFlow<Boolean> = _puriChin.asStateFlow()
 
-    private val _puriSlim = MutableStateFlow(false)
+    private val _puriSlim = MutableStateFlow(prefs.getBoolean(PURI_SLIM, false))
     val puriSlim: StateFlow<Boolean> = _puriSlim.asStateFlow()
 
     /** The five, as the shader wants them. */
@@ -358,42 +357,12 @@ class Prefs(context: Context) {
     val simpleMode: StateFlow<Boolean> = _simpleMode.asStateFlow()
 
     /**
-     * The people last sent a photograph, most recent first, so the picker opens with them on
-     * screen instead of at the top of the alphabet.
-     *
-     * **Held by normalised address, not by contact id.** A contact id belongs to one
-     * address-book database and does not survive a restore or a phone swap, so a list keyed by
-     * it would silently empty itself — the same reasoning as keying starred photographs by
-     * filename. The address is the thing that identifies the person across all of that, and
-     * `Recipients.key` is what makes two spellings of it compare equal.
-     *
-     * Stored newline-joined rather than as a `StringSet`, because a set has no order and the
-     * order is the entire content of this list.
-     */
-    private val _recentRecipients = MutableStateFlow(
-        prefs.getString(RECENT_RECIPIENTS, null)
-            ?.split('\n')
-            ?.filter { it.isNotBlank() }
-            ?: emptyList(),
-    )
-    val recentRecipients: StateFlow<List<String>> = _recentRecipients.asStateFlow()
-
-    fun clearRecentRecipients() =
-        set(_recentRecipients, emptyList()) { remove(RECENT_RECIPIENTS) }
-
-    fun rememberRecipient(key: String) {
-        val next = com.gios.lightcamera.send.Recipients.remember(_recentRecipients.value, key)
-        set(_recentRecipients, next) { putString(RECENT_RECIPIENTS, next.joinToString("\n")) }
-    }
-
-    /**
      * Show how long each shot took, in milliseconds, split into capture and save.
      *
-     * **A diagnostic, and it is on by default because the diagnosis is not finished.** Three releases have
-     * gone into making Simple quick on the strength of my reasoning about where the time goes; this asks
-     * the phone instead. Turn it off once the answer is boring.
+     * A developer diagnostic, off by default. It answered its question — 1.8 s inside `takePicture`, 87 ms
+     * to save — and what it is for now is checking that a change did what it claimed.
      */
-    private val _timings = MutableStateFlow(prefs.getBoolean(TIMINGS, true))
+    private val _timings = MutableStateFlow(prefs.getBoolean(TIMINGS, false))
     val timings: StateFlow<Boolean> = _timings.asStateFlow()
 
     /**
@@ -458,26 +427,28 @@ class Prefs(context: Context) {
 
     fun setSimpleMode(value: Boolean) = set(_simpleMode, value) { putBoolean(SIMPLE_MODE, value) }
 
-    // Nothing here writes to disk. See the note above: a booth does not remember.
-    fun setPuriFrame(value: String) { _puriFrame.value = value }
+    // All written down: a switch you flick should stay flicked.
+    fun setPuriFrame(value: String) = set(_puriFrame, value) { putString(PURI_FRAME, value) }
 
-    fun setPuriFaceStickers(value: Boolean) { _puriFaceStickers.value = value }
+    fun setPuriFaceStickers(value: Boolean) =
+        set(_puriFaceStickers, value) { putBoolean(PURI_FACE, value) }
 
-    fun setPuriMarginStickers(value: Boolean) { _puriMarginStickers.value = value }
+    fun setPuriMarginStickers(value: Boolean) =
+        set(_puriMarginStickers, value) { putBoolean(PURI_MARGIN, value) }
 
-    fun setPuriDate(value: String) { _puriDate.value = value }
+    fun setPuriDate(value: String) = set(_puriDate, value) { putString(PURI_DATE, value) }
 
-    fun setPuriStrip(value: String) { _puriStrip.value = value }
+    fun setPuriStrip(value: String) = set(_puriStrip, value) { putString(PURI_STRIP, value) }
 
-    fun setPuriWash(value: Boolean) { _puriWash.value = value }
+    fun setPuriWash(value: Boolean) = set(_puriWash, value) { putBoolean(PURI_WASH, value) }
 
-    fun setPuriSkin(value: Boolean) { _puriSkin.value = value }
+    fun setPuriSkin(value: Boolean) = set(_puriSkin, value) { putBoolean(PURI_SKIN, value) }
 
-    fun setPuriEyes(value: Boolean) { _puriEyes.value = value }
+    fun setPuriEyes(value: Boolean) = set(_puriEyes, value) { putBoolean(PURI_EYES, value) }
 
-    fun setPuriChin(value: Boolean) { _puriChin.value = value }
+    fun setPuriChin(value: Boolean) = set(_puriChin, value) { putBoolean(PURI_CHIN, value) }
 
-    fun setPuriSlim(value: Boolean) { _puriSlim.value = value }
+    fun setPuriSlim(value: Boolean) = set(_puriSlim, value) { putBoolean(PURI_SLIM, value) }
 
     fun setStampPlain(value: Boolean) = set(_stampPlain, value) { putBoolean(STAMP_PLAIN, value) }
 
@@ -519,6 +490,16 @@ class Prefs(context: Context) {
         const val LEVEL = "level"
         const val TIMINGS = "timings"
         const val SIMPLE_MODE = "simpleMode"
+        const val PURI_FRAME = "puriFrame2"
+        const val PURI_DATE = "puriDate"
+        const val PURI_STRIP = "puriStrip"
+        const val PURI_FACE = "puriFace"
+        const val PURI_MARGIN = "puriMargin"
+        const val PURI_WASH = "puriWash"
+        const val PURI_SKIN = "puriSkin"
+        const val PURI_EYES = "puriEyes"
+        const val PURI_CHIN = "puriChin"
+        const val PURI_SLIM = "puriSlim"
         const val FAVOURITES = "favourites"
         /** Kept only so an existing setting can be read forward once. */
         const val DATE_STAMP = "dateStamp"
@@ -528,6 +509,5 @@ class Prefs(context: Context) {
         const val STAMP_STYLE = "stampStyle"
         const val COLOUR = "colour"
         const val SEND_LIGHTCHAT = "sendLightChat"
-        const val RECENT_RECIPIENTS = "recentRecipients"
     }
 }

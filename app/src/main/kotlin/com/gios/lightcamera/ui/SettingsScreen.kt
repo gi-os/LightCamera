@@ -21,7 +21,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.gios.lightcamera.send.Handoff
 import com.gios.lightcamera.Chrome
 import com.gios.lightcamera.Colour
 import com.gios.lightcamera.CrashLog
@@ -69,7 +68,7 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
     val simpleMode by vm.prefs.simpleMode.collectAsState()
     val stampStyle by vm.prefs.stampStyle.collectAsState()
     val colour by vm.prefs.colour.collectAsState()
-    val recents by vm.prefs.recentRecipients.collectAsState()
+    val sendChat by vm.prefs.sendToLightChat.collectAsState()
     val wheel by vm.prefs.wheelEnabled.collectAsState()
     val rollLength by vm.prefs.rollLength.collectAsState()
     val roll by vm.roll.collectAsState()
@@ -166,10 +165,6 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
             Note(
                 "Adds Simple to the mode picker. It takes the frame already on the panel, so the shutter is instant — but that is panel resolution, about 2.5MP, rather than the 12MP a real still gives. Off by default because it is a trade rather than a free win.",
             )
-            Setting("Shutter timings", if (timings) "On" else "Off") { vm.prefs.setTimings(!timings) }
-            Note(
-                "After each Simple photograph, how many milliseconds the capture took and how many the save took. The capture number is the camera hardware answering; the save is this app writing the file. If the first is large there is nothing left for the app to fix, and if the second is, there is.",
-            )
             Setting("Level", if (level) "On" else "Off") { vm.prefs.setLevel(!level) }
             Note(
                 "The horizon line, which appears when the phone is crooked and lingers for a beat after you straighten up — so you see it close, which is the whole point of a level.",
@@ -194,19 +189,11 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
             )
 
             Section("Sending")
-            Setting("Recents", if (recents.isEmpty()) "None yet" else "${recents.size} kept", enabled = recents.isNotEmpty()) {
-                vm.prefs.clearRecentRecipients()
-                vm.showNotice("Recents cleared")
+            Setting("Send button", if (sendChat) "Use LightChat" else "Off") {
+                vm.prefs.setSendToLightChat(!sendChat)
             }
-            // Remembered: it's a PackageManager binder call, and inside composition it would run
-            // on every recomposition of the settings list.
-            val lightChatTakesPhotos = remember { Handoff.lightChatCanReceive(context) }
             Note(
-                if (lightChatTakesPhotos) {
-                    "The send button opens your contacts and hands the photograph to LightChat, already addressed. The people you send to most recently sit at the top of that list; tap here to forget them."
-                } else {
-                    "The send button opens your contacts rather than a grid of apps. LightChat can't receive photographs on this build, so a send goes to whatever else can take one — and the person has to be chosen again inside it."
-                },
+                "Off, the send button in the viewer is dead. On, it hands the photograph straight to LightChat with no share sheet in between — one destination, named explicitly.",
             )
 
             Section("Focus")
@@ -322,6 +309,12 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
                 }
                 Note("Developing writes every frame into the camera roll, each keeping the time it was taken.")
             }
+
+            Section("Developer")
+            Setting("Shutter timings", if (timings) "On" else "Off") { vm.prefs.setTimings(!timings) }
+            Note(
+                "After each photograph, how long it took in milliseconds — the capture, and in Simple the save as well. The capture number is the camera hardware answering; the save is this app writing the file. It is here rather than up with the camera settings because it is a measurement, not a preference: it answered its question already (1.8 s in the camera, 87 ms in the app) and what it is for now is checking whether a change did what it claimed.",
+            )
 
             val crash = remember { CrashLog.last(context) }
             if (crash != null) {
