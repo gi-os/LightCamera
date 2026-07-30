@@ -21,7 +21,7 @@ at the half press, `CAMERA` at the bottom. Nothing in LightOS uses the first one
 | Camera button, half press | Autofocus and lock on the nearest face, or the centre |
 | Camera button, pressed through | Shutter |
 | Either volume key | Shutter, as a fallback |
-| Turn the wheel | Zoom, geometrically — the wheel is a lens ring |
+| Turn the wheel | The next filter |
 | Hold the wheel in and turn | Exposure compensation, in thirds of a stop |
 | Click the wheel | Torch |
 | Tap the frame | Focus there |

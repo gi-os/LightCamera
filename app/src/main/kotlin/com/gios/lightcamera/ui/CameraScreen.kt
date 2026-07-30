@@ -191,21 +191,21 @@ fun CameraScreen(
 
     /* ---- the wheel ---- */
 
-    WheelTurns(active = active && wheelEnabled && !gridOpen && !evOpen, armed = true) { notches ->
-        engine.stepZoom(notches)
-        vm.showNotice(engine.zoomLabel())
+    // **A bare turn walks the filters**, grid open or not — that is what the wheel is for on this
+    // camera. The phone has no optical zoom and the stock app offers none, so a dial spent on
+    // digital crop was a dial spent on nothing; a dial that changes what the photograph looks
+    // like earns every notch. Unarmed, because each notch has to count, and None is three notches
+    // wide on the track so a stray one lands somewhere harmless.
+    WheelTurns(active = active && wheelEnabled && !evOpen, armed = false) { notches ->
+        vm.stepFilter(if (notches > 0) 1 else -1)
     }
-    WheelTurns(active = active && wheelEnabled && evOpen && !gridOpen, armed = true) { notches ->
+    // Exposure keeps both of its routes: the strip while it is open, and hold-and-turn always.
+    WheelTurns(active = active && wheelEnabled && evOpen, armed = true) { notches ->
         engine.stepEv(notches)
     }
     WheelTurns(active = active && wheelEnabled, armed = true, pressed = true) { notches ->
         engine.stepEv(notches)
         vm.showNotice("EV ${engine.evLabel()}")
-    }
-    // With the grid open the wheel walks the filters, one notch at a time — and None is three
-    // notches wide on that track, so it is easy to land on and deliberate to leave.
-    WheelTurns(active = active && wheelEnabled && gridOpen, armed = false) { notches ->
-        vm.stepFilter(if (notches > 0) 1 else -1)
     }
 
     /* ---- the shutter blink ---- */
