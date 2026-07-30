@@ -1,23 +1,18 @@
-## Roll v2.28 — Purikura remembers, and the stopwatch moves to Developer
+## Roll v2.29 — Dither BW
 
-**Every Purikura choice is written down now**
+**Dither 16 was already sixteen colours**
 
-Frame, date, four-shot layout, both kinds of sticker and all five parts of the look. Turn the stickers off and
-they stay off — through a restart, through a reboot.
+Worth saying, since it was the half you asked me to check: it matches each pixel against a fixed sixteen-entry
+EGA palette by nearest distance, with an ordered dither applied before the match. Not four levels per channel —
+that would be sixty-four colours and a different, softer look.
 
-The original design deliberately forgot everything each launch, on the argument that a booth does not recall
-what you chose last week. That is true of booths and wrong for a camera you own: a switch that unflicks itself
-overnight is not charm, it is a setting that does not work.
+**So the grayscale one is what was missing**
 
-The frame and the date still *default* to Random, which resolves per photograph from the seed — so the
-surprise is per shot rather than per launch, which is where it belonged. Four-shot still defaults off.
+**Dither BW**, next to it on the wheel: sixteen greys, ordered-dithered, and marked coarse like the rest of the
+dithers so it takes the instant panel frame rather than a 1.8 s still.
 
-**Shutter timings is a developer setting, off by default, and covers Pro**
-
-It has moved to a Developer section at the bottom, next to the crash log, because it is a measurement rather
-than a preference — and it now reports Pro shots as well. A diagnostic that only measures the fast path cannot
-tell you whether a change to the slow one helped, which is exactly the mistake that had me guessing for three
-releases.
-
-It answered its original question already: 1.8 s in the camera, 87 ms in the app. What it is for now is
-checking whether a change did what it claimed.
+It is not the colour one desaturated. Quantising *after* a colour match lands on whichever of the sixteen EGA
+entries was nearest and then flattens it, throwing away most of the tonal range — so this quantises luminance
+directly and all sixteen steps get used. A little contrast goes on first, because sixteen levels across a flat
+photograph is mud, and the dither offset is a step and a half wide rather than one: at exactly one step the
+pattern is nearly invisible on a photograph, and being able to see it is the entire point.

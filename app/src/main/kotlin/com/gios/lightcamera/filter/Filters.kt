@@ -111,6 +111,31 @@ half4 main(float2 xy) {
      * colour, then the nearest palette entry is picked, so flat gradients break into the
      * cross-hatch instead of banding.
      */
+    /**
+     * Sixteen greys, ordered-dithered — the grayscale half of Dither 16.
+     *
+     * Not the colour one desaturated: quantising *after* a colour match would land on whichever of the
+     * sixteen EGA entries happened to be nearest and then flatten it, which throws away most of the tonal
+     * range. This quantises luminance directly, so all sixteen steps are used and the gradients stay smooth
+     * in the way a 4-bit greyscale image does.
+     *
+     * The dither offset is a step and a half wide rather than a step: at exactly one step the pattern is
+     * almost invisible on a photograph, and the point of dithering is that you can see it.
+     */
+    private const val DITHER_GREY = """
+half4 main(float2 xy) {
+    float3 c = tap(xy);
+    // A touch of contrast first. Sixteen levels across a flat photograph is mud; across a slightly punchy
+    // one it reads as an old greyscale scan.
+    float l = clamp((lum(c) - 0.5) * 1.18 + 0.5, 0.0, 1.0);
+    float steps = 15.0;
+    float t = bayer8(xy / (unitPx() * 2.0)) - 0.5;
+    l = clamp(l + t * (1.5 / steps), 0.0, 1.0);
+    float q = floor(l * steps + 0.5) / steps;
+    return half4(float4(q, q, q, 1.0));
+}
+"""
+
     private const val DITHER16 = """
 void nearer(float3 c, float3 cand, inout float3 best, inout float bd) {
     float3 e = c - cand;
@@ -656,6 +681,7 @@ half4 main(float2 xy) {
         Filter("film", "Film", FILM, animated = true),
         Filter("mono", "Mono", MONO),
         Filter("dither16", "Dither 16", DITHER16, lowRes = true),
+        Filter("dithergrey", "Dither BW", DITHER_GREY, lowRes = true),
         Filter("onebit", "1-Bit", ONE_BIT, lowRes = true),
         Filter("halftone", "Halftone", HALFTONE, lowRes = true),
         Filter("gameboy", "Game Boy", GAMEBOY, lowRes = true),
