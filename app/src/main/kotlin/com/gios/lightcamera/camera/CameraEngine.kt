@@ -14,6 +14,7 @@ import android.hardware.camera2.TotalCaptureResult
 import android.hardware.camera2.params.Face
 import android.provider.MediaStore
 import android.util.Log
+import android.util.Size
 import android.view.OrientationEventListener
 import android.view.Surface
 import androidx.camera.camera2.interop.Camera2CameraInfo
@@ -28,6 +29,7 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.FallbackStrategy
 import androidx.camera.video.MediaStoreOutputOptions
@@ -329,9 +331,43 @@ class CameraEngine(private val context: Context) {
         val preview = previewBuilder.build()
         this.preview = preview
 
+        // **The single biggest thing between pressing the button and getting a photograph.**
+        //
+        // The LPIII's sensor is 50 megapixels, and left to itself CameraX asks for the largest
+        // JPEG the camera will give. Reading out and encoding 8160 x 6144 costs the ISP the best
+        // part of a second or two — which is exactly the "one to three seconds" every review of
+        // this phone complains about — and then *this* app has to decode it again for a filter.
+        //
+        // Twelve megapixels is asked for instead. Nothing is lost that anyone can see: it is
+        // still four times the pixels of the largest print you will make from a phone, and about
+        // thirty times the panel it will be looked at on. What is gained is a shutter that
+        // answers.
+        val captureSelector = ResolutionSelector.Builder()
+            .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+            .setResolutionStrategy(
+                ResolutionStrategy(
+                    Size(4000, 3000),
+                    ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER,
+                ),
+            )
+            .build()
+
+        // Zero shutter lag keeps a ring of recent frames and hands back the one from the instant
+        // the button went down, so the photograph is the moment you pressed rather than the
+        // moment the camera got round to it. It cannot be used with the flash, and CameraX
+        // quietly falls back to minimise-latency where the hardware won't do it — so this is
+        // free to ask for.
+        val zsl = flash == FlashMode.Off
         val capture = ImageCapture.Builder()
-            .setResolutionSelector(selector)
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .setResolutionSelector(captureSelector)
+            .setJpegQuality(92)
+            .setCaptureMode(
+                if (zsl) {
+                    ImageCapture.CAPTURE_MODE_ZERO_SHUTTER_LAG
+                } else {
+                    ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY
+                },
+            )
             // Whatever the phone's attitude was when the listener last spoke, so a rebind
             // mid-shoot doesn't silently reset the file's orientation to upright.
             .setTargetRotation(lastRotation)

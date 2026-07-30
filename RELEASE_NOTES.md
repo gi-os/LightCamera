@@ -1,34 +1,33 @@
-## Roll v1.7 — Game Boy, a dial that catches, and a send button with one destination
+## Roll v1.8 — a shutter that answers
 
-**Two Game Boy Camera filters**
+Three changes, all latency. Nothing about the interface moved.
 
-- **Game Boy** — the DMG palette (`0f380f`, `306230`, `8bac0f`, `9bbc0f`), four shades and
-  nothing between them, reached through a Bayer threshold so gradients break into the
-  cross-hatch the hardware produced rather than banding.
-- **GB Color** — the same sensor on a Game Boy Color: five levels a channel, dithered, slightly
-  sour.
+**Twelve megapixels instead of fifty**
 
-The green is only half of that look. The other half is the resolution, so both quantise the
-image onto a grid of **128 cells across the short edge** — the GB Camera's actual sensor width —
-sampling once per cell, because that is what a 128-pixel sensor does. Without the grid they'd
-just be palette filters.
+This is the whole thing. The LPIII's sensor is 50MP and, left alone, CameraX asks the camera for
+the biggest JPEG it will give — 8160 x 6144. Reading that out and encoding it costs the ISP the
+better part of a second or two, which is exactly the "one to three seconds" every review of this
+phone complains about, and then this app had to decode it again to apply a filter.
 
-**The dial catches on None**
+It now asks for 4000 x 3000. Nothing is lost that anyone can see: still four times the pixels of
+the largest print you'd make from a phone, and about thirty times the panel you'll look at it on.
+What's gained is a shutter that answers.
 
-Every notch of the wheel now **vibrates**, whether or not it moves the dial — a physical control
-that gives nothing back reads as a broken one.
+**Zero shutter lag**
 
-The three-notch-wide None is gone. Landing on None now **stops the dial dead for 1.5 seconds**:
-notches inside that window are felt and discarded, so a fast spin can't skate over it, and it
-costs nothing to leave once the moment has passed. Widening it worked but took three deliberate
-clicks to escape, which felt broken rather than detented. A film advance that catches at the
-frame line does exactly this.
+Where the hardware supports it and the flash is off, the capture now uses
+`CAPTURE_MODE_ZERO_SHUTTER_LAG`: the camera keeps a ring of recent frames and hands back the one
+from the instant the button went down. The photograph is the moment you pressed rather than the
+moment the camera got round to it. CameraX falls back on its own where the phone won't do it, so
+it costs nothing to ask.
 
-**The send button has one destination**
+**Filtered shots decode down, not across**
 
-The viewer's send button is **disabled** until you turn on **Settings → Sending → Use
-LightChat**. Then it hands the photograph straight to LightChat by name — no share sheet, no
-chooser. A grid of every app that ever registered for an image is the one place a Light Phone
-stops feeling like a Light Phone.
+A filter meant decoding the full JPEG — 200MB of ARGB at 50MP, seconds of work and a genuine
+out-of-memory risk — and then scaling it to fit a GPU texture. The decoder now does that
+reduction itself with `inSampleSize`, in powers of two, for a fraction of the cost.
 
-If LightChat isn't installed or can't take images, it says so rather than throwing.
+JPEG quality is 92 rather than 95, which is invisible and shortens the encode.
+
+If it still feels slow after this, the next lever is a shutter that grabs the preview frame
+instead of taking a real capture — instant, at panel resolution. Say the word.

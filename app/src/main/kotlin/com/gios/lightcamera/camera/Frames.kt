@@ -89,7 +89,18 @@ object Frames {
      * describes the bytes in hand, whereas `rotationDegrees` describes what CameraX intended.
      */
     private fun decodeUpright(jpeg: ByteArray, rotationDegrees: Int, mirrored: Boolean): Bitmap? {
-        val bitmap = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size) ?: return null
+        // Decode *down* rather than decoding everything and throwing most of it away. A
+        // full-resolution decode of a 50MP JPEG is 200MB of ARGB — seconds of work and a real
+        // chance of an out-of-memory on this phone — and the next thing that happened to it was
+        // being scaled to fit a GPU texture anyway. `inSampleSize` does that inside the decoder,
+        // in powers of two, for a fraction of the cost.
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, bounds)
+        var sample = 1
+        val longest = maxOf(bounds.outWidth, bounds.outHeight)
+        while (longest > 0 && longest / (sample * 2) >= MAX_FILTERED_EDGE) sample *= 2
+        val options = BitmapFactory.Options().apply { inSampleSize = sample }
+        val bitmap = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, options) ?: return null
         val exifRotation = runCatching {
             val exif = ExifInterface(ByteArrayInputStream(jpeg))
             when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
