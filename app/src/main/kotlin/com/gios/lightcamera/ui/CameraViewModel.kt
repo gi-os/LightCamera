@@ -585,8 +585,11 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             val wanted = prefs.photoSize.value
             try {
                 if (wanted != PhotoSize.Large) prefs.setPhotoSize(PhotoSize.Large)
+
+                val startedAt = System.nanoTime()
                 val attempt = runCatching { engine.capture() }
                     .onFailure { Log.e(TAG, "simple capture failed", it) }
+                val captureMs = (System.nanoTime() - startedAt) / 1_000_000
                 val frame = attempt.getOrNull()
                 if (frame == null) {
                     val why = attempt.exceptionOrNull()?.message?.take(48)
@@ -595,30 +598,36 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 _shutterTick.tryEmit(Unit)
 
-                // Written whole, exactly as the ISP made it. No decode, no re-encode, EXIF intact.
+                // **Everything from here is off the critical path.** The bytes are in hand; the shutter's
+                // work is done. Writing five megabytes and inserting a MediaStore row is fast but not
+                // free, and it used to sit inside the same coroutine as the capture, so the shot was not
+                // "finished" — and `_shooting` not cleared, and the next press ignored — until the file
+                // was on disk. Launched separately, the camera is ready again immediately.
                 val takenAt = System.currentTimeMillis()
-                val size = Frames.sizeOf(frame.jpeg)
-                val uri = repo.save(
-                    jpeg = frame.jpeg,
-                    takenAt = takenAt,
-                    width = size.first,
-                    height = size.second,
-                )
-                if (uri == null) {
-                    showNotice("Couldn't save")
-                    return@launch
-                }
-
-                // **The date goes on afterwards.** Printing it means decoding a 12MP JPEG, drawing, and
-                // encoding again — a second of work that has no business being between your finger and the
-                // photograph. So the shutter is already free by the time this starts, and the file gains
-                // its date a moment later while you are framing the next one. The photograph is safe on
-                // disk either way: if this fails, or the app dies first, what is left is an undated
-                // photograph rather than none.
-                if (prefs.stampPlain.value) {
-                    launch {
+                val stamp = if (prefs.stampPlain.value) prefs.stampStyle.value else null
+                val reportTimings = prefs.timings.value
+                viewModelScope.launch {
+                    val savedAt = System.nanoTime()
+                    val size = Frames.sizeOf(frame.jpeg)
+                    val uri = repo.save(
+                        jpeg = frame.jpeg,
+                        takenAt = takenAt,
+                        width = size.first,
+                        height = size.second,
+                    )
+                    val saveMs = (System.nanoTime() - savedAt) / 1_000_000
+                    Log.i(TAG, "simple: capture ${captureMs}ms, save ${saveMs}ms")
+                    if (reportTimings) showNotice("${captureMs}ms shot · ${saveMs}ms save")
+                    if (uri == null) {
+                        showNotice("Couldn't save")
+                        return@launch
+                    }
+                    // The date goes on after the file exists, for the same reason: printing it means
+                    // decoding a 12MP JPEG and encoding it again, which is a second that has no business
+                    // being between a finger and a photograph. Worst case is an undated photograph.
+                    if (stamp != null) {
                         val stamped = withContext(Dispatchers.Default) {
-                            DateStamp.applyTo(frame.jpeg, takenAt, prefs.stampStyle.value)
+                            DateStamp.applyTo(frame.jpeg, takenAt, stamp)
                         }
                         if (stamped != null) repo.rewrite(uri, stamped)
                         refreshRoll()

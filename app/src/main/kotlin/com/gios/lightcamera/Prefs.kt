@@ -346,6 +346,16 @@ class Prefs(context: Context) {
     fun isFavourite(name: String): Boolean = name in _favourites.value
 
     /**
+     * Show how long each shot took, in milliseconds, split into capture and save.
+     *
+     * **A diagnostic, and it is on by default because the diagnosis is not finished.** Three releases have
+     * gone into making Simple quick on the strength of my reasoning about where the time goes; this asks
+     * the phone instead. Turn it off once the answer is boring.
+     */
+    private val _timings = MutableStateFlow(prefs.getBoolean(TIMINGS, true))
+    val timings: StateFlow<Boolean> = _timings.asStateFlow()
+
+    /**
      * The horizon line.
      *
      * On by default, because it only appears when the phone is crooked and disappears a beat after you
@@ -402,6 +412,8 @@ class Prefs(context: Context) {
     fun setSounds(value: Boolean) = set(_sounds, value) { putBoolean(SOUNDS, value) }
 
     fun setLevel(value: Boolean) = set(_level, value) { putBoolean(LEVEL, value) }
+
+    fun setTimings(value: Boolean) = set(_timings, value) { putBoolean(TIMINGS, value) }
 
     // Nothing here writes to disk. See the note above: a booth does not remember.
     fun setPuriFrame(value: String) { _puriFrame.value = value }
@@ -462,6 +474,7 @@ class Prefs(context: Context) {
         const val WHEEL = "wheel"
         const val SOUNDS = "sounds"
         const val LEVEL = "level"
+        const val TIMINGS = "timings"
         const val FAVOURITES = "favourites"
         /** Kept only so an existing setting can be read forward once. */
         const val DATE_STAMP = "dateStamp"

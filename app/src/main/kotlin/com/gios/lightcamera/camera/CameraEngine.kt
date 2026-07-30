@@ -484,7 +484,11 @@ class CameraEngine(private val context: Context) {
         val zsl = mode.isSimple && zslAllowed
         val capture = ImageCapture.Builder()
             .setResolutionSelector(captureSelector)
-            .setJpegQuality(92)
+            // **88 in Simple, 92 elsewhere.** JPEG encode is a real slice of the shutter on a 12MP frame
+            // and quality is not linear in cost: the difference between 88 and 92 is a few percent of file
+            // size and nothing a person can see on a 3.92" screen or a print, while the encoder does
+            // measurably less work. Pro keeps 92, where somebody has asked for the best file.
+            .setJpegQuality(if (mode.isSimple) 88 else 92)
             .setCaptureMode(
                 if (zsl) {
                     ImageCapture.CAPTURE_MODE_ZERO_SHUTTER_LAG

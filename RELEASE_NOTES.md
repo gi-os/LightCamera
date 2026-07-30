@@ -1,27 +1,27 @@
-## Roll v2.18 — Simple gets its date, and stops waiting
+## Roll v2.19 — stop guessing, measure
 
-**A date on Simple photographs, for free**
+**Every Simple shot now tells you where its time went**
 
-The date back works in Simple now, and costs nothing at the shutter. Printing it means decoding a 12MP JPEG,
-drawing, and encoding again — a second of work with no business being between your finger and the
-photograph. So the untouched sensor JPEG is saved the instant the shutter returns, and the date is printed
-onto that file a moment later, off the main thread, while you are already framing the next one. If it fails,
-or the app dies first, what is left is an undated photograph rather than none.
+After each photograph: `1420ms shot · 90ms save`. The first number is the camera hardware answering
+`takePicture`; the second is this app writing the file. It goes to logcat as well, tagged `CameraViewModel`.
 
-**Three things were making it wait about two seconds**
+Three releases have gone into making Simple quick on the strength of my reasoning about where the time
+goes, and you have told me three times that it is still slow. That is enough of that — the phone knows and
+I do not, so this asks it. It is on by default; there is a switch in Settings to turn it off once the
+answer is boring.
 
-1. **Auto flash, which is not free even when it decides not to fire.** The HAL runs a precapture metering
-   sequence first — usually a preflash, an exposure measurement and a pause — before it will start the frame
-   you asked for. Simple now drops Auto to Off when you enter it. Turning the flash on there still works.
-2. **Nothing was buffered.** `CAPTURE_MODE_ZERO_SHUTTER_LAG` is asked for again, in Simple only. This failed
-   badly in v1.8 and the reason is now understood: ZSL hands back a frame captured *before* the press, and
-   for the first second after binding there are none, so every capture failed. It is guarded three ways —
-   Simple only, only after 1.5 s of the pipeline running, and if a capture ever fails the mode is abandoned
-   for the rest of the process and the next bind goes back to minimise-latency. A dead shutter is not a
-   trade worth making.
-3. **Focus and exposure were being worked out at the press.** They needn't be: **half-press the camera
-   button first.** The first detent locks AF *and* AE — `disableAutoCancel`, which is the load-bearing part
-   — so the full press has nothing left to converge. That is what the two detents are for, and with the
-   flash off and the buffer warm it is as close to instant as this hardware goes.
+**How to read it**
 
-There is a note in Settings saying so, because a trick nobody knows about is not a feature.
+- **A large first number** means the time is inside the camera HAL, and there is nothing left for the app
+  to shave. The remaining levers are all hardware-facing: dropping to a smaller capture, or giving up on
+  the sensor's JPEG and taking the viewfinder frame instead — which is instant but panel resolution.
+- **A large second number** means it is the save, and that is squarely mine to fix.
+
+**Two real changes while we find out**
+
+- **The save is off the critical path.** It used to sit in the same coroutine as the capture, so the shot
+  was not "finished" — and the next press not accepted — until five megabytes were on disk and a MediaStore
+  row inserted. The camera is ready again the moment the bytes are in hand.
+- **JPEG quality 88 in Simple**, 92 in Pro. Encode is a real slice of the shutter on a 12MP frame and cost
+  is not linear in quality: 88 to 92 is a few percent of file size and nothing visible on a 3.92" screen,
+  while the encoder does measurably less work. Pro keeps 92, where somebody asked for the best file.
