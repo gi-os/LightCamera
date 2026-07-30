@@ -301,7 +301,8 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             dialHeldUntil = now + Filters.NONE_DWELL_MS
             return
         }
-        if (by < 0 && filter.value.id == Filters.none.id) {
+        // Only walks into Simple when Simple is switched on; otherwise None is the end of the track.
+        if (by < 0 && filter.value.id == Filters.none.id && prefs.simpleMode.value) {
             setMode(CaptureMode.Simple)
             dialHeldUntil = now + Filters.NONE_DWELL_MS
             return

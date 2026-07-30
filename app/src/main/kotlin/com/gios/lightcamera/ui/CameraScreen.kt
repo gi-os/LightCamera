@@ -232,6 +232,7 @@ fun CameraScreen(
     val puriEyes by vm.prefs.puriEyes.collectAsState()
     val puriChin by vm.prefs.puriChin.collectAsState()
     val puriSlim by vm.prefs.puriSlim.collectAsState()
+    val simpleOffered by vm.prefs.simpleMode.collectAsState()
     val puriSeed by vm.puriSeed.collectAsState()
     // Which way up the photograph will be, from the same number the shutter uses.
     val turn by vm.engine.previewRotation.collectAsState()
@@ -342,8 +343,17 @@ fun CameraScreen(
                                 .padding(horizontal = 6.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            // **In Pro the slot names the filter, not the mode.** "PRO" is a label for a
+                            // thing you already know — you can see the chrome — whereas which filter is on is
+                            // the one piece of state you cannot read off the picture with certainty, and it is
+                            // the thing the wheel changes. Video, Selfie and Simple keep their own names,
+                            // because in those the mode *is* the news.
                             LightText(
-                                text = mode.bandLabel,
+                                text = if (mode == CaptureMode.Photo) {
+                                    filter.label.uppercase()
+                                } else {
+                                    mode.bandLabel
+                                },
                                 variant = LightTextVariant.Button,
                                 align = TextAlign.Center,
                             )
@@ -363,7 +373,9 @@ fun CameraScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 LightText(
-                                    text = "PURI",
+                                    // "Options", because that is what is behind it: a frame, two kinds of
+                                    // sticker, a date, a strip and five parts of the look.
+                                    text = "OPTIONS",
                                     variant = LightTextVariant.Button,
                                     align = TextAlign.Center,
                                 )
@@ -666,6 +678,7 @@ fun CameraScreen(
         if (modeOpen) {
             ModeStrip(
                 mode = mode,
+                simpleOffered = simpleOffered,
                 onPick = {
                     vm.setMode(it)
                     modeOpen = false
@@ -752,6 +765,7 @@ fun CameraScreen(
 @Composable
 private fun ModeStrip(
     mode: CaptureMode,
+    simpleOffered: Boolean,
     onPick: (CaptureMode) -> Unit,
     onFilters: () -> Unit,
     onSettings: () -> Unit,
@@ -771,7 +785,8 @@ private fun ModeStrip(
                     .padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                CaptureMode.entries.forEach { candidate ->
+                // Simple is in the list only when its switch is on. Off, it is not a mode this camera has.
+                CaptureMode.entries.filter { !it.isSimple || simpleOffered }.forEach { candidate ->
                     val here = candidate == mode
                     Box(
                         modifier = Modifier

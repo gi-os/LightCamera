@@ -161,9 +161,10 @@ class Prefs(context: Context) {
      * finding it still in video a day later, with the shutter recording instead of shooting, is
      * a photograph missed.
      */
-    // Simple, every time the camera opens. Not remembered between launches on purpose: whatever you were
-    // doing in Pro last night, pressing the camera key today means you want to take a photograph.
-    private val _mode = MutableStateFlow(CaptureMode.Simple)
+    // **Pro, and Simple is opt-in.** Simple exists because a still costs 1.8 s on this camera, and the way
+    // round that is a panel-resolution frame — a real trade, not a free win. So it is a switch you turn on
+    // rather than the thing the camera hands you: off, it is not in the mode picker at all.
+    private val _mode = MutableStateFlow(CaptureMode.Photo)
     val mode: StateFlow<CaptureMode> = _mode.asStateFlow()
 
     private val _aspect = MutableStateFlow(FrameAspect.byLabel(prefs.getString(ASPECT, null)))
@@ -346,6 +347,17 @@ class Prefs(context: Context) {
     fun isFavourite(name: String): Boolean = name in _favourites.value
 
     /**
+     * Whether Simple is offered at all.
+     *
+     * Off by default. Simple trades resolution for an instant shutter — panel-sized rather than 12MP — and
+     * that is a decision worth making deliberately rather than finding yourself in. Switched on, it joins the
+     * mode picker and the wheel walks into it; switched off, it does not exist as far as the camera is
+     * concerned.
+     */
+    private val _simpleMode = MutableStateFlow(prefs.getBoolean(SIMPLE_MODE, false))
+    val simpleMode: StateFlow<Boolean> = _simpleMode.asStateFlow()
+
+    /**
      * Show how long each shot took, in milliseconds, split into capture and save.
      *
      * **A diagnostic, and it is on by default because the diagnosis is not finished.** Three releases have
@@ -415,6 +427,8 @@ class Prefs(context: Context) {
 
     fun setTimings(value: Boolean) = set(_timings, value) { putBoolean(TIMINGS, value) }
 
+    fun setSimpleMode(value: Boolean) = set(_simpleMode, value) { putBoolean(SIMPLE_MODE, value) }
+
     // Nothing here writes to disk. See the note above: a booth does not remember.
     fun setPuriFrame(value: String) { _puriFrame.value = value }
 
@@ -475,6 +489,7 @@ class Prefs(context: Context) {
         const val SOUNDS = "sounds"
         const val LEVEL = "level"
         const val TIMINGS = "timings"
+        const val SIMPLE_MODE = "simpleMode"
         const val FAVOURITES = "favourites"
         /** Kept only so an existing setting can be read forward once. */
         const val DATE_STAMP = "dateStamp"

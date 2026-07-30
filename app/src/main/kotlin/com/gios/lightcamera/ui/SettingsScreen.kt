@@ -65,6 +65,7 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
     val stampCoarse by vm.prefs.stampCoarse.collectAsState()
     val level by vm.prefs.level.collectAsState()
     val timings by vm.prefs.timings.collectAsState()
+    val simpleMode by vm.prefs.simpleMode.collectAsState()
     val stampStyle by vm.prefs.stampStyle.collectAsState()
     val colour by vm.prefs.colour.collectAsState()
     val sendChat by vm.prefs.sendToLightChat.collectAsState()
@@ -158,6 +159,12 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
                 "The date back off a 1990s compact: month, day, apostrophe-year, in leaning amber dots in the corner of the frame. Coarse filters are separate and start off — Dither 16, 1-Bit, Halftone and the two Game Boys quantise the picture onto a grid of a few hundred cells, and a date drawn at full precision over that reads as a caption pasted on rather than something the camera did. It is printed into the photograph, so it costs a decode and a re-encode on a shot that would otherwise be saved exactly as the camera made it — and there is no taking it off afterwards.",
             )
 
+            Setting("Simple mode", if (simpleMode) "On" else "Off") {
+                vm.prefs.setSimpleMode(!simpleMode)
+            }
+            Note(
+                "Adds Simple to the mode picker. It takes the frame already on the panel, so the shutter is instant — but that is panel resolution, about 2.5MP, rather than the 12MP a real still gives. Off by default because it is a trade rather than a free win.",
+            )
             Setting("Shutter timings", if (timings) "On" else "Off") { vm.prefs.setTimings(!timings) }
             Note(
                 "After each Simple photograph, how many milliseconds the capture took and how many the save took. The capture number is the camera hardware answering; the save is this app writing the file. If the first is large there is nothing left for the app to fix, and if the second is, there is.",

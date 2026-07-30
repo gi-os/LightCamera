@@ -1,4 +1,4 @@
-## Roll v2.27 — the held frame carries the filter, and the wait has two ends
+## Roll v2.27 — filters hold honestly, the wait has two ends, and Simple is opt-in
 
 **Filtered photographs hold a filtered frame**
 
@@ -23,3 +23,23 @@ when you press, chime when it lands — and the second and a half becomes a proc
 delay with one.
 
 It plays for every photograph that reaches disk, Simple and Pro alike, and follows the existing Sounds switch.
+
+**Simple is a switch now, and it starts off**
+
+Settings → Simple mode. Off, Simple is not in the mode picker and the wheel does not walk into it — as far as
+the camera is concerned it does not exist, and Pro is what opens. On, it joins the picker as before.
+
+That is the right shape for it: Simple buys an instant shutter with resolution, panel-sized instead of 12MP,
+and a trade is something to opt into rather than find yourself in.
+
+**The band names the filter, not the mode**
+
+In Pro the mode slot now reads MONO, GAME BOY, PURIKURA — whatever is on — instead of "PRO". "Pro" labels
+something you can already see from the chrome; which filter is loaded is the one piece of state you cannot
+read off the picture with certainty, and it is exactly what the wheel changes. Video, Selfie and Simple keep
+their own names, because in those the mode is the news.
+
+**And the Purikura chip says OPTIONS**
+
+Which is what is behind it: a frame, two kinds of sticker, a date, a four-shot strip and five parts of the
+look.
