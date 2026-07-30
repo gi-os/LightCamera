@@ -157,6 +157,9 @@ object Frames {
         return Processed(out.toByteArray(), bitmap.width, bitmap.height)
     }
 
+    /** The dimensions of a JPEG without decoding it. */
+    fun sizeOf(jpeg: ByteArray): Pair<Int, Int> = readSize(jpeg)
+
     private fun readSize(jpeg: ByteArray): Pair<Int, Int> {
         val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, opts)

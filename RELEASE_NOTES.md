@@ -1,12 +1,27 @@
-## Roll v2.17 — the wheel walks out of Simple
+## Roll v2.18 — Simple gets its date, and stops waiting
 
-Simple sits one notch before None on the same track, so the dial is one line: **Simple, None, Film, Mono,**
-and on through the filters. A turn forward out of Simple lands on Pro with no filter and keeps going; a turn
-back at None returns to Simple.
+**A date on Simple photographs, for free**
 
-The wheel is the one control this phone has that a camera does not, and taking it away in the mode you spend
-most of your time in wasted it. This is also the only place the wheel is allowed to change the mode, which
-is worth saying out loud — it earns that by being the same gesture you were already using to choose a look.
+The date back works in Simple now, and costs nothing at the shutter. Printing it means decoding a 12MP JPEG,
+drawing, and encoding again — a second of work with no business being between your finger and the
+photograph. So the untouched sensor JPEG is saved the instant the shutter returns, and the date is printed
+onto that file a moment later, off the main thread, while you are already framing the next one. If it fails,
+or the app dies first, what is left is an undated photograph rather than none.
 
-Both ends of the join catch for a second and a half, the same dwell None has always had, so a fast spin
-cannot skate over the boundary between "just take a photograph" and everything else.
+**Three things were making it wait about two seconds**
+
+1. **Auto flash, which is not free even when it decides not to fire.** The HAL runs a precapture metering
+   sequence first — usually a preflash, an exposure measurement and a pause — before it will start the frame
+   you asked for. Simple now drops Auto to Off when you enter it. Turning the flash on there still works.
+2. **Nothing was buffered.** `CAPTURE_MODE_ZERO_SHUTTER_LAG` is asked for again, in Simple only. This failed
+   badly in v1.8 and the reason is now understood: ZSL hands back a frame captured *before* the press, and
+   for the first second after binding there are none, so every capture failed. It is guarded three ways —
+   Simple only, only after 1.5 s of the pipeline running, and if a capture ever fails the mode is abandoned
+   for the rest of the process and the next bind goes back to minimise-latency. A dead shutter is not a
+   trade worth making.
+3. **Focus and exposure were being worked out at the press.** They needn't be: **half-press the camera
+   button first.** The first detent locks AF *and* AE — `disableAutoCancel`, which is the load-bearing part
+   — so the full press has nothing left to converge. That is what the two detents are for, and with the
+   flash off and the buffer warm it is as close to instant as this hardware goes.
+
+There is a note in Settings saying so, because a trick nobody knows about is not a feature.

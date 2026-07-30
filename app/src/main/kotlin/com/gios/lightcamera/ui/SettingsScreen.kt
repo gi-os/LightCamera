@@ -103,6 +103,9 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
         ) {
             Section("Frame")
             Note(
+                "Simple has one trick you can help it with: half-press the camera button before pressing it home. That locks focus and exposure, so the shutter has nothing left to work out — and with the flash off it can hand back a frame the camera had already buffered, which is as close to instant as the hardware goes.",
+            )
+            Note(
                 "These are Pro settings. Simple always shoots 12MP with no filter and no crop, which is what lets it write the sensor's own JPEG without decoding it — the difference between a shutter that feels instant and one that thinks about it.",
             )
             Setting("Size", photoSize.label) {

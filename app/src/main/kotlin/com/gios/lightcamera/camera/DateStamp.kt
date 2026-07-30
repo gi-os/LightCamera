@@ -1,6 +1,11 @@
 package com.gios.lightcamera.camera
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import androidx.exifinterface.media.ExifInterface
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -60,6 +65,50 @@ object DateStamp {
             // Camcorders wrote a full date with slashes and all four digits of the year.
             StampStyle.Outline -> "%02d/%02d/%d".format(month, day, cal.get(Calendar.YEAR))
         }
+    }
+
+    /**
+     * JPEG in, JPEG out, with the date on it.
+     *
+     * For Simple, which saves the sensor's own bytes the instant the shutter returns and then comes back
+     * here on a background thread to print the date onto the file it already wrote. Null if the decode
+     * fails, which the caller reads as "leave the photograph as it is" — an undated photograph is a fine
+     * outcome and a lost one is not.
+     *
+     * The orientation tag is read and baked in, because the stamp has to go in the corner of the picture
+     * as a person sees it rather than the corner of the buffer, and once the pixels are turned the tag has
+     * to go or everything downstream turns them again.
+     */
+    fun applyTo(jpeg: ByteArray, millis: Long, style: StampStyle): ByteArray? {
+        val decoded = runCatching {
+            BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, BitmapFactory.Options().apply {
+                inMutable = true
+            })
+        }.getOrNull() ?: return null
+        val turned = runCatching {
+            val exif = ExifInterface(ByteArrayInputStream(jpeg))
+            val degrees = when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, 1)) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                else -> 0f
+            }
+            if (degrees == 0f) {
+                decoded
+            } else {
+                val matrix = Matrix().apply { postRotate(degrees) }
+                Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true)
+                    .also { if (it != decoded) decoded.recycle() }
+            }
+        }.getOrDefault(decoded)
+
+        val stamped = apply(turned, millis, style)
+        val out = ByteArrayOutputStream(jpeg.size)
+        val ok = runCatching {
+            stamped.compress(Bitmap.CompressFormat.JPEG, 92, out)
+        }.getOrDefault(false)
+        stamped.recycle()
+        return if (ok) out.toByteArray() else null
     }
 
     /**

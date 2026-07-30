@@ -206,6 +206,22 @@ class CameraEngine(private val context: Context) {
 
     @Volatile private var lastRotation = Surface.ROTATION_0
 
+    /** Cleared for the rest of the process the first time a zero-shutter-lag capture fails. */
+    @Volatile private var zslAllowed = true
+
+    @Volatile private var zslActive = false
+
+    @Volatile private var boundAt = 0L
+
+    /**
+     * Whether the frame buffer behind zero shutter lag has had time to fill.
+     *
+     * The whole failure mode from v1.8: ZSL hands back a frame it captured *before* the press, and for the
+     * first second after binding there aren't any.
+     */
+    private fun zslWarm(): Boolean =
+        zslActive && System.currentTimeMillis() - boundAt > ZSL_WARM_MS
+
     /**
      * [previewRotationDegrees] as state, so the viewfinder can follow it.
      *
@@ -357,6 +373,16 @@ class CameraEngine(private val context: Context) {
         else -> 0
     }
 
+    /**
+     * True when the shutter can fire without the camera stopping to meter first.
+     *
+     * Two things have to be true: the buffer is warm, and the flash is not going to fire. **Auto flash is
+     * the hidden second** of a slow shutter — the HAL runs a precapture metering sequence, and on a phone
+     * that means a preflash, an exposure measurement and a wait, before the frame you asked for is even
+     * begun. With the flash off there is nothing to meter.
+     */
+    fun canFireInstantly(): Boolean = zslWarm() && imageCapture?.flashMode == ImageCapture.FLASH_MODE_OFF
+
     fun setFlash(mode: FlashMode) {
         imageCapture?.flashMode = when (mode) {
             FlashMode.Off -> ImageCapture.FLASH_MODE_OFF
@@ -442,21 +468,37 @@ class CameraEngine(private val context: Context) {
             )
             .build()
 
-        // **No zero shutter lag.** v1.8 asked for `CAPTURE_MODE_ZERO_SHUTTER_LAG` on the strength
-        // of CameraX documenting a silent fallback where the hardware won't do it. The fallback
-        // covers *configuration*, not capture: this camera accepted the mode, bound without
-        // complaint, and then failed every `takePicture` — a dead shutter in exchange for a few
-        // hundred milliseconds that the resolution cap below had already found. Minimise-latency
-        // is what works here, and a shutter that fires is worth more than one that is early.
+        // **Zero shutter lag, second attempt, with the lesson from the first built in.**
+        //
+        // v1.8 asked for `CAPTURE_MODE_ZERO_SHUTTER_LAG` on the strength of CameraX documenting a silent
+        // fallback where the hardware won't do it. The fallback covers *configuration*, not capture: this
+        // camera accepted the mode, bound without complaint, and then failed every `takePicture` — a dead
+        // shutter. What was missing was the reason: ZSL works by keeping a ring buffer of recent frames
+        // and handing one back at the press, and the buffer is empty for the first second or so after
+        // binding. Capture into an empty buffer fails.
+        //
+        // So it is asked for again, and guarded three ways: only in Simple, only after [ZSL_WARM_MS] of
+        // the pipeline actually running, and if a capture ever fails the mode is abandoned for the rest of
+        // the process and the shot is retried the ordinary way. A dead shutter is unacceptable; a shutter
+        // that is early when it can be is worth having.
+        val zsl = mode.isSimple && zslAllowed
         val capture = ImageCapture.Builder()
             .setResolutionSelector(captureSelector)
             .setJpegQuality(92)
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .setCaptureMode(
+                if (zsl) {
+                    ImageCapture.CAPTURE_MODE_ZERO_SHUTTER_LAG
+                } else {
+                    ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY
+                },
+            )
             // Whatever the phone's attitude was when the listener last spoke, so a rebind
             // mid-shoot doesn't silently reset the file's orientation to upright.
             .setTargetRotation(lastRotation)
             .build()
         this.imageCapture = capture
+        zslActive = zsl
+        boundAt = System.currentTimeMillis()
         setFlash(flash)
 
         // HD rather than the highest the sensor will give: a 50MP phone will happily offer 4K,
@@ -631,6 +673,15 @@ class CameraEngine(private val context: Context) {
     /* ---------------- focus ---------------- */
 
     /** The half press. Focus and meter, and hold it there until the button comes back up. */
+    /**
+     * The first detent: focus, meter, and **hold both**, which is the preparation the shutter needs.
+     *
+     * `disableAutoCancel` on the metering action is the load-bearing part. With AF and AE converged and
+     * *locked*, `takePicture` has nothing left to do before it can begin the frame it was asked for — no
+     * focus sweep, no exposure hunt, no precapture. Half-pressing and waiting for the buzz is the
+     * difference between a shutter that answers and one that thinks first, and it is why this camera has
+     * two detents at all.
+     */
     fun halfPress() {
         val target = if (facePriority) {
             FaceMapper.priority(_faces.value, viewWidth, viewHeight)
@@ -780,6 +831,16 @@ class CameraEngine(private val context: Context) {
                 }
 
                 override fun onError(exception: ImageCaptureException) {
+                    // **The ZSL fallback, in the one place that can know.** A failure here with the ring
+                    // buffer in play is the v1.8 fault repeating, so the mode is abandoned for the process
+                    // and the next bind goes back to minimise-latency. The caller still sees this failure;
+                    // it is the following shot that is saved, which is the right trade against silently
+                    // swallowing a real error.
+                    if (zslActive) {
+                        Log.w(TAG, "zero shutter lag capture failed; not asking again", exception)
+                        zslAllowed = false
+                        zslActive = false
+                    }
                     if (cont.isActive) cont.resumeWithException(exception)
                 }
             },
@@ -869,6 +930,15 @@ class CameraEngine(private val context: Context) {
         const val ZOOM_PER_NOTCH = 1.08f
 
         const val FACE_PUBLISH_MS = 66L
+
+        /**
+         * How long the pipeline must have been running before a zero-shutter-lag capture is attempted.
+         *
+         * A second and a half, which is a guess with a reason: the buffer is a handful of frames and the
+         * preview runs at thirty, so it is full long before this — the margin is for a camera that starts
+         * slowly, because the cost of being wrong is a failed shutter.
+         */
+        const val ZSL_WARM_MS = 1_500L
         const val TAP_FOCUS_HOLD_MS = 4_000L
     }
 }

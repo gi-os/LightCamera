@@ -131,6 +131,22 @@ class MediaStoreRepo(private val context: Context) {
     }
 
     /**
+     * Replace the bytes of a photograph this app wrote.
+     *
+     * For the date stamp in Simple: the untouched JPEG is saved the instant the shutter returns, and the
+     * date is printed on afterwards, off the main thread, while you are already framing the next shot. The
+     * row keeps its id and its timestamp, so nothing that was looking at it has to look again.
+     */
+    suspend fun rewrite(uri: Uri, jpeg: ByteArray): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            // "wt" truncates. Without the t a shorter JPEG leaves the tail of the old one behind, which
+            // decodes as a perfectly valid photograph with rubbish at the bottom.
+            context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(jpeg) }
+                ?: error("no stream")
+        }.onFailure { Log.e(TAG, "rewrite failed", it) }.isSuccess
+    }
+
+    /**
      * The four frames behind a strip, oldest first.
      *
      * Matched by name rather than by any stored relationship, because there is nowhere in MediaStore

@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.gios.lightcamera.CaptureMode
 import com.gios.lightcamera.Prefs
 import com.gios.lightcamera.camera.CameraEngine
+import com.gios.lightcamera.camera.DateStamp
 import com.gios.lightcamera.camera.FaceBox
 import com.gios.lightcamera.PhotoSize
 import com.gios.lightcamera.camera.FrameAspect
@@ -300,6 +301,11 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             showNotice("Stop recording first")
             return
         }
+        // **Simple drops Auto flash.** Auto is not free even when it decides not to fire: the HAL runs a
+        // precapture metering sequence — often a preflash — before it will start the frame you asked for,
+        // which is most of a second that a mode whose whole argument is speed should not be spending. Off
+        // by default there; explicitly turning it on in Simple still works.
+        if (next.isSimple && prefs.flash.value == FlashMode.Auto) prefs.setFlash(FlashMode.Off)
         prefs.setMode(next)
         engine.setMode(next, prefs.flash.value)
         showNotice(next.bandLabel)
@@ -587,15 +593,36 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     return@launch
                 }
                 _shutterTick.tryEmit(Unit)
-                val processed = withContext(Dispatchers.Default) {
-                    Frames.process(
-                        frame = frame,
-                        filter = Filters.none,
-                        aspect = FrameAspect.Full,
-                        seed = 0f,
-                    )
+
+                // Written whole, exactly as the ISP made it. No decode, no re-encode, EXIF intact.
+                val takenAt = System.currentTimeMillis()
+                val size = Frames.sizeOf(frame.jpeg)
+                val uri = repo.save(
+                    jpeg = frame.jpeg,
+                    takenAt = takenAt,
+                    width = size.first,
+                    height = size.second,
+                )
+                if (uri == null) {
+                    showNotice("Couldn't save")
+                    return@launch
                 }
-                finish(processed, Filters.none.id)
+
+                // **The date goes on afterwards.** Printing it means decoding a 12MP JPEG, drawing, and
+                // encoding again — a second of work that has no business being between your finger and the
+                // photograph. So the shutter is already free by the time this starts, and the file gains
+                // its date a moment later while you are framing the next one. The photograph is safe on
+                // disk either way: if this fails, or the app dies first, what is left is an undated
+                // photograph rather than none.
+                if (prefs.stampPlain.value) {
+                    launch {
+                        val stamped = withContext(Dispatchers.Default) {
+                            DateStamp.applyTo(frame.jpeg, takenAt, prefs.stampStyle.value)
+                        }
+                        if (stamped != null) repo.rewrite(uri, stamped)
+                        refreshRoll()
+                    }
+                }
             } finally {
                 if (prefs.photoSize.value != wanted) prefs.setPhotoSize(wanted)
                 _shooting.value = false
