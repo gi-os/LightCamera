@@ -289,6 +289,22 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     /* ---------------- the shutter ---------------- */
 
     /**
+     * When to write a date on this frame, or null for no stamp.
+     *
+     * Three separate settings rather than one, because the stamp belongs on a plain photograph and
+     * fights with a coarse filter — a full-precision date over a 160-cell dither reads as a caption
+     * stuck on top rather than something the camera did.
+     */
+    private fun stampTime(filter: Filters.Filter): Long? {
+        val wanted = when {
+            filter.agsl == null -> prefs.stampPlain.value
+            filter.lowRes -> prefs.stampCoarse.value
+            else -> prefs.stampFiltered.value
+        }
+        return if (wanted) System.currentTimeMillis() else null
+    }
+
+    /**
      * Take a photograph.
      *
      * Ordered so that nothing that can be got wrong happens twice. The self timer runs
@@ -340,7 +356,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     val seed = Random.nextFloat() * 1000f
                     val turn = engine.previewRotationDegrees()
                     val aspect = prefs.aspect.value
-                    val stampAt = if (prefs.dateStamp.value) System.currentTimeMillis() else null
+                    val stampAt = stampTime(activeFilter)
                     val processed = withContext(Dispatchers.Default) {
                         Frames.fromPreview(grabbed, turn, activeFilter, aspect, seed, stampAt, prefs.stampStyle.value)
                     }
@@ -367,7 +383,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 // identical grain — and so the grain in the file is not the grain that
                 // happened to be on screen at the moment of the press.
                 val seed = Random.nextFloat() * 1000f
-                val stampAt = if (prefs.dateStamp.value) System.currentTimeMillis() else null
+                val stampAt = stampTime(activeFilter)
                 val processed = withContext(Dispatchers.Default) {
                     Frames.process(frame, activeFilter, aspect, seed, stampAt, prefs.stampStyle.value)
                 }

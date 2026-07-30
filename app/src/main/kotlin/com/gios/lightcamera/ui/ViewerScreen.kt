@@ -71,8 +71,18 @@ fun ViewerScreen(
     val colours = LightThemeTokens.colors
     val photos by vm.photos.collectAsState()
 
+    // **Pages run oldest to newest, left to right** — the reverse of the list, which is
+    // newest-first. The roll grid puts the newest frame bottom-right with the one before it to its
+    // left, so reading the grid the ordinary way, left to right and down the rows, walks forwards in
+    // time. The viewer has to agree with that or the two screens contradict each other: swiping the
+    // photograph leftwards, like turning a page, now moves towards newer, which is also what Photos
+    // on an iPhone does.
+    val lastPage = (photos.size - 1).coerceAtLeast(0)
+    fun photoAt(page: Int): Photo? = photos.getOrNull(lastPage - page)
+
     val startIndex = remember(initial.id, photos) {
-        photos.indexOfFirst { it.id == initial.id }.coerceAtLeast(0)
+        val found = photos.indexOfFirst { it.id == initial.id }.coerceAtLeast(0)
+        (photos.size - 1 - found).coerceAtLeast(0)
     }
     val pager = rememberPagerState(initialPage = startIndex, pageCount = { photos.size })
     var chromeVisible by remember { mutableStateOf(true) }
@@ -97,10 +107,10 @@ fun ViewerScreen(
 
     WheelTurns(active = true, armed = true) { notches ->
         scope.launch {
-            // Adding, and settled by hand rather than by argument. I reasoned my way to
-            // subtracting twice — it matches the roll grid's sense — and it was reported backwards
-            // both times. The thumb is the authority on which way a dial should turn.
-            val next = (pager.currentPage + notches).coerceIn(0, (photos.size - 1).coerceAtLeast(0))
+            // Subtracting, and only because the page mapping above was reversed: the dial has to
+            // move the same photographs the same way it did before, so flipping which end of the
+            // list page zero is means flipping this too. Direction settled by hand, not by argument.
+            val next = (pager.currentPage - notches).coerceIn(0, lastPage)
             pager.animateScrollToPage(next)
         }
     }
@@ -132,7 +142,6 @@ fun ViewerScreen(
                 }
             },
     ) {
-      RotatedToDevice(quarter) {
         // Pinch to zoom, drag to move about, double tap to come back. The pager keeps the
         // horizontal drag until you are zoomed in, at which point panning has to win or a zoomed
         // photograph is impossible to look around.
@@ -141,7 +150,7 @@ fun ViewerScreen(
             userScrollEnabled = !zoomed,
             modifier = Modifier.fillMaxSize(),
         ) { page ->
-            val photo = photos.getOrNull(page) ?: return@HorizontalPager
+            val photo = photoAt(page) ?: return@HorizontalPager
             var image by remember(photo.id) { mutableStateOf<ImageBitmap?>(null) }
             LaunchedEffect(photo.id) {
                 image = vm.thumbs.frame(photo.uri, photo.id, screenWidthPx)?.asImageBitmap()
@@ -186,10 +195,16 @@ fun ViewerScreen(
             ) {
                 val bitmap = image
                 if (bitmap != null) {
-                    Image(
-                        bitmap = bitmap,
-                        contentDescription = photo.name,
-                        contentScale = ContentScale.Fit,
+                    // **The photograph turns; the interface does not.** Same split as the
+                    // viewfinder, and for the same reason — turn the phone on its side and the
+                    // picture comes round to fill the long edge, while the close button, the date
+                    // and the bin stay exactly where your thumb left them. Rotating the whole screen
+                    // instead meant the controls moved every time you tilted it, and a swipe that
+                    // was horizontal a moment ago became vertical.
+                    //
+                    // Zoom and pan sit *outside* the rotation, so dragging moves the picture the way
+                    // your finger went rather than the way the phone happens to be held.
+                    Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
@@ -198,13 +213,22 @@ fun ViewerScreen(
                                 translationX = pan.x
                                 translationY = pan.y
                             },
-                    )
+                    ) {
+                        RotatedToDevice(quarter) {
+                            Image(
+                                bitmap = bitmap,
+                                contentDescription = photo.name,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    }
                 }
             }
         }
 
         if (chromeVisible) {
-            val photo = photos.getOrNull(pager.currentPage)
+            val photo = photoAt(pager.currentPage)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -243,7 +267,7 @@ fun ViewerScreen(
                 ChromeIcon(
                     icon = LightIcons.Trash,
                     onClick = {
-                        val target = photos.getOrNull(pager.currentPage) ?: return@ChromeIcon
+                        val target = photoAt(pager.currentPage) ?: return@ChromeIcon
                         val sender = vm.trashRequest(target)
                         if (sender != null) {
                             trash.launch(IntentSenderRequest.Builder(sender).build())
@@ -267,7 +291,7 @@ fun ViewerScreen(
                             vm.showNotice("Turn on Send to LightChat in settings")
                             return@ChromeIcon
                         }
-                        val target = photos.getOrNull(pager.currentPage) ?: return@ChromeIcon
+                        val target = photoAt(pager.currentPage) ?: return@ChromeIcon
                         val send = Intent(Intent.ACTION_SEND).apply {
                             type = "image/jpeg"
                             putExtra(Intent.EXTRA_STREAM, target.uri)
@@ -293,7 +317,6 @@ fun ViewerScreen(
                 )
             }
         }
-      }
     }
 }
 

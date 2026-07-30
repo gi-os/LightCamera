@@ -196,10 +196,35 @@ class Prefs(context: Context) {
     val sendToLightChat: StateFlow<Boolean> = _sendToLightChat.asStateFlow()
 
     /**
-     * The quartz date back. Off by default — it writes on the photograph and there is no undo.
+     * The date back, per kind of photograph. Off by default — it writes on the photograph and there
+     * is no undo.
+     *
+     * **Three switches, not one, because a date back suits one kind of picture and ruins another.**
+     * An amber dot-matrix date in the corner of a plain photograph is the look. The same date over a
+     * Game Boy frame is two incompatible resolutions arguing: the stamp is drawn at full pixel
+     * precision over an image quantised to 160 cells, so it reads as a caption pasted on rather than
+     * something the camera did. So the coarse filters get their own switch and it starts off, and the
+     * plain photograph and the ordinary filters get one each.
+     *
+     * The old single `dateStamp` key migrates into plain and filtered, leaving coarse off — nobody
+     * who turned the stamp on was asking for it over a dither.
      */
-    private val _dateStamp = MutableStateFlow(prefs.getBoolean(DATE_STAMP, false))
-    val dateStamp: StateFlow<Boolean> = _dateStamp.asStateFlow()
+    private val _stampPlain = MutableStateFlow(
+        prefs.getBoolean(STAMP_PLAIN, prefs.getBoolean(DATE_STAMP, false)),
+    )
+    val stampPlain: StateFlow<Boolean> = _stampPlain.asStateFlow()
+
+    private val _stampFiltered = MutableStateFlow(
+        prefs.getBoolean(STAMP_FILTERED, prefs.getBoolean(DATE_STAMP, false)),
+    )
+    val stampFiltered: StateFlow<Boolean> = _stampFiltered.asStateFlow()
+
+    private val _stampCoarse = MutableStateFlow(prefs.getBoolean(STAMP_COARSE, false))
+    val stampCoarse: StateFlow<Boolean> = _stampCoarse.asStateFlow()
+
+    /** Whether any of the three is on — what the style picker is worth showing for. */
+    val dateStampAnywhere: Boolean
+        get() = _stampPlain.value || _stampFiltered.value || _stampCoarse.value
 
     private val _stampStyle = MutableStateFlow(
         StampStyle.entries.firstOrNull { it.name == prefs.getString(STAMP_STYLE, null) }
@@ -253,7 +278,12 @@ class Prefs(context: Context) {
 
     fun setSounds(value: Boolean) = set(_sounds, value) { putBoolean(SOUNDS, value) }
 
-    fun setDateStamp(value: Boolean) = set(_dateStamp, value) { putBoolean(DATE_STAMP, value) }
+    fun setStampPlain(value: Boolean) = set(_stampPlain, value) { putBoolean(STAMP_PLAIN, value) }
+
+    fun setStampFiltered(value: Boolean) =
+        set(_stampFiltered, value) { putBoolean(STAMP_FILTERED, value) }
+
+    fun setStampCoarse(value: Boolean) = set(_stampCoarse, value) { putBoolean(STAMP_COARSE, value) }
 
     fun setStampStyle(value: StampStyle) =
         set(_stampStyle, value) { putString(STAMP_STYLE, value.name) }
@@ -285,7 +315,11 @@ class Prefs(context: Context) {
         const val ROLL_LENGTH = "rollLength"
         const val WHEEL = "wheel"
         const val SOUNDS = "sounds"
+        /** Kept only so an existing setting can be read forward once. */
         const val DATE_STAMP = "dateStamp"
+        const val STAMP_PLAIN = "stampPlain"
+        const val STAMP_FILTERED = "stampFiltered"
+        const val STAMP_COARSE = "stampCoarse"
         const val STAMP_STYLE = "stampStyle"
         const val COLOUR = "colour"
         const val SEND_LIGHTCHAT = "sendLightChat"

@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -88,13 +89,13 @@ fun RollScreen(
     val gridState = rememberLazyGridState()
     WheelScroll(gridState, active = active, reverse = true)
 
-    // The roll turns with the phone as well. Opening the photos with the phone already on its side
-    // and finding them all sideways is the same complaint as the viewer's, and the same fix — the
-    // grid is rotated against the phone rather than the window being unlocked, because unlocking it
-    // would let the viewfinder reflow.
+    // **The thumbnails turn, the grid does not.** Turning the whole screen meant the header, the
+    // scroll direction and every control moved the moment you tilted the phone, which is not what a
+    // gallery does. So the layout stays put in the phone's own frame and each frame's contents come
+    // round instead — the same split the viewfinder uses, where the chrome is pinned to the phone and
+    // the image is upright in the world.
     val quarter = rememberDeviceQuarter(active = active)
 
-    RotatedToDevice(quarter) {
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         when {
             !mediaGranted -> Column(
@@ -174,6 +175,7 @@ fun RollScreen(
                         is RollEntry.Frame -> Thumb(
                             vm = vm,
                             photo = entry.photo,
+                            quarter = quarter,
                             modifier = Modifier
                                 .padding(1.dp)
                                 .aspectRatio(1f)
@@ -263,11 +265,10 @@ fun RollScreen(
             }
         }
     }
-    }
 }
 
 @Composable
-private fun Thumb(vm: CameraViewModel, photo: Photo, modifier: Modifier) {
+private fun Thumb(vm: CameraViewModel, photo: Photo, quarter: Int, modifier: Modifier) {
     val colours = LightThemeTokens.colors
     var image by remember(photo.id) {
         mutableStateOf(vm.thumbs.cached(photo.id)?.asImageBitmap())
@@ -283,7 +284,11 @@ private fun Thumb(vm: CameraViewModel, photo: Photo, modifier: Modifier) {
                 bitmap = bitmap,
                 contentDescription = photo.name,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
+                // The cell is square, so the picture inside it can be turned without swapping the
+                // box or clipping anything — a square rotated a quarter turn is the same square.
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { rotationZ = quarter.toFloat() },
             )
         }
     }

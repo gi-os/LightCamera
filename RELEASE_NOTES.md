@@ -1,56 +1,28 @@
-## Roll v2.5 — the fixes batch
+## Roll v2.6 — three date switches, and the picture turns without the interface
 
-**Swiping between photographs works again, and that one was mine**
+**The date stamp is three settings now**
 
-`detectTransformGestures` consumes every drag it is given, single-finger ones included, so adding
-pinch-to-zoom quietly took the swipe away and left the wheel as the only way through the roll. The
-gesture is arbitrated by hand now: two fingers is always a pinch, one finger is only claimed once
-you're zoomed in — where panning has to win — and one finger at 1x is claimed by nobody, so the pager
-gets it back.
+On plain photos, on filters, on coarse filters — separately, and coarse starts off. A date drawn at
+full pixel precision over a picture quantised to a few hundred cells reads as a caption pasted on
+rather than something the camera did, which is exactly why it looked wrong on the Game Boy and dither
+frames. Your existing setting carries forward onto plain photos and filters.
 
-**Rotation was 180 degrees out**
+**Swiping goes the way the grid reads**
 
-`atan2(x, y)` grows as the phone turns *anticlockwise*, and `rotationZ` is clockwise-positive, so
-cancelling the phone's turn means adding it, not negating it. Negating it put the picture upside down
-in both sideways poses.
+The newest frame sits bottom-right with the one before it to its left, so reading the grid the
+ordinary way — left to right, down the rows — walks forwards in time. The viewer now agrees:
+photographs run oldest to newest left to right, so swiping the picture leftwards moves towards newer,
+the same as Photos on an iPhone. The wheel's arithmetic flipped with it, so the dial moves the same
+photographs the same way it did before.
 
-**The roll grid turns too**
+**The picture turns; the interface stays where you left it**
 
-Open the photos with the phone already on its side and the thumbnails now come round with it, the
-same way the viewer does.
+Hold the phone on its side and the photograph comes round to fill the long edge while the close
+button, the date and the bin stay exactly where your thumb expects them — the same split the
+viewfinder has always used. Rotating the whole screen meant every control moved the moment you
+tilted it, and a swipe that was horizontal a second ago became vertical.
 
-**The header bar takes its own taps**
+Thumbnails do the same thing: the grid holds still and the contents of each square come round.
 
-A background paints but does not claim touches, so the roll's top bar was transparent to the finger
-and reaching for settings opened whichever photograph was tiled underneath it.
-
-**The wheel in the viewer, the other way**
-
-Reported backwards twice. I reasoned my way to the current direction both times on the grounds that
-it matched the roll grid; the thumb is the authority on which way a dial turns, so it is flipped.
-
-**Coarse filters always take the viewfinder frame**
-
-Dither 16, 1-Bit, Halftone, Game Boy and GB Color quantise onto a grid of their own, so a sensor
-capture has nothing to give them — a 12MP frame and a panel-sized one come out of a 160-cell dither
-as the same picture. They now use the instant path whatever the photo size is set to. The size
-setting governs the photographs where resolution is a real quantity.
-
-**Quartz, rebuilt rather than resized again**
-
-There is no seven-segment typeface on Android to switch to, and a seven-segment font wouldn't be a
-typeface anyway — every glyph in DSEG and its relatives is the same seven chamfered bars with a
-different subset filled in. So the bars are drawn the way the real ones are built:
-
-- **ends mitred at 45 degrees**, which is the detail that was missing. A segment on a real LCD is a
-  hexagon tapered at both ends; square-ended bars read as a bar chart.
-- **one shear per digit**, applied to the canvas about the baseline, instead of a lean fudged onto
-  each bar separately. The display leans; the segments stand up inside it.
-- classic LCD proportions — near twice as tall as wide, bars a fifth of the width — and about a
-  fiftieth of the long edge, smaller again.
-
-**Camcorder**
-
-Condensed, tighter digits, and a heavy black keyline rather than a hairline: on a video line the
-border around each glyph was as thick as the strokes, and that is what kept the date readable over
-grass or sky.
+Zoom and pan sit outside the rotation now, so dragging a zoomed photograph moves it the way your
+finger went rather than the way the phone happens to be held.

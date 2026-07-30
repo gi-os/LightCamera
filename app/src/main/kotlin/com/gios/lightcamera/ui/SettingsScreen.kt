@@ -60,7 +60,9 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
     val facePriority by vm.prefs.facePriority.collectAsState()
     val timer by vm.prefs.timer.collectAsState()
     val sounds by vm.prefs.sounds.collectAsState()
-    val dateStamp by vm.prefs.dateStamp.collectAsState()
+    val stampPlain by vm.prefs.stampPlain.collectAsState()
+    val stampFiltered by vm.prefs.stampFiltered.collectAsState()
+    val stampCoarse by vm.prefs.stampCoarse.collectAsState()
     val stampStyle by vm.prefs.stampStyle.collectAsState()
     val colour by vm.prefs.colour.collectAsState()
     val sendChat by vm.prefs.sendToLightChat.collectAsState()
@@ -126,17 +128,23 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
             )
 
             Section("Date")
-            Setting("Date stamp", if (dateStamp) "On" else "Off") {
-                vm.prefs.setDateStamp(!dateStamp)
+            Setting("On plain photos", if (stampPlain) "On" else "Off") {
+                vm.prefs.setStampPlain(!stampPlain)
             }
-            if (dateStamp) {
+            Setting("On filters", if (stampFiltered) "On" else "Off") {
+                vm.prefs.setStampFiltered(!stampFiltered)
+            }
+            Setting("On coarse filters", if (stampCoarse) "On" else "Off") {
+                vm.prefs.setStampCoarse(!stampCoarse)
+            }
+            if (stampPlain || stampFiltered || stampCoarse) {
                 Setting("Style", stampStyle.label) {
                     val all = StampStyle.entries
                     vm.prefs.setStampStyle(all[(all.indexOf(stampStyle) + 1) % all.size])
                 }
             }
             Note(
-                "The quartz date back off a 1990s compact: month, day, apostrophe-year, in leaning amber dots in the corner of the frame. It is printed into the photograph, so it costs a decode and a re-encode on a shot that would otherwise be saved exactly as the camera made it — and there is no taking it off afterwards.",
+                "The date back off a 1990s compact: month, day, apostrophe-year, in leaning amber dots in the corner of the frame. Coarse filters are separate and start off — Dither 16, 1-Bit, Halftone and the two Game Boys quantise the picture onto a grid of a few hundred cells, and a date drawn at full precision over that reads as a caption pasted on rather than something the camera did. It is printed into the photograph, so it costs a decode and a re-encode on a shot that would otherwise be saved exactly as the camera made it — and there is no taking it off afterwards.",
             )
 
             Section("Colour")
