@@ -1,25 +1,28 @@
-## Roll v2.0 — the type scale, fixed at the source
+## Roll v2.1 — pick the size, or skip the capture entirely
 
-**Everything is about a quarter larger**
+**Settings → Frame → Size**
 
-Moving individual readouts up the scale was never going to fix this, and it took two goes to see
-why. The SDK's type scale divides each design pixel by a 600px baseline — but the LPIII's panel is
-about 477dp tall, so every size came out at **0.79 of what the scale intends**: `Detail`, drawn at
-20 design pixels, rendered as 16sp. The scale was describing a 600dp screen and being applied to a
-much shorter one.
+`50MP · 12MP · 5MP · 2MP · Screen`, and on this phone that is the same dial as shutter speed.
+Reading out and encoding a 50MP frame is most of a second of the ISP's time; each step down is
+roughly a halving. 12MP stays the default — four times the largest print anyone makes from a phone.
 
-It now divides by the panel's own height, so a design pixel is a point and the scale means what it
-says. One number, every screen at once, and the proportions between the variants are untouched.
+**Screen doesn't take a photograph at all**
 
-**Three labels gone**
+It saves the frame already on the viewfinder. No `takePicture`, no sensor readout, no JPEG from the
+ISP — the pixels off the panel, turned upright, cropped to your shape, put through the same shader
+as any other photograph, encoded. As instant as this app can be.
 
-- The **filter name** no longer flashes at the bottom when you turn the wheel. The viewfinder is
-  already showing you the filter; a label naming what you can plainly see is a label in the way of
-  it. The buzz says the dial moved, the picture says where to.
-- The **`AF-S` badge** is gone from the corner. The focus mark already says what focus is doing —
-  brackets while it hunts, a closed box when it has it. Switch modes in Settings → Focus.
-- The **filter name** is gone from the corner too, for the same reason as the first.
+And with a filter on it is *better* than the slow path, not just faster: it is **exactly the frame
+you were looking at**, rather than a second frame captured afterwards and processed to match. The
+shader runs at panel resolution, which is a fraction of the work, and the pattern filters look
+identical because they scale themselves to the image either way — a Game Boy shot at Screen size is
+the same 128 cells as one at 12MP.
 
-What stays in that corner is only what you couldn't otherwise know: that it's recording, that the
-torch is on, that the lens is zoomed, that exposure is pushed, that a timer is armed. Each
-disappears the moment it goes back to normal.
+Worth knowing: it is panel resolution, so about 1080px on the long edge. For Dither 16, 1-Bit,
+Halftone and the two Game Boy filters that is arguably the right size anyway.
+
+**Also**
+
+The three places a finished photograph can go — another app's `IMAGE_CAPTURE` request, a loaded
+roll, the gallery — are now decided in one place instead of two. The fast path was missing the roll
+branch when it was first written, which would have quietly dropped frames from a loaded roll.

@@ -64,6 +64,33 @@ enum class CaptureMode(val label: String) {
         }
 }
 
+/**
+ * How big a photograph is, which on this phone is the same question as how fast the shutter is.
+ *
+ * Reading out and encoding a 50MP frame is most of a second of the ISP's time; each step down is
+ * roughly a halving. [Screen] is a different thing altogether — see [CameraEngine.previewFrame].
+ */
+enum class PhotoSize(val label: String, val longEdge: Int) {
+    /** Everything the sensor has. Slowest by a wide margin. */
+    Full("50MP", 8160),
+
+    /** Four times the largest print you'd make from a phone. The default. */
+    Large("12MP", 4000),
+
+    Medium("5MP", 2560),
+
+    Small("2MP", 1600),
+
+    /**
+     * The frame off the viewfinder, at panel resolution. No sensor capture at all, so it is as
+     * instant as the app can be — and with a filter on, it is the very frame you were looking at.
+     */
+    Screen("Screen", 0),
+    ;
+
+    val isPreviewGrab: Boolean get() = this == Screen
+}
+
 /** Seconds before the shutter fires. */
 enum class SelfTimer(val seconds: Int, val label: String) {
     Off(0, "Off"),
@@ -96,6 +123,11 @@ class Prefs(context: Context) {
 
     private val _aspect = MutableStateFlow(FrameAspect.byLabel(prefs.getString(ASPECT, null)))
     val aspect: StateFlow<FrameAspect> = _aspect.asStateFlow()
+
+    private val _photoSize = MutableStateFlow(
+        PhotoSize.entries.firstOrNull { it.name == prefs.getString(SIZE, null) } ?: PhotoSize.Large,
+    )
+    val photoSize: StateFlow<PhotoSize> = _photoSize.asStateFlow()
 
     private val _chrome = MutableStateFlow(
         Chrome.entries.firstOrNull { it.name == prefs.getString(CHROME, null) } ?: Chrome.Clean,
@@ -170,6 +202,8 @@ class Prefs(context: Context) {
 
     fun setAspect(value: FrameAspect) = set(_aspect, value) { putString(ASPECT, value.label) }
 
+    fun setPhotoSize(value: PhotoSize) = set(_photoSize, value) { putString(SIZE, value.name) }
+
     fun setChrome(value: Chrome) = set(_chrome, value) { putString(CHROME, value.name) }
 
     fun setFlash(value: FlashMode) = set(_flash, value) { putString(FLASH, value.name) }
@@ -206,6 +240,7 @@ class Prefs(context: Context) {
     private companion object {
         const val FILTER = "filter"
         const val ASPECT = "aspect"
+        const val SIZE = "photoSize"
         const val CHROME = "chrome"
         const val FLASH = "flash"
         const val AF_MODE = "afMode"

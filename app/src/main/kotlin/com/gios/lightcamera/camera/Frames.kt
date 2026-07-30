@@ -74,6 +74,40 @@ object Frames {
         return Processed(out.toByteArray(), bitmap.width, bitmap.height)
     }
 
+    /**
+     * A photograph made out of the viewfinder, for `Screen` size.
+     *
+     * No capture, no sensor readout, no JPEG from the ISP — the frame already on the panel, turned
+     * upright, cropped to the chosen shape, put through the same shader as any other photograph
+     * and encoded. It is as fast as this app can be, and with a filter on it is *exactly* the
+     * frame you were looking at rather than a second frame processed to match.
+     *
+     * The shader runs at panel resolution here, which is a fraction of the work it does on a
+     * capture — and the pattern-based filters look identical, because `unitPx()` scales them to
+     * the image either way.
+     */
+    fun fromPreview(
+        preview: Bitmap,
+        rotationDegrees: Int,
+        filter: Filters.Filter,
+        aspect: FrameAspect,
+        seed: Float,
+    ): Processed {
+        var bitmap = preview
+        if (rotationDegrees != 0) {
+            val matrix = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
+            val turned =
+                Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+            if (turned != bitmap) bitmap.recycle()
+            bitmap = turned
+        }
+        if (aspect != FrameAspect.Full) bitmap = crop(bitmap, aspect)
+        if (filter.agsl != null) bitmap = ShaderRuntime.applyToBitmap(bitmap, filter, seed)
+        val out = ByteArrayOutputStream(bitmap.width * bitmap.height / 4)
+        bitmap.compress(Bitmap.CompressFormat.JPEG, QUALITY, out)
+        return Processed(out.toByteArray(), bitmap.width, bitmap.height)
+    }
+
     private fun readSize(jpeg: ByteArray): Pair<Int, Int> {
         val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, opts)

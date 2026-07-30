@@ -3,6 +3,7 @@ package com.gios.lightcamera.camera
 import android.annotation.SuppressLint
 import android.content.ContentValues
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Rect
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
@@ -42,6 +43,7 @@ import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import com.gios.lightcamera.CaptureMode
+import com.gios.lightcamera.PhotoSize
 import androidx.lifecycle.LifecycleOwner
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -164,6 +166,10 @@ class CameraEngine(private val context: Context) {
     var mode: CaptureMode = CaptureMode.Photo
         private set
 
+    /** Set before binding; changing it rebinds, because it is a use-case configuration. */
+    var photoSize: PhotoSize = PhotoSize.Large
+        private set
+
     private val captureExecutor = Executors.newSingleThreadExecutor()
 
     /**
@@ -271,6 +277,43 @@ class CameraEngine(private val context: Context) {
         rebind(flash)
     }
 
+    fun setPhotoSize(size: PhotoSize, flash: FlashMode) {
+        if (size == photoSize) return
+        if (_recording.value) return
+        photoSize = size
+        rebind(flash)
+    }
+
+    /**
+     * The frame currently on the viewfinder, as a bitmap.
+     *
+     * This is the whole of `Screen` size: no `takePicture`, no sensor readout, no JPEG from the
+     * ISP — just the pixels already on the panel. It is as instant as this app can be.
+     *
+     * It returns the **unfiltered** frame, because `TextureView.getBitmap` copies the camera's
+     * surface and a `RenderEffect` is applied later, when the view is drawn. That is the useful
+     * behaviour: the caller runs the same shader over it, at this size, in one small GPU pass —
+     * so the photograph matches the viewfinder exactly without the filter being applied twice.
+     */
+    fun previewFrame(): Bitmap? = runCatching { previewView?.bitmap }.getOrNull()
+
+    /**
+     * How far a `Screen` grab has to be turned to come out upright, in degrees clockwise.
+     *
+     * The preview buffer is upright in the *device's* frame, so a photograph taken with the phone
+     * held sideways would be saved with the world on its side. `ImageCapture` solves this with a
+     * target rotation and EXIF; here the rotation has to be applied to the pixels.
+     *
+     * **The one part of this not checked on hardware.** If a `Screen` shot taken sideways comes
+     * out rotated the wrong way, these three numbers are where to look.
+     */
+    fun previewRotationDegrees(): Int = when (lastRotation) {
+        Surface.ROTATION_90 -> 270
+        Surface.ROTATION_180 -> 180
+        Surface.ROTATION_270 -> 90
+        else -> 0
+    }
+
     fun setFlash(mode: FlashMode) {
         imageCapture?.flashMode = when (mode) {
             FlashMode.Off -> ImageCapture.FLASH_MODE_OFF
@@ -342,11 +385,15 @@ class CameraEngine(private val context: Context) {
         // still four times the pixels of the largest print you will make from a phone, and about
         // thirty times the panel it will be looked at on. What is gained is a shutter that
         // answers.
+        // The size is a setting now, because it is the same question as how fast the shutter is.
+        // Screen asks for the smallest the camera will give: that mode never takes a capture, but
+        // the use case still has to be bound in case it is switched away from mid-session.
+        val longEdge = if (photoSize.isPreviewGrab) 1600 else photoSize.longEdge
         val captureSelector = ResolutionSelector.Builder()
             .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
             .setResolutionStrategy(
                 ResolutionStrategy(
-                    Size(4000, 3000),
+                    Size(longEdge, longEdge * 3 / 4),
                     ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER,
                 ),
             )

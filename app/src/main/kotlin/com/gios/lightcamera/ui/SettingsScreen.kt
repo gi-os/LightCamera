@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import com.gios.lightcamera.Chrome
 import com.gios.lightcamera.Colour
 import com.gios.lightcamera.CrashLog
+import com.gios.lightcamera.PhotoSize
 import com.gios.lightcamera.SelfTimer
 import com.gios.lightcamera.camera.AfMode
 import com.gios.lightcamera.camera.FrameAspect
@@ -52,6 +53,7 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
     WheelScroll(scroll)
 
     val aspect by vm.prefs.aspect.collectAsState()
+    val photoSize by vm.prefs.photoSize.collectAsState()
     val chrome by vm.prefs.chrome.collectAsState()
     val afMode by vm.prefs.afMode.collectAsState()
     val facePriority by vm.prefs.facePriority.collectAsState()
@@ -94,6 +96,20 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
                 .padding(start = 16.dp, end = 16.dp, bottom = 40.dp),
         ) {
             Section("Frame")
+            Setting("Size", photoSize.label) {
+                val all = PhotoSize.entries
+                vm.prefs.setPhotoSize(all[(all.indexOf(photoSize) + 1) % all.size])
+            }
+            Note(
+                when (photoSize) {
+                    PhotoSize.Full ->
+                        "Everything the sensor has, and slow with it — a 50MP frame is most of a second of readout and encoding before the shutter answers."
+                    PhotoSize.Screen ->
+                        "No capture at all: the frame already on the viewfinder, filtered by the same shader and saved. Instant, and with a filter on it is exactly the frame you were looking at."
+                    else ->
+                        "Each step down roughly halves the time between pressing the button and having a photograph."
+                },
+            )
             Setting("Shape", aspect.label) {
                 val all = FrameAspect.entries
                 vm.prefs.setAspect(all[(all.indexOf(aspect) + 1) % all.size])

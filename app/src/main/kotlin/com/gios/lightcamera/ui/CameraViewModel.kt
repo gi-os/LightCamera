@@ -128,6 +128,10 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             prefs.flash.collect { engine.setFlash(it) }
         }
+        // Size is a use-case configuration, so changing it rebinds the camera.
+        viewModelScope.launch {
+            prefs.photoSize.collect { engine.setPhotoSize(it, prefs.flash.value) }
+        }
         // Continuous AF is driven from the face list rather than from a timer, so a still
         // subject costs nothing at all.
         viewModelScope.launch {
@@ -316,6 +320,27 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     _countdown.value = null
                 }
 
+                // Screen size never touches the shutter: the frame is already on the panel. This
+                // is the whole of the fast path, and with a filter on it is the very frame you
+                // were looking at rather than a second one processed to match.
+                if (prefs.photoSize.value.isPreviewGrab) {
+                    val grabbed = engine.previewFrame()
+                    if (grabbed == null) {
+                        showNotice("Nothing on the viewfinder yet")
+                        return@launch
+                    }
+                    _shutterTick.tryEmit(Unit)
+                    val activeFilter = filter.value
+                    val seed = Random.nextFloat() * 1000f
+                    val turn = engine.previewRotationDegrees()
+                    val aspect = prefs.aspect.value
+                    val processed = withContext(Dispatchers.Default) {
+                        Frames.fromPreview(grabbed, turn, activeFilter, aspect, seed)
+                    }
+                    finish(processed, activeFilter.id)
+                    return@launch
+                }
+
                 val attempt = runCatching { engine.capture() }
                     .onFailure { Log.e(TAG, "capture failed", it) }
                 val frame = attempt.getOrNull()
@@ -339,50 +364,57 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     Frames.process(frame, activeFilter, aspect, seed)
                 }
 
-                val output = captureRequestOutput
-                if (output != null) {
-                    val ok = withContext(Dispatchers.IO) {
-                        runCatching {
-                            getApplication<Application>().contentResolver
-                                .openOutputStream(output)?.use { it.write(processed.jpeg) }
-                                ?: error("no stream")
-                        }.isSuccess
-                    }
-                    _captureRequestDone.tryEmit(ok)
-                    return@launch
-                }
-
-                val takenAt = System.currentTimeMillis()
-                val updated = filmRoll.expose(
-                    jpeg = processed.jpeg,
-                    takenAt = takenAt,
-                    filterId = activeFilter.id,
-                    width = processed.width,
-                    height = processed.height,
-                )
-                if (updated != null) {
-                    showNotice(
-                        if (updated.finished) {
-                            "Roll finished"
-                        } else {
-                            "${updated.shot} of ${updated.length}"
-                        },
-                    )
-                    return@launch
-                }
-
-                val uri = repo.save(
-                    jpeg = processed.jpeg,
-                    takenAt = takenAt,
-                    width = processed.width,
-                    height = processed.height,
-                )
-                if (uri == null) showNotice("Couldn't save")
+                finish(processed, activeFilter.id)
             } finally {
                 _countdown.value = null
                 _shooting.value = false
             }
         }
+    }
+
+    /**
+     * Where a finished photograph goes, whichever way it was made.
+     *
+     * Shared by the capture path and the `Screen` grab so that the three destinations — another
+     * app's `IMAGE_CAPTURE` request, a loaded roll, the gallery — are decided in exactly one place.
+     * They were duplicated once and the roll branch was missing from the fast path.
+     */
+    private suspend fun finish(processed: Frames.Processed, filterId: String) {
+        val output = captureRequestOutput
+        if (output != null) {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    getApplication<Application>().contentResolver
+                        .openOutputStream(output)?.use { it.write(processed.jpeg) }
+                        ?: error("no stream")
+                }.isSuccess
+            }
+            _captureRequestDone.tryEmit(ok)
+            return
+        }
+
+        val takenAt = System.currentTimeMillis()
+        val updated = filmRoll.expose(
+            jpeg = processed.jpeg,
+            takenAt = takenAt,
+            filterId = filterId,
+            width = processed.width,
+            height = processed.height,
+        )
+        if (updated != null) {
+            showNotice(
+                if (updated.finished) "Roll finished" else "${updated.shot} of ${updated.length}",
+            )
+            return
+        }
+
+        val uri = repo.save(
+            jpeg = processed.jpeg,
+            takenAt = takenAt,
+            width = processed.width,
+            height = processed.height,
+        )
+        if (uri == null) showNotice("Couldn't save")
     }
 
     /* ---------------- the roll of film ---------------- */
