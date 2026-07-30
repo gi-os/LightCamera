@@ -13,7 +13,6 @@ import com.gios.lightcamera.camera.CameraEngine
 import com.gios.lightcamera.camera.DateStamp
 import com.gios.lightcamera.camera.FaceBox
 import com.gios.lightcamera.camera.FlashMode
-import com.gios.lightcamera.PhotoSize
 import com.gios.lightcamera.camera.FrameAspect
 import com.gios.lightcamera.camera.Frames
 import com.gios.lightcamera.camera.PuriArt
@@ -582,9 +581,12 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private fun shootSimple() {
         _shooting.value = true
         viewModelScope.launch {
-            val wanted = prefs.photoSize.value
             try {
-                if (wanted != PhotoSize.Large) prefs.setPhotoSize(PhotoSize.Large)
+                // **The size setting is not consulted here, and must not be.** Simple's resolution comes
+                // from the live stream, not from a still request — and the old code set the size before each
+                // shot and put it back after, which *rebinds the camera*. Rebind while a capture is in
+                // flight and the HAL answers "camera is closed", which is exactly what changing the
+                // megapixels in Simple used to produce. Size is a Pro setting; here it is ignored.
 
                 // **The frame is already in memory; this is a copy, not a capture.** Measured at 1815 ms
                 // for `takePicture` on this camera against 1877 before asking the HAL for fast
@@ -643,7 +645,6 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
             } finally {
-                if (prefs.photoSize.value != wanted) prefs.setPhotoSize(wanted)
                 _shooting.value = false
             }
         }
