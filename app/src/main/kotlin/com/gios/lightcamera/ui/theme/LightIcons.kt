@@ -29,7 +29,13 @@ object LightIcons {
     val FocusLocking = LightIconSpec("focusing", R.drawable.ic_camera_focus_locking)
     val CameraSettings = LightIconSpec("camera settings", R.drawable.ic_camera_settings)
     val Exposure = LightIconSpec("exposure", R.drawable.ic_camera_brightness)
-    val Landscape = LightIconSpec("landscape", R.drawable.ic_camera_landscape)
+
+    /**
+     * The album. `ic_camera_landscape` is the SDK's name for it, but the drawing is a frame
+     * with two hills and a sun — the same glyph the stock camera puts in the left slot of its
+     * bottom bar to open the album, which is exactly what it is used for here.
+     */
+    val Album = LightIconSpec("album", R.drawable.ic_camera_landscape)
     val SaveToAlbum = LightIconSpec("save", R.drawable.ic_save_to_album)
     val FlipLens = LightIconSpec("flip", R.drawable.ic_rotate_white)
     val Crosshair = LightIconSpec("crosshair", R.drawable.ic_crosshair_white)

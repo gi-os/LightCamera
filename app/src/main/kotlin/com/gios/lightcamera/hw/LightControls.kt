@@ -27,6 +27,7 @@ class LightControls(
     private val wheel: WheelBus,
     private val shutter: ShutterRelease,
     private val onTorchToggle: () -> Unit,
+    private val onVolumeShutter: () -> Unit,
 ) {
 
     private var clickHeld = false
@@ -36,6 +37,7 @@ class LightControls(
 
     /** True if [event] was one of ours and has been dealt with. */
     fun dispatch(event: KeyEvent): Boolean {
+        if (volumeShutter(event)) return true
         val key = LightKeys.of(event) ?: return false
         val down = event.action == KeyEvent.ACTION_DOWN
 
@@ -69,6 +71,23 @@ class LightControls(
                 shutter.onKey(key, down)
             }
         }
+        return true
+    }
+
+    /**
+     * Either volume key is also the shutter.
+     *
+     * A convention borrowed from every other camera, and here it earns its keep twice over:
+     * there is no shutter button on the screen, so if the camera key is being swallowed by
+     * something — an accessibility service that binds it, most likely LightControl — this is
+     * the difference between a camera and an ornament. Volume keys are AOSP keycodes, so no
+     * label resolution is needed and this works on any build.
+     */
+    private fun volumeShutter(event: KeyEvent): Boolean {
+        val volume = event.keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
+            event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
+        if (!volume) return false
+        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) onVolumeShutter()
         return true
     }
 

@@ -71,6 +71,7 @@ fun FilterGrid(
     vm: CameraViewModel,
     previewView: PreviewView,
     onPick: (String) -> Unit,
+    onOpenSettings: () -> Unit,
     onClose: () -> Unit,
 ) {
     val colours = LightThemeTokens.colors
@@ -119,6 +120,9 @@ fun FilterGrid(
         ) {
             LightText("FILTERS", LightTextVariant.Superfine, modifier = Modifier.padding(start = 8.dp))
             Spacer(Modifier.weight(1f))
+            // The viewfinder has no room for a settings icon any more, so it lives in the two
+            // places you can reach in one tap from it: here, and the roll's header.
+            ChromeIcon(icon = LightIcons.Settings, lighten = true, onClick = onOpenSettings)
             ChromeIcon(icon = LightIcons.Close, onClick = onClose)
         }
 

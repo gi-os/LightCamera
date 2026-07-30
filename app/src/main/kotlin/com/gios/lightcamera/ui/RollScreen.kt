@@ -72,6 +72,7 @@ fun RollScreen(
     mediaGranted: Boolean,
     onRequestMedia: () -> Unit,
     onOpen: (Photo) -> Unit,
+    onOpenSettings: () -> Unit,
     onBackToCamera: () -> Unit,
 ) {
     val colours = LightThemeTokens.colors
@@ -178,12 +179,19 @@ fun RollScreen(
                 text = scope.label.uppercase(),
                 variant = LightTextVariant.Micro,
                 lighten = true,
-                modifier = Modifier.lightClickable {
-                    vm.prefs.setScope(
-                        if (scope == RollScope.Camera) RollScope.Everything else RollScope.Camera,
-                    )
-                },
+                modifier = Modifier
+                    .lightClickable {
+                        vm.prefs.setScope(
+                            if (scope == RollScope.Camera) {
+                                RollScope.Everything
+                            } else {
+                                RollScope.Camera
+                            },
+                        )
+                    }
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
             )
+            ChromeIcon(icon = LightIcons.Settings, lighten = true, onClick = onOpenSettings)
         }
 
         // Bottom chrome, against the camera. An undeveloped roll lives here, because this is

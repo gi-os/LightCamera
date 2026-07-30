@@ -12,6 +12,8 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gios.lightcamera.hw.LightControls
 import com.gios.lightcamera.hw.LocalWheelBus
@@ -48,6 +50,14 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
+        // The bars are hidden, not just drawn behind. The stock camera's picture starts at the
+        // very top edge of the panel, and on a 3.92" screen a status bar is about four percent
+        // of the viewfinder spent telling you the time. Swipe from an edge to get them back.
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.systemBars())
+        }
+
         val captureOutput = intentCaptureOutput()
         val isCaptureRequest = captureOutput != null || isCaptureAction()
 
@@ -67,6 +77,7 @@ class MainActivity : ComponentActivity() {
                             onRelease = { vm.engine.releaseFocus() },
                         ),
                         onTorchToggle = { vm.engine.toggleTorch() },
+                        onVolumeShutter = { vm.shoot() },
                     )
                 }
 

@@ -138,6 +138,7 @@ fun Shell(
                         mediaGranted = mediaGranted,
                         onRequestMedia = { ask.launch(arrayOf(Manifest.permission.READ_MEDIA_IMAGES)) },
                         onOpen = { viewing = it },
+                        onOpenSettings = { settingsOpen = true },
                         onBackToCamera = {
                             scope.launch { pager.animateScrollToPage(PAGE_CAMERA) }
                         },

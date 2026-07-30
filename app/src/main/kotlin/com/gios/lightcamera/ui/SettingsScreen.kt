@@ -136,10 +136,13 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
             }
             Note(
                 if (LightKeys.wheelLabelsPresent()) {
-                    "Turn the wheel to zoom. Hold it in and turn for exposure. Click it for the torch."
+                    "Turn the wheel to zoom. Hold it in and turn for exposure. Click it for the torch. Either volume key is also a shutter."
                 } else {
-                    "This build doesn't map the wheel keys, so turning it may do nothing."
+                    "This build doesn't map the wheel keys, so turning it may do nothing. Either volume key is a shutter."
                 },
+            )
+            Note(
+                "There is no shutter button on screen, because the phone has one on its side. If the camera button does nothing, an accessibility service is swallowing it — in LightControl, a camera in front now keeps both stages of that key.",
             )
 
             Section("Film")

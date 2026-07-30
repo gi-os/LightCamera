@@ -2,8 +2,6 @@ package com.gios.lightcamera.ui
 
 import androidx.camera.core.CameraSelector
 import androidx.camera.view.PreviewView
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -17,9 +15,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -32,14 +27,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -48,7 +45,6 @@ import com.gios.lightcamera.camera.AfMode
 import com.gios.lightcamera.camera.AfState
 import com.gios.lightcamera.camera.FaceMapper
 import com.gios.lightcamera.camera.FlashMode
-import com.gios.lightcamera.camera.FrameAspect
 import com.gios.lightcamera.filter.ShaderRuntime
 import com.gios.lightcamera.hw.WheelTurns
 import com.gios.lightcamera.ui.theme.LightHaptics
@@ -63,24 +59,25 @@ import kotlin.math.abs
 import kotlin.random.Random
 
 /**
- * The viewfinder: the image, edge to edge, and as little else as possible.
+ * The viewfinder, built to look like LightOS's own camera.
  *
- * The Light Phone's own camera is one unbroken picture with a couple of marks on it, and
- * that is the right answer on a 3.92" panel — every pixel of chrome is a pixel of the
- * photograph you can't see. So:
+ * The stock app is one picture with a single row of controls in a black band beneath it, and
+ * copying that arrangement settles a lot of arguments at once:
  *
- *  - **The preview fills the screen.** No frame box, no letterbox, no mattes. An earlier
- *    version drew the exact save-aspect as a bordered box with the controls in the margins,
- *    which was honest about cropping and horrible to look through.
- *  - **Chrome floats in the system-bar insets**, over a gradient that fades to nothing before
- *    it reaches the middle of the frame. Against a dark scene it is invisible; against a
- *    bright one it is the only reason the icons are legible.
- *  - **Focus and faces are the only marks on the image**, and they use LightOS's own drawing
- *    — brackets while hunting, a closed box on lock. See [FrameOverlay].
+ *  - **Nothing is drawn over the image.** No floating chrome, no gradients, no readouts on
+ *    top of the frame. The band below is where the controls live, so the picture is only ever
+ *    the picture.
+ *  - **There is no shutter button.** The phone has a two-stage shutter release on its side;
+ *    a circle on the glass duplicating it would only take room from the image and teach the
+ *    wrong gesture. Tapping the frame focuses instead, which is the thing a touchscreen is
+ *    actually better at. (Should the camera key be dead, LightControl is swallowing it — see
+ *    the README.)
+ *  - **The band reads left to right as album, lens, mode, flash, brightness** — the stock
+ *    order, with the mode slot doing the job "PHOTO ⌄" does there: it names what the camera
+ *    is set to and opens the picker. Here that is the filter.
  *
- * The cost of filling the screen is that the sensor is 4:3 and the panel is not, so the file
- * contains a little more than the viewfinder showed. That is how every phone camera works and
- * it is the trade the stock app makes too; the settings screen says so out loud.
+ * The system bars are hidden, so the image starts at the very top edge of the panel exactly
+ * as it does in the stock app.
  */
 @Composable
 fun CameraScreen(
@@ -96,7 +93,6 @@ fun CameraScreen(
     val engine = vm.engine
 
     val filter by vm.filter.collectAsState()
-    val aspect by vm.prefs.aspect.collectAsState()
     val chrome by vm.prefs.chrome.collectAsState()
     val flash by vm.prefs.flash.collectAsState()
     val timer by vm.prefs.timer.collectAsState()
@@ -109,8 +105,8 @@ fun CameraScreen(
     val focusPoint by engine.focusPoint.collectAsState()
     val lensFacing by engine.lensFacing.collectAsState()
     val zoom by engine.zoom.collectAsState()
-    val maxZoom by engine.maxZoom.collectAsState()
     val ev by engine.ev.collectAsState()
+    val evRange by engine.evRange.collectAsState()
     val torch by engine.torch.collectAsState()
     val notice by vm.notice.collectAsState()
     val countdown by vm.countdown.collectAsState()
@@ -119,6 +115,7 @@ fun CameraScreen(
     var frameWidth by remember { mutableStateOf(0) }
     var frameHeight by remember { mutableStateOf(0) }
     var gridOpen by remember { mutableStateOf(false) }
+    var evOpen by remember { mutableStateOf(false) }
 
     val previewView = remember {
         PreviewView(context).apply {
@@ -159,16 +156,19 @@ fun CameraScreen(
 
     /* ---- the wheel ---- */
 
-    WheelTurns(active = active && wheelEnabled && !gridOpen, armed = true) { notches ->
+    // With the exposure strip open the bare turn is exposure, because that is plainly what
+    // you opened it to change. Otherwise it is zoom, and holding the wheel in is exposure.
+    WheelTurns(active = active && wheelEnabled && !gridOpen && !evOpen, armed = true) { notches ->
         engine.stepZoom(notches)
         vm.showNotice(engine.zoomLabel())
+    }
+    WheelTurns(active = active && wheelEnabled && evOpen && !gridOpen, armed = true) { notches ->
+        engine.stepEv(notches)
     }
     WheelTurns(active = active && wheelEnabled, armed = true, pressed = true) { notches ->
         engine.stepEv(notches)
         vm.showNotice("EV ${engine.evLabel()}")
     }
-    // With the grid open the wheel walks the filters instead — the zoom is not what you are
-    // looking at.
     WheelTurns(active = active && wheelEnabled && gridOpen, armed = false) { notches ->
         vm.stepFilter(if (notches > 0) 1 else -1)
     }
@@ -179,8 +179,6 @@ fun CameraScreen(
     LaunchedEffect(Unit) {
         vm.shutterTick.collect {
             blink = 1f
-            // Down in four frames. Long enough to register, short enough that a second
-            // photograph is never waiting on it.
             repeat(4) {
                 delay(16)
                 blink -= 0.25f
@@ -195,244 +193,320 @@ fun CameraScreen(
         if (facePriority) FaceMapper.priority(faces, frameWidth, frameHeight) else null
     }
 
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black),
     ) {
-        /* ---- the image ---- */
-        AndroidView(
-            factory = { previewView },
-            modifier = Modifier
-                .fillMaxSize()
-                .onSizeChanged {
-                    frameWidth = it.width
-                    frameHeight = it.height
-                    vm.onViewSized(it.width, it.height)
-                }
-                .viewfinderGestures(
-                    enabled = active,
-                    onTapFocus = { x, y ->
-                        // A buzz for the *ask*. The buzz and beep for the lens actually
-                        // landing come off the camera's AF result, in the view model.
-                        LightHaptics.advance(context)
-                        engine.focusAt(x, y, lock = false)
-                    },
-                    onFilterStep = { vm.stepFilter(it) },
-                ),
-        )
-
-        FrameOverlay(
-            chrome = chrome,
-            faces = faces,
-            priority = priority,
-            afState = afState,
-            focusPoint = focusPoint,
-            tilt = tilt,
-            levelVisible = levelVisible,
-            modifier = Modifier.fillMaxSize(),
-        )
-
-        if (blink > 0f) {
-            Canvas(Modifier.fillMaxSize()) { drawRect(Color.Black.copy(alpha = blink)) }
-        }
-
-        if (countdown != null) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                LightText("$countdown", LightTextVariant.Title)
-            }
-        }
-
-        /* ---- top chrome ---- */
-        Column(
+        /* ---------------- the image ---------------- */
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        0f to Color.Black.copy(alpha = 0.55f),
-                        1f to Color.Transparent,
-                    ),
-                )
-                .statusBarsPadding(),
+                .weight(1f)
+                .clipToBounds(),
         ) {
-            Row(
+            AndroidView(
+                factory = { previewView },
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(44.dp)
-                    .padding(horizontal = 4.dp),
+                    .fillMaxSize()
+                    .onSizeChanged {
+                        frameWidth = it.width
+                        frameHeight = it.height
+                        vm.onViewSized(it.width, it.height)
+                    }
+                    .viewfinderGestures(
+                        enabled = active,
+                        onTapFocus = { x, y ->
+                            // A buzz for the *ask*. The buzz and beep for the lens landing
+                            // come off the camera's own AF result, in the view model.
+                            LightHaptics.advance(context)
+                            engine.focusAt(x, y, lock = false)
+                        },
+                        onFilterStep = { vm.stepFilter(it) },
+                    ),
+            )
+
+            FrameOverlay(
+                chrome = chrome,
+                faces = faces,
+                priority = priority,
+                afState = afState,
+                focusPoint = focusPoint,
+                tilt = tilt,
+                levelVisible = levelVisible,
+                modifier = Modifier.fillMaxSize(),
+            )
+
+            if (blink > 0f) {
+                Canvas(Modifier.fillMaxSize()) { drawRect(Color.Black.copy(alpha = blink)) }
+            }
+
+            if (countdown != null) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    LightText("$countdown", LightTextVariant.Title)
+                }
+            }
+
+            // The only two things allowed on the image besides focus: which way autofocus is
+            // set, and a word that is about to disappear.
+            Row(
+                modifier = Modifier.padding(start = 10.dp, top = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ChromeIcon(
-                    icon = when (flash) {
-                        FlashMode.Off -> LightIcons.FlashOff
-                        FlashMode.On -> LightIcons.FlashOn
-                        FlashMode.Auto -> LightIcons.FlashAuto
-                    },
-                    lighten = flash == FlashMode.Off,
-                    onClick = {
-                        vm.prefs.setFlash(
-                            when (flash) {
-                                FlashMode.Off -> FlashMode.Auto
-                                FlashMode.Auto -> FlashMode.On
-                                FlashMode.On -> FlashMode.Off
-                            },
-                        )
-                    },
-                )
-                // The one indicator that is always on: which autofocus mode is live, lit up
-                // the moment the lens locks. A camera that focuses silently and invisibly is
-                // a camera you press twice.
-                AfBadge(
-                    mode = afMode,
-                    state = afState,
-                    modifier = Modifier.lightClickable {
-                        val next = if (afMode == AfMode.Single) AfMode.Continuous else AfMode.Single
-                        vm.prefs.setAfMode(next)
-                        vm.showNotice(if (next == AfMode.Single) "AF-S" else "AF-C")
-                    },
-                )
+                AfBadge(mode = afMode, state = afState)
                 if (torch) {
                     LightText(
-                        "TORCH",
+                        " TORCH",
                         LightTextVariant.Micro,
-                        modifier = Modifier.padding(start = 8.dp),
+                        modifier = Modifier.padding(start = 6.dp),
                     )
                 }
-                Spacer(Modifier.weight(1f))
                 if (zoom > 1.02f) {
-                    LightText(engine.zoomLabel(), LightTextVariant.Micro)
-                    Spacer(Modifier.width(8.dp))
-                }
-                if (ev != 0) {
-                    LightText("EV ${engine.evLabel()}", LightTextVariant.Micro)
-                    Spacer(Modifier.width(8.dp))
+                    LightText(
+                        " ${engine.zoomLabel()}",
+                        LightTextVariant.Micro,
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
                 }
                 if (timer.seconds > 0) {
-                    LightText(timer.label, LightTextVariant.Micro)
-                    Spacer(Modifier.width(8.dp))
+                    LightText(
+                        " ${timer.label}",
+                        LightTextVariant.Micro,
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
                 }
-                ChromeIcon(icon = LightIcons.Settings, lighten = true, onClick = onOpenSettings)
-            }
-        }
-
-        /* ---- bottom chrome ---- */
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        0f to Color.Transparent,
-                        1f to Color.Black.copy(alpha = 0.72f),
-                    ),
-                )
-                .systemBarsPadding(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Notice(text = notice, modifier = Modifier.padding(bottom = 8.dp))
-
-            if (roll != null) {
-                SprocketStrip(offsetFrames = roll?.shot ?: 0)
-                RollCounter(
-                    roll = roll,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp)
-                        .lightClickable { onOpenSettings() },
-                )
             }
 
-            Row(
+            Notice(
+                text = notice,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 10.dp, bottom = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Column(
-                    modifier = Modifier.padding(start = 6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    ChromeIcon(icon = LightIcons.Grid, onClick = { gridOpen = true })
-                    LightText(
-                        text = filter.label.uppercase(),
-                        variant = LightTextVariant.Micro,
-                        lighten = filter.agsl == null,
-                        modifier = Modifier.lightClickable { gridOpen = true },
-                    )
-                }
-                SoftShutter(
-                    shooting = shooting,
-                    rollLoaded = roll != null,
-                    onHalfPress = { engine.halfPress() },
-                    onRelease = { fired ->
-                        if (fired) vm.shoot()
-                        engine.releaseFocus()
-                    },
-                )
-                Column(
-                    modifier = Modifier.padding(end = 6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    ChromeIcon(
-                        icon = LightIcons.FlipLens,
-                        onClick = {
-                            engine.setLens(
-                                if (lensFacing == CameraSelector.LENS_FACING_BACK) {
-                                    CameraSelector.LENS_FACING_FRONT
-                                } else {
-                                    CameraSelector.LENS_FACING_BACK
-                                },
-                                flash,
-                            )
-                        },
-                    )
-                    LightText(
-                        text = if (aspect == FrameAspect.Full) "4:3" else aspect.label,
-                        variant = LightTextVariant.Micro,
-                        lighten = true,
-                        modifier = Modifier.lightClickable {
-                            val all = FrameAspect.entries
-                            val next = all[(all.indexOf(aspect) + 1) % all.size]
-                            vm.prefs.setAspect(next)
-                            vm.showNotice(next.label)
-                        },
-                    )
-                }
-            }
-
-            if (rollSwipeEnabled) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .lightClickable { onOpenRoll() }
-                        .padding(bottom = 4.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    LightIcon(
-                        icon = LightIcons.Up,
-                        size = 8.dp,
-                        tint = colours.contentSecondary,
-                    )
-                    LightText("  ROLL", LightTextVariant.Micro, lighten = true)
-                }
-            }
-        }
-
-        // Inside the Box on purpose: as a sibling of it, the stacking order would be at the
-        // mercy of whatever layout the pager wraps a page in.
-        if (gridOpen) {
-            FilterGrid(
-                vm = vm,
-                previewView = previewView,
-                onPick = { id ->
-                    vm.setFilter(id)
-                    gridOpen = false
-                },
-                onClose = { gridOpen = false },
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 12.dp),
             )
         }
+
+        /* ---------------- the band ---------------- */
+
+        if (evOpen) {
+            ExposureStrip(
+                index = ev,
+                range = evRange,
+                label = engine.evLabel(),
+                onStep = { engine.stepEv(it) },
+                onReset = { engine.resetEv() },
+            )
+        }
+
+        if (roll != null) {
+            SprocketStrip(offsetFrames = roll?.shot ?: 0)
+            RollCounter(
+                roll = roll,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 3.dp)
+                    .lightClickable { onOpenSettings() },
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(58.dp)
+                .padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Album, exactly where the stock camera puts it.
+            ChromeIcon(
+                icon = LightIcons.Album,
+                onClick = onOpenRoll,
+                lighten = !rollSwipeEnabled,
+            )
+            ChromeIcon(
+                icon = LightIcons.FlipLens,
+                onClick = {
+                    engine.setLens(
+                        if (lensFacing == CameraSelector.LENS_FACING_BACK) {
+                            CameraSelector.LENS_FACING_FRONT
+                        } else {
+                            CameraSelector.LENS_FACING_BACK
+                        },
+                        flash,
+                    )
+                },
+            )
+            // The stock camera's "PHOTO ⌄" slot: what the camera is set to, and a chevron
+            // that opens the picker. Here that is the filter, which is the only thing about
+            // this camera that has modes.
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .lightClickable { gridOpen = true }
+                    .padding(vertical = 10.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                LightText(
+                    text = filter.label.uppercase(),
+                    variant = LightTextVariant.Button,
+                    align = TextAlign.Center,
+                )
+                Spacer(Modifier.width(6.dp))
+                Canvas(Modifier.width(9.dp).height(6.dp)) {
+                    // A chevron, drawn rather than an icon: the SDK's arrow glyphs are all
+                    // bigger and heavier than the one next to "PHOTO" on the stock camera.
+                    val w = size.width
+                    val h = size.height
+                    drawLine(
+                        colours.content,
+                        Offset(0f, 0f),
+                        Offset(w / 2f, h),
+                        1.4.dp.toPx(),
+                        StrokeCap.Round,
+                    )
+                    drawLine(
+                        colours.content,
+                        Offset(w, 0f),
+                        Offset(w / 2f, h),
+                        1.4.dp.toPx(),
+                        StrokeCap.Round,
+                    )
+                }
+            }
+            ChromeIcon(
+                icon = when (flash) {
+                    FlashMode.Off -> LightIcons.FlashOff
+                    FlashMode.On -> LightIcons.FlashOn
+                    FlashMode.Auto -> LightIcons.FlashAuto
+                },
+                lighten = flash == FlashMode.Off,
+                onClick = {
+                    vm.prefs.setFlash(
+                        when (flash) {
+                            FlashMode.Off -> FlashMode.Auto
+                            FlashMode.Auto -> FlashMode.On
+                            FlashMode.On -> FlashMode.Off
+                        },
+                    )
+                },
+            )
+            // Brightness, the stock camera's rightmost control. Exposure compensation is what
+            // it means on a camera with no manual controls.
+            ChromeIcon(
+                icon = LightIcons.Exposure,
+                lighten = !evOpen && ev == 0,
+                onClick = {
+                    if (evRange.first == evRange.last) {
+                        vm.showNotice("No exposure control")
+                    } else {
+                        evOpen = !evOpen
+                    }
+                },
+            )
+        }
+
+        if (shooting) {
+            // A hairline that fills while the photograph is being written. The stock camera
+            // takes a second or three over a shot and says nothing; this at least admits it.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.dp)
+                    .background(colours.contentSecondary),
+            )
+        }
+    }
+
+    if (gridOpen) {
+        FilterGrid(
+            vm = vm,
+            previewView = previewView,
+            onPick = { id ->
+                vm.setFilter(id)
+                gridOpen = false
+            },
+            onOpenSettings = {
+                gridOpen = false
+                onOpenSettings()
+            },
+            onClose = { gridOpen = false },
+        )
+    }
+}
+
+/**
+ * Exposure compensation, as a row of stops.
+ *
+ * Opened from the brightness icon, and while it is open the bare wheel drives it — that is
+ * the whole reason to have a mode rather than a slider: the wheel is a better exposure dial
+ * than a thumb on a 3.92" screen ever will be.
+ */
+@Composable
+private fun ExposureStrip(
+    index: Int,
+    range: IntRange,
+    label: String,
+    onStep: (Int) -> Unit,
+    onReset: () -> Unit,
+) {
+    val colours = LightThemeTokens.colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(34.dp)
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        LightText(
+            "−",
+            LightTextVariant.Copy,
+            modifier = Modifier
+                .lightClickable { onStep(-1) }
+                .padding(horizontal = 10.dp),
+        )
+        Canvas(
+            modifier = Modifier
+                .weight(1f)
+                .height(18.dp)
+                .lightClickable { onReset() },
+        ) {
+            val span = (range.last - range.first).coerceAtLeast(1)
+            val pitch = size.width / span
+            for (i in 0..span) {
+                val x = i * pitch
+                val stop = range.first + i
+                // Whole stops are taller than the thirds between them, so the scale can be
+                // read without labels.
+                val whole = stop % 3 == 0
+                val h = if (whole) size.height else size.height * 0.45f
+                drawLine(
+                    color = colours.contentSecondary.copy(alpha = 0.55f),
+                    start = Offset(x, size.height - h),
+                    end = Offset(x, size.height),
+                    strokeWidth = 1.dp.toPx(),
+                )
+            }
+            val here = (index - range.first) * pitch
+            drawLine(
+                color = colours.content,
+                start = Offset(here, 0f),
+                end = Offset(here, size.height),
+                strokeWidth = 2.4.dp.toPx(),
+                cap = StrokeCap.Square,
+            )
+        }
+        LightText(
+            "+",
+            LightTextVariant.Copy,
+            modifier = Modifier
+                .lightClickable { onStep(1) }
+                .padding(horizontal = 10.dp),
+        )
+        LightText(
+            text = label,
+            variant = LightTextVariant.Micro,
+            modifier = Modifier.width(34.dp),
+            align = TextAlign.End,
+        )
     }
 }
 
@@ -440,20 +514,21 @@ fun CameraScreen(
  * The autofocus badge. `AF-S` or `AF-C`, inverted while the lens is locked.
  *
  * Inversion rather than a colour, because the panel has no colours to spare and LightOS
- * carries state by swapping foreground and background everywhere else too.
+ * carries state by swapping foreground and background everywhere else too. It is the one
+ * permanent mark on the image, and it earns the room: autofocus that gives no sign of being
+ * on is autofocus you press twice.
  */
 @Composable
 private fun AfBadge(mode: AfMode, state: AfState, modifier: Modifier = Modifier) {
     val colours = LightThemeTokens.colors
     val locked = state == AfState.Locked
-    val label = if (mode == AfMode.Single) "AF-S" else "AF-C"
     Box(
         modifier = modifier
             .background(if (locked) colours.content else Color.Transparent)
-            .padding(horizontal = 5.dp, vertical = 2.dp),
+            .padding(horizontal = 4.dp, vertical = 1.dp),
     ) {
         LightText(
-            text = label,
+            text = if (mode == AfMode.Single) "AF-S" else "AF-C",
             variant = LightTextVariant.Micro,
             color = when {
                 locked -> colours.background
@@ -461,79 +536,6 @@ private fun AfBadge(mode: AfMode, state: AfState, modifier: Modifier = Modifier)
                 else -> colours.contentSecondary
             },
         )
-    }
-}
-
-/**
- * The on-screen shutter, which behaves like the hardware one.
- *
- * Press and it focuses; lift and it fires. Exactly the two-stage release the camera button
- * gives you, so the two controls are the same control and there is nothing extra to learn.
- * A drag off the button cancels, the way a button should.
- */
-@Composable
-private fun SoftShutter(
-    shooting: Boolean,
-    rollLoaded: Boolean,
-    onHalfPress: () -> Unit,
-    onRelease: (fired: Boolean) -> Unit,
-) {
-    val context = LocalContext.current
-    val colours = LightThemeTokens.colors
-    val inner by animateFloatAsState(
-        targetValue = if (shooting) 0.62f else 1f,
-        animationSpec = tween(90),
-        label = "shutter",
-    )
-    Box(
-        modifier = Modifier
-            .size(72.dp)
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    LightHaptics.shutter(context)
-                    onHalfPress()
-                    var cancelled = false
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        val offset = change.position
-                        if (offset.x < 0f || offset.y < 0f ||
-                            offset.x > size.width || offset.y > size.height
-                        ) {
-                            cancelled = true
-                        }
-                        if (!change.pressed) break
-                    }
-                    onRelease(!cancelled)
-                }
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        Canvas(Modifier.fillMaxSize()) {
-            val ring = 1.6.dp.toPx()
-            drawCircle(
-                color = colours.content,
-                radius = size.minDimension / 2f - ring,
-                style = Stroke(width = ring),
-            )
-            val r = (size.minDimension / 2f - 7.dp.toPx()) * inner
-            if (rollLoaded) {
-                // A loaded roll gets a square release, so a glance at the shutter tells you
-                // the photograph is going onto film and not into the gallery.
-                val side = r * 1.62f
-                drawRect(
-                    color = colours.content,
-                    topLeft = androidx.compose.ui.geometry.Offset(
-                        (size.width - side) / 2f,
-                        (size.height - side) / 2f,
-                    ),
-                    size = androidx.compose.ui.geometry.Size(side, side),
-                )
-            } else {
-                drawCircle(color = colours.content, radius = r)
-            }
-        }
     }
 }
 
