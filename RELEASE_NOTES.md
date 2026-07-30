@@ -1,33 +1,61 @@
-## Roll v1.2 — laid out like LightOS's own camera
+## Roll v1.4 — held like a camera, and in colour
 
-**The layout**
+**The whole app is drawn a quarter turn round**
 
-- Image on top, **one black band beneath it**, nothing drawn over the picture. The band reads
-  left to right as **album, lens, mode, flash, brightness** — the stock camera's own order,
-  where the mode slot does the job "PHOTO ⌄" does there: it names what the camera is set to and
-  opens the picker. Here that is the filter.
-- **The system bars are hidden**, so the picture starts at the very top edge of the panel. On a
-  3.92" screen a status bar is four percent of the viewfinder spent telling you the time. Swipe
-  from an edge to get them back.
-- **No shutter button.** The phone has a two-stage shutter release on its side; a circle on the
-  glass duplicating it only takes room from the image and teaches the wrong gesture. Tapping the
-  frame focuses instead, which is what a touchscreen is better at.
-- **Either volume key is also a shutter**, in case something is swallowing the camera key.
-- Brightness opens a strip of exposure stops with whole stops marked taller than the thirds
-  between them. While it is open the bare wheel drives exposure; tap the strip to reset.
-- Settings moved to the roll's header and the filter picker — one tap from the viewfinder,
-  nothing on the image.
+This is how LightOS's own camera works, and it takes a moment to see why. The window stays
+locked to portrait — nothing reflows, there is no landscape layout — and the interface is
+*drawn* rotated inside it. Turn the phone anticlockwise, the way you'd pick up a compact
+camera, and everything is upright: the picture fills the width, the control band runs along the
+bottom, and the phone's camera key has come round to the top edge exactly where a shutter
+release belongs. Held in portrait, that band runs down the left-hand side.
 
-**The camera button works again**
+Rotating rather than supporting landscape is deliberate:
 
-The camera key was being swallowed by **LightControl**, whose default binding opens a camera —
-which it did even with a camera already open and in front, so Roll never saw the key and its
-shutter was dead. Fixed in [LightControl
-v1.1.6](https://github.com/gi-os/LightControl/releases/latest): any app registered for
-`STILL_IMAGE_CAMERA` now gets **both stages of the camera button untouched**, whatever is bound
-to it. The test is what the app declares rather than a list of package names, so it holds for
-cameras that don't exist yet, and an explicit per-app `OFF` rule still wins.
+- **Nothing moves while you shoot.** A layout that reflowed would swap the band from one edge
+  to another as you turned the camera to frame something.
+- **Every spatial idea survives.** The roll is still above the viewfinder and still arrives
+  with a downward pull, because "down" in there is down in your hand.
+- **The framing comes out right for free.** A 4:3 sensor nearly fills a screen turned on its
+  side, so almost nothing is cropped — portrait was throwing away a third of it.
 
-**Update both.** Roll alone can't fix this — the key never reaches it.
+**The band is the stock four**
+
+Album, the mode slot, flash, brightness — the stock camera's own order and spacing, measured
+off a photograph of the real thing rather than guessed. The mode slot does the job "PHOTO ⌄"
+does there: it names what the camera is set to and opens the picker. Here that is the filter.
+
+The lens switch moved to a **double tap on the image**, which is where every other phone camera
+keeps it, so the band stays at four items.
+
+**The viewfinder is in colour**
+
+The panel is a full-colour AMOLED; Light's black and white is the accessibility daltonizer
+pinned to monochromacy. Roll lifts it while the camera or a photograph is on screen and puts it
+back the moment you leave the app — the rest of LightOS stays grey, because that is your
+setting and not the camera's. Half the filters are about colour, and a viewfinder showing a grey
+version of the photograph it is about to save was misrepresenting the picture.
+
+One adb grant, once:
+
+```sh
+adb shell pm grant com.gios.lightcamera android.permission.WRITE_SECURE_SETTINGS
+```
+
+Without it the write is simply refused and everything stays grey. Settings → Colour switches
+between the viewfinder only, the whole app, and off.
+
+**Photographs come out the way you held the phone**
+
+With the window locked to portrait, CameraX was baking upright into every file, so a photograph
+taken with the phone held horizontally arrived on its side. Only the capture's target rotation
+now follows the accelerometer; the preview's is deliberately left alone, because the face mapper
+reads it.
+
+**Also**
+
+- Roll now names LightControl when it is the reason the camera key is doing nothing, rather than
+  looking broken — and the version that fixed it.
+- The wheel scrolls the roll the way it's turned; `reverseLayout` had been reversing the scroll
+  axis with it.
 
 Requires Android 13 or newer — AGSL does.
