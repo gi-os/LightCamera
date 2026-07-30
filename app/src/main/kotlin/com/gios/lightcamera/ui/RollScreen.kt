@@ -83,7 +83,7 @@ fun RollScreen(
 
     val entries = remember(photos) { flatten(photos) }
     val gridState = rememberLazyGridState()
-    WheelScroll(gridState, active = active)
+    WheelScroll(gridState, active = active, reverse = true)
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         when {

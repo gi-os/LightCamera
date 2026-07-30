@@ -81,15 +81,24 @@ private const val SMOOTHING = 0.28f
 private const val ARM_NOTCHES = 2
 private const val IDLE_MS = 1_500L
 
-/** Point the wheel at a Compose scroller. Works for `ScrollState` and lazy states alike. */
+/**
+ * Point the wheel at a Compose scroller. Works for `ScrollState` and lazy states alike.
+ *
+ * Pass `reverse = true` for a `reverseLayout` list. Reversing the layout reverses the scroll
+ * axis with it, so `scrollBy` with a positive delta walks *away* from the pinned end — in the
+ * roll, up towards last year rather than down towards the viewfinder. The wheel has to mean
+ * the same thing on every screen, so the sign is flipped here instead of the list being left
+ * feeling backwards.
+ */
 @Composable
-fun WheelScroll(state: ScrollableState, active: Boolean = true) {
+fun WheelScroll(state: ScrollableState, active: Boolean = true, reverse: Boolean = false) {
     val step = with(LocalDensity.current) { NOTCH.toPx() }
     val debt = remember { Debt() }
     val wake = remember { Channel<Unit>(Channel.CONFLATED) }
+    val direction = if (reverse) -DIRECTION else DIRECTION
 
     WheelTurns(active = active, armed = true) { notches ->
-        debt.px += notches * step * DIRECTION
+        debt.px += notches * step * direction
         wake.trySend(Unit)
     }
 

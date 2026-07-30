@@ -30,9 +30,9 @@ at the half press, `CAMERA` at the bottom. Nothing in LightOS uses the first one
 
 There is **no shutter button on screen**, on purpose: the phone has one on its side, and a
 circle on the glass duplicating it only costs image area and teaches the wrong gesture. If the
-camera button does nothing, an accessibility service is swallowing it — most likely
-[LightControl](https://github.com/gi-os/LightControl), which binds that key by default. From
-v1.1.6 it hands both stages to whatever camera is in front; update it.
+camera button does nothing, an accessibility service is swallowing it — most likely an old
+[LightControl](https://github.com/gi-os/LightControl), which used to keep that key for itself.
+From v1.1.6 it hands both stages to whatever camera is in front; update it.
 
 The two keys arrive in an unpredictable order, so the release is a state machine
 (`hw/ShutterRelease.kt`) rather than a pair of key handlers — see the tests for the cases
@@ -41,6 +41,45 @@ that matter.
 Faces come from the **camera's own hardware detector**, read out of each capture result over
 Camera2 interop, not from a bundled ML model. Every face gets a box; the one the lens is
 working on gets the focus mark.
+
+## The wheel needs nothing else installed
+
+Zoom, exposure and the torch are the wheel's, and so is scrolling — the roll and the settings
+page both move under it. None of it needs a service, a permission or root. Light patched
+`/system/usr/keylayout/Generic.kl`, so a notch arrives as an ordinary key event delivered to
+whichever app has focus, and this app reads those keys itself. Install the APK and the wheel is
+a lens ring.
+
+[LightControl](https://github.com/gi-os/LightControl) is optional, and what it adds is the rest
+of the wheel — everywhere else on the phone. Hold the wheel in and turn for brightness, tap it
+for the flashlight, the camera button to open a camera; each of those is rebindable, tap and
+hold separately, to any installed app. It also gives brightness or a synthetic-swipe scroll to
+apps that carry no wheel code of their own.
+
+Installing it does not take scrolling away here. Bare turns are passed through to `com.gios.*`,
+`com.lightfastread` and `com.lightrss.reader` on purpose. The camera button is the part worth
+stating plainly, because a two-stage release is exactly the thing a global key service would
+eat: LightControl hands that button to whichever camera is in front — anything registered for
+`STILL_IMAGE_CAMERA` — rather than to a package it remembers. So Roll keeps its own half press
+and its own shutter, and LightControl never sees either. That is a deliberate carve-out, not
+luck.
+
+```bash
+# Optional: LightControl, for brightness, the flashlight and the camera button
+adb install -r LightControl-v1.0.x.apk
+
+# The key service. NOTE: this setting is a list, and this command REPLACES it —
+# if you also run LightVoice's push-to-talk, colon-join both components instead.
+adb shell settings put secure enabled_accessibility_services \
+  com.gios.lightcontrol/com.gios.lightcontrol.keys.ControlService
+adb shell settings put secure accessibility_enabled 1
+
+# Brightness, and the level readout + opening apps from the service
+adb shell appops set com.gios.lightcontrol WRITE_SETTINGS allow
+adb shell appops set com.gios.lightcontrol SYSTEM_ALERT_WINDOW allow
+```
+
+The latest build is at <https://github.com/gi-os/LightControl/releases/latest>.
 
 ## The focus marks are LightOS's own
 
