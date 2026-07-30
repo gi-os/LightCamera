@@ -46,6 +46,7 @@ import com.gios.lightcamera.camera.AfState
 import com.gios.lightcamera.camera.FaceMapper
 import com.gios.lightcamera.camera.FlashMode
 import com.gios.lightcamera.filter.ShaderRuntime
+import com.gios.lightcamera.hw.CameraKeyAdvice
 import com.gios.lightcamera.hw.WheelTurns
 import com.gios.lightcamera.ui.theme.LightHaptics
 import com.gios.lightcamera.ui.theme.LightIcon
@@ -131,6 +132,14 @@ fun CameraScreen(
     }
 
     LaunchedEffect(previewView) { engine.bind(lifecycleOwner, previewView, flash) }
+
+    // If something is holding the camera key, say so once rather than looking broken. The
+    // whole explanation is in settings; this is the pointer to it.
+    LaunchedEffect(Unit) {
+        if (CameraKeyAdvice.problem(context) != null) {
+            vm.showNotice("Camera key held — see settings")
+        }
+    }
 
     /* ---- grain that moves ---- */
 

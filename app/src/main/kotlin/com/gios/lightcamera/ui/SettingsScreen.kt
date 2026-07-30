@@ -25,6 +25,7 @@ import com.gios.lightcamera.Chrome
 import com.gios.lightcamera.SelfTimer
 import com.gios.lightcamera.camera.AfMode
 import com.gios.lightcamera.camera.FrameAspect
+import com.gios.lightcamera.hw.CameraKeyAdvice
 import com.gios.lightcamera.hw.LightKeys
 import com.gios.lightcamera.hw.WheelScroll
 import com.gios.lightcamera.ui.theme.LightIcons
@@ -44,6 +45,7 @@ import com.gios.lightcamera.ui.theme.lightClickable
 @Composable
 fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
     val colours = LightThemeTokens.colors
+    val context = androidx.compose.ui.platform.LocalContext.current
     val scroll = rememberScrollState()
     WheelScroll(scroll)
 
@@ -141,9 +143,27 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
                     "This build doesn't map the wheel keys, so turning it may do nothing. Either volume key is a shutter."
                 },
             )
-            Note(
-                "There is no shutter button on screen, because the phone has one on its side. If the camera button does nothing, an accessibility service is swallowing it — in LightControl, a camera in front now keeps both stages of that key.",
-            )
+            val keyProblem = remember { CameraKeyAdvice.problem(context) }
+            if (keyProblem != null) {
+                // Inverted, because a dead shutter is not a footnote.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                        .background(colours.content)
+                        .padding(10.dp),
+                ) {
+                    LightText(
+                        text = keyProblem,
+                        variant = LightTextVariant.Detail,
+                        color = colours.background,
+                    )
+                }
+            } else {
+                Note(
+                    "There is no shutter button on screen, because the phone has one on its side. If the camera button ever does nothing, an accessibility service is swallowing it.",
+                )
+            }
 
             Section("Film")
             if (roll == null) {

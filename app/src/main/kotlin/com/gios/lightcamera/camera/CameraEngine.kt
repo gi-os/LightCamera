@@ -12,6 +12,7 @@ import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.TotalCaptureResult
 import android.hardware.camera2.params.Face
 import android.util.Log
+import android.view.OrientationEventListener
 import android.view.Surface
 import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.Camera2Interop
@@ -133,6 +134,36 @@ class CameraEngine(private val context: Context) {
 
     private val captureExecutor = Executors.newSingleThreadExecutor()
 
+    /**
+     * How the phone is being held, which is not how the interface is drawn.
+     *
+     * The activity is locked to portrait on purpose — the LPIII's camera does not reflow, and a
+     * viewfinder that spins while you turn the phone to frame something is a viewfinder
+     * fighting you. But the *photograph* has to come out the way you held the camera, and with
+     * the UI locked, CameraX would otherwise bake ROTATION_0 into every file and a horizontal
+     * shot would arrive on its side.
+     *
+     * So the layout stays put and only [ImageCapture.setTargetRotation] follows the
+     * accelerometer. The preview's target rotation is deliberately left alone: the face mapper
+     * reads it to place its boxes, and the preview genuinely is upright in the window.
+     */
+    private val orientation = object : OrientationEventListener(context) {
+        override fun onOrientationChanged(degrees: Int) {
+            if (degrees == ORIENTATION_UNKNOWN) return
+            val rotation = when (degrees) {
+                in 45..134 -> Surface.ROTATION_270
+                in 135..224 -> Surface.ROTATION_180
+                in 225..314 -> Surface.ROTATION_90
+                else -> Surface.ROTATION_0
+            }
+            if (rotation == lastRotation) return
+            lastRotation = rotation
+            imageCapture?.targetRotation = rotation
+        }
+    }
+
+    @Volatile private var lastRotation = Surface.ROTATION_0
+
     /** Read from the camera callback thread, written from the UI. */
     @Volatile private var viewWidth = 0
 
@@ -165,6 +196,7 @@ class CameraEngine(private val context: Context) {
     fun bind(owner: LifecycleOwner, view: PreviewView, flash: FlashMode) {
         this.owner = owner
         this.previewView = view
+        orientation.enable()
         val future = ProcessCameraProvider.getInstance(context)
         future.addListener({
             val provider = runCatching { future.get() }.getOrNull() ?: return@addListener
@@ -244,7 +276,9 @@ class CameraEngine(private val context: Context) {
         val capture = ImageCapture.Builder()
             .setResolutionSelector(selector)
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-            .setTargetRotation(Surface.ROTATION_0)
+            // Whatever the phone's attitude was when the listener last spoke, so a rebind
+            // mid-shoot doesn't silently reset the file's orientation to upright.
+            .setTargetRotation(lastRotation)
             .build()
         this.imageCapture = capture
         setFlash(flash)
@@ -575,6 +609,7 @@ class CameraEngine(private val context: Context) {
     }
 
     fun shutdown() {
+        runCatching { orientation.disable() }
         runCatching { provider?.unbindAll() }
         captureExecutor.shutdown()
     }
