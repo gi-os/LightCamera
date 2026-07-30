@@ -61,7 +61,20 @@ fun Float.verticalGridUnitsAsDp(): Dp {
     return (screenHeightDp.toFloat() / LightGrid.HEIGHT * this).dp
 }
 
-private const val FONT_VERTICAL_SCALE_BASELINE_PX = 600f
+/**
+ * The height the type scale's design pixels were drawn against.
+ *
+ * **This one number is why every label in the app was too small**, and no amount of moving
+ * individual readouts up the scale was going to fix it. The SDK divides each design pixel by 600
+ * — but the LPIII's panel is about 477dp tall, so every size came out at 0.79 of what the scale
+ * intends: `Detail` at 20 design px rendered as 16sp, `Superfine` at 16 as 12.7sp. The scale was
+ * being asked to describe a 600dp screen and then applied to a much shorter one.
+ *
+ * Set to the panel's own height, so a design pixel is a point and the scale means what it says.
+ * Everything gets about a quarter larger at once, which is the correct place to make that change:
+ * one number, every screen, and the proportions between the variants are untouched.
+ */
+private const val FONT_VERTICAL_SCALE_BASELINE_PX = 477f
 
 @Composable
 fun Float.designVerticalPxToSp(): TextUnit {

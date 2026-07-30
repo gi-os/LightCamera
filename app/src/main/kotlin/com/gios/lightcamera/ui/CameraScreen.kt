@@ -49,7 +49,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.gios.lightcamera.CaptureMode
 import com.gios.lightcamera.Chrome
 import com.gios.lightcamera.Colour
-import com.gios.lightcamera.camera.AfMode
 import com.gios.lightcamera.camera.AfState
 import com.gios.lightcamera.camera.FaceMapper
 import com.gios.lightcamera.camera.FlashMode
@@ -103,7 +102,6 @@ fun CameraScreen(
     val chrome by vm.prefs.chrome.collectAsState()
     val flash by vm.prefs.flash.collectAsState()
     val timer by vm.prefs.timer.collectAsState()
-    val afMode by vm.prefs.afMode.collectAsState()
     val facePriority by vm.prefs.facePriority.collectAsState()
     val wheelEnabled by vm.prefs.wheelEnabled.collectAsState()
     val colour by vm.prefs.colour.collectAsState()
@@ -351,8 +349,13 @@ fun CameraScreen(
                     }
                 }
 
-                // The two things allowed on the image, both in the corner: how autofocus is
-                // set, and what is happening right now.
+                // **Only what is abnormal.** The `AF-S` badge and the filter name are gone: the
+                // focus mark already says what focus is doing, and the picture already shows what
+                // the filter is doing. A label naming a thing you can see is a label in the way.
+                //
+                // What is left is state you could not otherwise know: that it is recording, that
+                // the torch is on, that the lens is zoomed, that exposure is pushed, that a timer
+                // is armed. Each disappears the moment it goes back to normal.
                 Row(
                     modifier = Modifier.padding(start = 10.dp, top = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -361,43 +364,34 @@ fun CameraScreen(
                         RecordDot()
                         LightText(
                             " ${"%d:%02d".format(recordSeconds / 60, recordSeconds % 60)}",
-                            LightTextVariant.Superfine,
+                            LightTextVariant.Detail,
                         )
-                    } else {
-                        AfBadge(mode = afMode, state = afState)
                     }
                     if (torch) {
                         LightText(
                             " TORCH",
-                            LightTextVariant.Superfine,
+                            LightTextVariant.Detail,
                             modifier = Modifier.padding(start = 6.dp),
                         )
                     }
                     if (zoom > 1.02f) {
                         LightText(
                             " ${engine.zoomLabel()}",
-                            LightTextVariant.Superfine,
+                            LightTextVariant.Detail,
                             modifier = Modifier.padding(start = 6.dp),
                         )
                     }
                     if (ev != 0) {
                         LightText(
                             " EV ${engine.evLabel()}",
-                            LightTextVariant.Superfine,
+                            LightTextVariant.Detail,
                             modifier = Modifier.padding(start = 6.dp),
                         )
                     }
                     if (timer.seconds > 0 && mode != CaptureMode.Video) {
                         LightText(
                             " ${timer.label}",
-                            LightTextVariant.Superfine,
-                            modifier = Modifier.padding(start = 6.dp),
-                        )
-                    }
-                    if (filter.agsl != null && mode != CaptureMode.Video) {
-                        LightText(
-                            " ${filter.label.uppercase()}",
-                            LightTextVariant.Superfine,
+                            LightTextVariant.Detail,
                             modifier = Modifier.padding(start = 6.dp),
                         )
                     }
@@ -661,35 +655,6 @@ private fun RecordDot() {
     val colours = LightThemeTokens.colors
     Canvas(Modifier.size(9.dp)) {
         drawCircle(color = colours.content, radius = size.minDimension / 2f)
-    }
-}
-
-/**
- * The autofocus badge. `AF-S` or `AF-C`, inverted while the lens is locked.
- *
- * Inversion rather than a colour, because the panel has none to spare and LightOS carries state
- * by swapping foreground and background everywhere else too. It is the one permanent mark on the
- * image and it earns the room: autofocus that gives no sign of being on is autofocus you press
- * twice.
- */
-@Composable
-private fun AfBadge(mode: AfMode, state: AfState, modifier: Modifier = Modifier) {
-    val colours = LightThemeTokens.colors
-    val locked = state == AfState.Locked
-    Box(
-        modifier = modifier
-            .background(if (locked) colours.content else Color.Transparent)
-            .padding(horizontal = 4.dp, vertical = 1.dp),
-    ) {
-        LightText(
-            text = if (mode == AfMode.Single) "AF-S" else "AF-C",
-            variant = LightTextVariant.Superfine,
-            color = when {
-                locked -> colours.background
-                state == AfState.Scanning -> colours.content
-                else -> colours.contentSecondary
-            },
-        )
     }
 }
 

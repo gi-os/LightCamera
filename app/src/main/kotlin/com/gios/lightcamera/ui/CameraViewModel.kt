@@ -222,14 +222,15 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         val next = Filters.step(filter.value, by)
         prefs.setFilter(next.id)
         if (next.id == Filters.none.id) dialHeldUntil = now + Filters.NONE_DWELL_MS
-        showNotice(next.label)
+        // **No name flashed on screen.** The viewfinder is already showing you the filter — a
+        // label naming what you can plainly see is a label in the way of it. The buzz says the
+        // dial moved; the picture says where to.
     }
 
     fun setFilter(id: String) {
         // Chosen deliberately from the grid, so the dial has no business holding on to it.
         dialHeldUntil = 0L
         prefs.setFilter(id)
-        showNotice(Filters.byId(id).label)
     }
 
     /* ---------------- modes ---------------- */

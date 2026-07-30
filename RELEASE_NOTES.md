@@ -1,30 +1,25 @@
-## Roll v1.9 — legible chrome, and the shutter fixed
+## Roll v2.0 — the type scale, fixed at the source
 
-**"Shutter failed" is fixed**
+**Everything is about a quarter larger**
 
-Zero shutter lag, added in v1.8, was the cause. CameraX documents a silent fallback where the
-hardware won't do it — but that covers *configuration*, not capture: this camera accepted the
-mode, bound without complaint, and then refused the first captures while its ring buffer filled,
-which is exactly why it "started working shortly after". It's gone. Minimise-latency is what works
-here, and a shutter that fires beats one that is early.
+Moving individual readouts up the scale was never going to fix this, and it took two goes to see
+why. The SDK's type scale divides each design pixel by a 600px baseline — but the LPIII's panel is
+about 477dp tall, so every size came out at **0.79 of what the scale intends**: `Detail`, drawn at
+20 design pixels, rendered as 16sp. The scale was describing a 600dp screen and being applied to a
+much shorter one.
 
-The resolution cap from v1.8 is what actually made the shutter quick, and that stays.
+It now divides by the panel's own height, so a design pixel is a point and the scale means what it
+says. One number, every screen at once, and the proportions between the variants are untouched.
 
-Capture failures now report **what** the camera said instead of "Shutter failed". Guessing at that
-message cost a round trip.
+**Three labels gone**
 
-**The microtext is gone**
+- The **filter name** no longer flashes at the bottom when you turn the wheel. The viewfinder is
+  already showing you the filter; a label naming what you can plainly see is a label in the way of
+  it. The buzz says the dial moved, the picture says where to.
+- The **`AF-S` badge** is gone from the corner. The focus mark already says what focus is doing —
+  brackets while it hunts, a closed box when it has it. Switch modes in Settings → Focus.
+- The **filter name** is gone from the corner too, for the same reason as the first.
 
-Every readout has moved up two steps of the type scale — the 8-design-pixel `Micro` variant works
-out at about six points on this panel, which is not a size anything you need at arm's length
-should be set in. Nothing in a screen uses it any more.
-
-And some of it just went: the count of photographs beside each day in the roll was a number the
-interface offered because it happened to know it, not because anyone wanted it.
-
-**The newest photograph is bottom right**
-
-`reverseLayout` fills the roll from the bottom, which is what puts the newest frame against the
-viewfinder — but rows still filled left to right, so the newest landed bottom-*left* and the corner
-nearest your thumb held the third-newest. The grid is laid out right-to-left now: the newest takes
-the bottom-right cell and the roll fills leftwards and upwards, the way a contact sheet does.
+What stays in that corner is only what you couldn't otherwise know: that it's recording, that the
+torch is on, that the lens is zoomed, that exposure is pushed, that a timer is armed. Each
+disappears the moment it goes back to normal.
