@@ -29,6 +29,25 @@ object PuriStrip {
     const val SHOTS = 4
 
     /**
+     * A rectangle on the sheet.
+     *
+     * **Not `android.graphics.Rect`, and that is the whole reason it exists.** Every method on the
+     * platform's `Rect` throws "Stub!" in a JVM unit test, so a geometry function that returned one
+     * could not be checked off-device — which for the arithmetic that decides where the third
+     * photograph goes is exactly backwards. The conversion to a real `Rect` happens once, at the
+     * point of drawing.
+     */
+    class Cell(val left: Int, val top: Int, val right: Int, val bottom: Int) {
+        val width: Int get() = right - left
+        val height: Int get() = bottom - top
+
+        fun overlaps(other: Cell): Boolean =
+            left < other.right && other.left < right && top < other.bottom && other.top < bottom
+
+        fun toRect(): Rect = Rect(left, top, right, bottom)
+    }
+
+    /**
      * How four frames are arranged, and what is left blank around them.
      *
      * @param columns 1 for a strip, 2 for a sheet
@@ -62,7 +81,7 @@ object PuriStrip {
         }
 
         /** Where frame [index] sits on the sheet. Reading order: across, then down. */
-        fun cellAt(index: Int, cellW: Int, cellH: Int): Rect {
+        fun cellAt(index: Int, cellW: Int, cellH: Int): Cell {
             val unit = minOf(cellW, cellH).toFloat()
             val g = gutter * unit
             val m = margin * unit
@@ -70,7 +89,7 @@ object PuriStrip {
             val row = index / columns
             val left = m + col * (cellW + g)
             val top = m + row * (cellH + g)
-            return Rect(
+            return Cell(
                 left.roundToInt(),
                 top.roundToInt(),
                 (left + cellW).roundToInt(),
@@ -167,7 +186,7 @@ object PuriStrip {
         }
 
         frames.take(SHOTS).forEachIndexed { index, frame ->
-            canvas.drawBitmap(frame, null, layout.cellAt(index, cellW, cellH), null)
+            canvas.drawBitmap(frame, null, layout.cellAt(index, cellW, cellH).toRect(), null)
         }
 
         if (layout.outerFrame) {

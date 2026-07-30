@@ -61,12 +61,12 @@ class PuriStripTest {
                 assertTrue("${layout.id} puts a frame off the top", cell.top >= 0)
                 assertTrue("${layout.id} puts a frame off the right", cell.right <= sheetW)
                 assertTrue("${layout.id} puts a frame off the bottom", cell.bottom <= sheetH)
-                assertEquals("${layout.id} squashed a frame", cellW, cell.width())
-                assertEquals("${layout.id} squashed a frame", cellH, cell.height())
+                assertEquals("${layout.id} squashed a frame", cellW, cell.width)
+                assertEquals("${layout.id} squashed a frame", cellH, cell.height)
             }
             cells.forEachIndexed { i, a ->
                 cells.drop(i + 1).forEach { b ->
-                    assertTrue("${layout.id} overlaps two frames", !a.intersect(b))
+                    assertTrue("${layout.id} overlaps two frames", !a.overlaps(b))
                 }
             }
         }
