@@ -350,9 +350,15 @@ object DateStamp {
     /**
      * The camcorder face. `sans-serif-condensed` is present on every Android and is the closest
      * thing in the system to what a character generator drew — the default sans is far too wide.
+     *
+     * **Lazy, and it has to be.** Resolved eagerly it runs during class initialisation, which on a
+     * JVM unit test means calling into the stubbed `android.jar` and throwing out of a static
+     * initialiser — taking every test in the file with it, including the ones about date formatting
+     * that never touch a typeface. Deferred, the date formatting stays testable off-device.
      */
-    private val CONDENSED: Typeface =
+    private val CONDENSED: Typeface by lazy {
         Typeface.create(Typeface.create("sans-serif-condensed", Typeface.BOLD), Typeface.BOLD)
+    }
 
     /**
      * Dot radius as a fraction of a cell.
