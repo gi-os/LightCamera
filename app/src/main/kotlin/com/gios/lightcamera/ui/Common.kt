@@ -75,6 +75,79 @@ fun HeldSideways(content: @Composable () -> Unit) {
     }
 }
 
+/**
+ * Which way up the phone is being held, in degrees clockwise: 0, 90, 180 or 270.
+ *
+ * The window is locked to portrait, so Android will not tell anyone this — it has to come off the
+ * accelerometer. Snapped to quarters with a **wide dead zone**: a picture that reorients itself
+ * while you are looking at it is worse than one that is the wrong way up, so a quarter has to be
+ * clearly the nearest before it wins, and once won it keeps hold until the phone is well past the
+ * next diagonal.
+ */
+@Composable
+fun rememberDeviceQuarter(active: Boolean = true): Int {
+    val context = LocalContext.current
+    var quarter by remember { mutableStateOf(0) }
+    DisposableEffect(active) {
+        if (!active) return@DisposableEffect onDispose { }
+        val manager = context.getSystemService(SensorManager::class.java)
+        val sensor = manager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        if (sensor == null) return@DisposableEffect onDispose { }
+        val listener = object : SensorEventListener {
+            override fun onSensorChanged(event: SensorEvent) {
+                val x = event.values[0]
+                val y = event.values[1]
+                val z = event.values[2]
+                // Flat on a table there is no meaningful answer, so don't invent one.
+                if (abs(z) > 8.5f) return
+                val roll = Math.toDegrees(atan2(x.toDouble(), y.toDouble())).toFloat()
+                val nearest = ((Math.round(roll / 90f) * 90) + 360) % 360
+                // 60 degrees of hysteresis: past the diagonal by a clear margin, not just past it.
+                val settled = wrap(roll - quarter)
+                if (nearest != quarter && abs(settled) > 60f) quarter = nearest
+            }
+
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+        }
+        manager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI)
+        onDispose { manager.unregisterListener(listener) }
+    }
+    return quarter
+}
+
+/**
+ * Turns its content against the phone, so what is inside stays upright in the world.
+ *
+ * The opposite job to [HeldSideways], which pins chrome *to* the phone. This is for a photograph:
+ * turn the phone on its side and a landscape picture should fill the long edge, the way it would if
+ * the window were free to rotate. The window is not free — it is locked to portrait, and unlocking
+ * it would let the viewfinder reflow, which is the thing that must never happen.
+ *
+ * Quarter turns get the parent's swapped dimensions so the content lays out in the space it will
+ * occupy after rotating; 180 keeps them.
+ */
+@Composable
+fun RotatedToDevice(quarter: Int, content: @Composable () -> Unit) {
+    if (quarter == 0) {
+        content()
+        return
+    }
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
+        val sideways = quarter == 90 || quarter == 270
+        val w = if (sideways) maxHeight else maxWidth
+        val h = if (sideways) maxWidth else maxHeight
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .requiredSize(width = w, height = h)
+                // Against the phone's rotation, so the content comes out level with the world.
+                .graphicsLayer { rotationZ = -quarter.toFloat() },
+        ) {
+            content()
+        }
+    }
+}
+
 /** A word or two over the image. Reads as an annotation, not as a toast. */
 @Composable
 fun Notice(text: String?, modifier: Modifier = Modifier) {

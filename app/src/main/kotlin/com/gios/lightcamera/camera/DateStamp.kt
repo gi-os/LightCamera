@@ -135,19 +135,24 @@ object DateStamp {
      * their tops, because the whole display leans and a sheared bar is what a leaning segment is.
      */
     private fun drawQuartz(canvas: Canvas, target: Bitmap, text: String) {
-        val unit = (minOf(target.width, target.height) / 190f).coerceAtLeast(1f)
-        val digitW = unit * 9
-        val digitH = unit * 16
-        val thick = unit * 2.4f
-        val gap = unit * 4
-        val lean = digitH * 0.13f
+        // Sized off the *long* edge and much smaller than the first attempt, which filled a
+        // third of the frame. A date back's display is a couple of centimetres of LCD reflected
+        // into the corner of a 35mm frame: it is small, and the digits are tall and narrow rather
+        // than square. Bars are thin, and each stops a hair short of the corner so the joints
+        // show — a seven-segment digit is seven separate bars and it should look like it.
+        val unit = (maxOf(target.width, target.height) / 340f).coerceAtLeast(1f)
+        val digitW = unit * 7f
+        val digitH = unit * 15f
+        val thick = unit * 1.7f
+        val gap = unit * 3f
+        val lean = digitH * 0.11f
         val width = text.length * (digitW + gap) - gap + lean
-        var x = target.width - unit * 12 - width
-        val y = target.height - unit * 12 - digitH
+        var x = target.width - unit * 14 - width
+        val y = target.height - unit * 14 - digitH
 
         val glow = Paint().apply {
             isAntiAlias = true
-            color = Color.argb(70, 255, 122, 48)
+            color = Color.argb(52, 255, 132, 60)
         }
         val lamp = Paint().apply {
             isAntiAlias = true
@@ -160,13 +165,13 @@ object DateStamp {
                 '\'' -> {
                     // The apostrophe on these was a single short segment, high and leaning.
                     for (paint in listOf(glow, lamp)) {
-                        val spill = if (paint === glow) unit * 0.5f else 0f
-                        vbar(canvas, x + digitW * 0.45f, y, thick, digitH * 0.28f, lean, paint, spill)
+                        val spill = if (paint === glow) unit * 0.35f else 0f
+                        vbar(canvas, x + digitW * 0.5f, y, thick, digitH * 0.26f, lean, paint, spill)
                     }
                 }
                 else -> SEGMENTS[ch]?.let { on ->
                     for (paint in listOf(glow, lamp)) {
-                        val spill = if (paint === glow) unit * 0.5f else 0f
+                        val spill = if (paint === glow) unit * 0.35f else 0f
                         drawSegments(canvas, on, x, y, digitW, digitH, thick, lean, paint, spill)
                     }
                 }
@@ -189,13 +194,19 @@ object DateStamp {
         spill: Float,
     ) {
         val half = h / 2f
-        if ('a' in on) hbar(canvas, x, y, w, thick, lean, paint, spill)
-        if ('g' in on) hbar(canvas, x, y + half - thick / 2f, w, thick, lean * 0.5f, paint, spill)
-        if ('d' in on) hbar(canvas, x, y + h - thick, w, thick, 0f, paint, spill)
-        if ('f' in on) vbar(canvas, x, y, thick, half, lean * 0.5f, paint, spill)
-        if ('b' in on) vbar(canvas, x + w - thick, y, thick, half, lean * 0.5f, paint, spill)
-        if ('e' in on) vbar(canvas, x, y + half, thick, half, 0f, paint, spill)
-        if ('c' in on) vbar(canvas, x + w - thick, y + half, thick, half, 0f, paint, spill)
+        // Horizontal bars inset by a bar's width at each end, vertical ones likewise, so every
+        // joint has a visible notch. Without it the digits weld into blocks.
+        val nick = thick * 0.85f
+        if ('a' in on) hbar(canvas, x + nick, y, w - nick * 2, thick, lean, paint, spill)
+        if ('g' in on) {
+            hbar(canvas, x + nick, y + half - thick / 2f, w - nick * 2, thick, lean * 0.5f, paint, spill)
+        }
+        if ('d' in on) hbar(canvas, x + nick, y + h - thick, w - nick * 2, thick, 0f, paint, spill)
+        val run = half - nick
+        if ('f' in on) vbar(canvas, x, y + nick, thick, run, lean * 0.5f, paint, spill)
+        if ('b' in on) vbar(canvas, x + w - thick, y + nick, thick, run, lean * 0.5f, paint, spill)
+        if ('e' in on) vbar(canvas, x, y + half + nick * 0.5f, thick, run, 0f, paint, spill)
+        if ('c' in on) vbar(canvas, x + w - thick, y + half + nick * 0.5f, thick, run, 0f, paint, spill)
     }
 
     /** A horizontal segment, sheared so its top edge sits right of its bottom. */
@@ -251,13 +262,16 @@ object DateStamp {
      * the numbers, and all four digits of the year.
      */
     private fun drawOutline(canvas: Canvas, target: Bitmap, text: String) {
-        val size = minOf(target.width, target.height) / 15f
+        // A character generator drew this into a video line, so it was small — about a
+        // twenty-fifth of the frame, not a fifteenth — and the keyline was one pixel of video,
+        // which is a hairline here rather than the heavy slab of the first attempt.
+        val size = maxOf(target.width, target.height) / 26f
         val outline = Paint().apply {
             isAntiAlias = true
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             textSize = size
             style = Paint.Style.STROKE
-            strokeWidth = size * 0.14f
+            strokeWidth = size * 0.07f
             color = Color.argb(235, 0, 0, 0)
         }
         val fill = Paint().apply {
@@ -267,8 +281,8 @@ object DateStamp {
             color = Color.argb(255, 247, 160, 42)
         }
         val width = fill.measureText(text)
-        val x = target.width - size * 0.8f - width
-        val y = target.height - size * 0.8f
+        val x = target.width - size * 0.7f - width
+        val y = target.height - size * 0.7f
         canvas.drawText(text, x, y, outline)
         canvas.drawText(text, x, y, fill)
     }

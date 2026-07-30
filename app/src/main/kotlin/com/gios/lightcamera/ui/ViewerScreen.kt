@@ -20,13 +20,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -69,15 +74,31 @@ fun ViewerScreen(
     val pager = rememberPagerState(initialPage = startIndex, pageCount = { photos.size })
     var chromeVisible by remember { mutableStateOf(true) }
 
+    // Zoom lives here rather than per page so that leaving a photograph resets it — coming back to
+    // a picture you left at 4x, scrolled into a corner, is a small mystery every time.
+    var scale by remember { mutableFloatStateOf(1f) }
+    var pan by remember { mutableStateOf(Offset.Zero) }
+    LaunchedEffect(pager.currentPage) {
+        scale = 1f
+        pan = Offset.Zero
+    }
+    val zoomed = scale > 1.01f
+
+    // Which way up the phone is. A photograph should fill the long edge when the phone is on its
+    // side, the way it would if the window were free to rotate — which it deliberately is not.
+    val quarter = rememberDeviceQuarter()
+
     val trash = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult(),
     ) { scope.launch { vm.refreshRoll() } }
 
     WheelTurns(active = true, armed = true) { notches ->
         scope.launch {
-            // Turning the wheel the way you'd scroll a list moves *forward* through the roll.
-            // It was subtracting, which sent you back through photographs you had just passed.
-            val next = (pager.currentPage + notches).coerceIn(0, (photos.size - 1).coerceAtLeast(0))
+            // Same sense as the roll grid, which is the screen you came from: a turn up walks
+            // towards the newest photograph. The list is newest-first, so that is *down* the
+            // indices. Flipping this to match a list's scroll direction instead made the two
+            // screens disagree, which is worse than either choice on its own.
+            val next = (pager.currentPage - notches).coerceIn(0, (photos.size - 1).coerceAtLeast(0))
             pager.animateScrollToPage(next)
         }
     }
@@ -98,22 +119,67 @@ fun ViewerScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .lightClickable(haptics = false) { chromeVisible = !chromeVisible },
+            .lightClickable(haptics = false) {
+                // Zoomed in, a tap is the way back out — the chrome is not what you are trying to
+                // get at when a picture is at four times.
+                if (zoomed) {
+                    scale = 1f
+                    pan = Offset.Zero
+                } else {
+                    chromeVisible = !chromeVisible
+                }
+            },
     ) {
-        HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
+      RotatedToDevice(quarter) {
+        // Pinch to zoom, drag to move about, double tap to come back. The pager keeps the
+        // horizontal drag until you are zoomed in, at which point panning has to win or a zoomed
+        // photograph is impossible to look around.
+        HorizontalPager(
+            state = pager,
+            userScrollEnabled = !zoomed,
+            modifier = Modifier.fillMaxSize(),
+        ) { page ->
             val photo = photos.getOrNull(page) ?: return@HorizontalPager
             var image by remember(photo.id) { mutableStateOf<ImageBitmap?>(null) }
             LaunchedEffect(photo.id) {
                 image = vm.thumbs.frame(photo.uri, photo.id, screenWidthPx)?.asImageBitmap()
             }
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(page) {
+                        detectTransformGestures { _, drag, zoom, _ ->
+                            scale = (scale * zoom).coerceIn(1f, 6f)
+                            pan = if (scale <= 1.01f) {
+                                Offset.Zero
+                            } else {
+                                // Bounded to the overhang, so the picture cannot be dragged off
+                                // the screen and lost.
+                                val limitX = size.width * (scale - 1f) / 2f
+                                val limitY = size.height * (scale - 1f) / 2f
+                                Offset(
+                                    (pan.x + drag.x).coerceIn(-limitX, limitX),
+                                    (pan.y + drag.y).coerceIn(-limitY, limitY),
+                                )
+                            }
+                        }
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
                 val bitmap = image
                 if (bitmap != null) {
                     Image(
                         bitmap = bitmap,
                         contentDescription = photo.name,
                         contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                scaleX = scale
+                                scaleY = scale
+                                translationX = pan.x
+                                translationY = pan.y
+                            },
                     )
                 }
             }
@@ -209,6 +275,7 @@ fun ViewerScreen(
                 )
             }
         }
+      }
     }
 }
 
