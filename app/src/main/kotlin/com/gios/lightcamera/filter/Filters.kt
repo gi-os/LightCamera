@@ -388,6 +388,12 @@ uniform float4 face1;
 uniform float4 face2;
 uniform float faceCount;
 
+// **Every part of the look, switchable.** (eyes, chin, slim, skin) and the wash on its own — all 0..1,
+// all multiplying an amount rather than gating a branch, so a half-strength setting would work if one
+// were ever offered and turning something off costs a multiply rather than a different shader.
+uniform float4 warp;
+uniform float wash;
+
 float4 faceAt(int i) {
     if (i == 0) return face0;
     if (i == 1) return face1;
@@ -424,19 +430,46 @@ half4 main(float2 xy) {
     float2 p = xy;
     int n = int(faceCount);
 
-    // ---- the eyes ----
-    // No `break` and no `continue`: SkSL wants a loop it can unroll, and a face that is not there
-    // is handled by a zero half-extent, which `magnify` refuses, rather than by leaving early.
+    // ---- the shape of the face ----
+    // No `break` and no `continue`: SkSL wants a loop it can unroll, and a face that is not there is
+    // handled by a zero half-extent, which every warp below refuses, rather than by leaving early.
+    //
+    // Three warps, in the order a booth applies them: the eyes grow, the jaw comes in, the whole head
+    // shrinks a little. All three read the *original* rectangle rather than each other's output, which
+    // compounds slightly and is invisible at these strengths — and is far easier to reason about than
+    // three warps chasing a moving centre.
     for (int i = 0; i < 3; ++i) {
         float4 f = faceAt(i);
         float2 mid = float2(f.x, f.y) * size;
         // `ext` — half the face's width and height in pixels. Not `half`, which is a type here.
         float2 ext = float2(f.z, f.w) * size * (i < n ? 1.0 : 0.0);
+
+        // Eyes. Guessed from the rectangle: a quarter of the width either side, a fifth of the height up.
         float2 eyeL = mid + float2(-ext.x * 0.42, -ext.y * 0.28);
         float2 eyeR = mid + float2(ext.x * 0.42, -ext.y * 0.28);
         float radius = ext.x * 0.52;
-        p = magnify(p, eyeL, radius, 1.95);
-        p = magnify(p, eyeR, radius, 1.95);
+        p = magnify(p, eyeL, radius, 1.0 + 0.95 * warp.x);
+
+        p = magnify(p, eyeR, radius, 1.0 + 0.95 * warp.x);
+
+        // Chin. Squeezed horizontally, and only below the middle of the face — the amount ramps from
+        // nothing at the cheekbones to full at the jaw, which is the difference between a taper and a
+        // waist. Sampling *further out* pulls the picture in, so the multiplier is above one.
+        if (ext.y > 0.0 && warp.y > 0.0) {
+            float down = clamp((p.y - (mid.y + ext.y * 0.1)) / (ext.y * 1.05), 0.0, 1.0);
+            float across = 1.0 - smoothstep(ext.x * 0.9, ext.x * 1.9, abs(p.x - mid.x));
+            float k = 1.0 + 0.30 * warp.y * smoothstep(0.0, 1.0, down) * across;
+            p = float2(mid.x + (p.x - mid.x) * k, p.y);
+        }
+
+        // The whole head, in a little. A radial version of the same trick, falling off to nothing well
+        // outside the rectangle so there is no visible seam at the hairline.
+        float reach = max(max(ext.x, ext.y) * 1.8, 0.0001);
+        float away = length(p - mid) / reach;
+        if (away < 1.0 && ext.x > 0.0 && warp.z > 0.0) {
+            float k = 1.0 + 0.16 * warp.z * (1.0 - smoothstep(0.0, 1.0, away));
+            p = mid + (p - mid) * k;
+        }
     }
 
     // ---- skin smoothing ----
@@ -450,7 +483,7 @@ half4 main(float2 xy) {
     // smoothing and the tight one keeps it from banding, for twelve samples instead of the
     // twenty-five a 5x5 kernel would need.
     float3 here = tap(p);
-    float smoothing = mix(0.35, 1.0, skinness(here));
+    float smoothing = mix(0.35, 1.0, skinness(here)) * warp.w;
     float rad = unitPx() * 3.4 * smoothing;
     float3 sum = here;
     float weight = 1.0;
@@ -491,20 +524,23 @@ half4 main(float2 xy) {
     col = mix(col, here, sharpness * 0.75);
 
     // ---- skin blown out ----
+    // From here down is the wash: the blow-out, the pink and the glitter. Switched off, what is left is
+    // the smoothing and the warps — a beauty filter without the booth, which is a reasonable thing to
+    // want and is why it is one switch rather than part of the filter's identity.
     float l = lum(col);
     // Lift, then crush the top: 0.55 arrives at 0.82, and 0.8 and 1.0 are nearly the same white.
     float lifted = pow(clamp(l * 1.22 + 0.16, 0.0, 1.0), 0.62);
-    col = col + (lifted - l);
+    col = mix(col, col + (lifted - l), wash);
 
     // ---- pink ----
     float3 shadow = float3(1.02, 0.94, 1.02);
     float3 light = float3(1.06, 0.93, 0.95);
-    col *= mix(shadow, light, clamp(lifted, 0.0, 1.0));
+    col *= mix(float3(1.0), mix(shadow, light, clamp(lifted, 0.0, 1.0)), wash);
     float grey = lum(col);
-    col = mix(float3(grey), col, 1.35);
+    col = mix(float3(grey), col, 1.0 + 0.35 * wash);
     // Nothing is allowed to be properly black. Booth prints wash out in the shadows and that
     // missing black is half of why they look like booth prints.
-    col = mix(col, float3(1.0, 0.97, 0.98), 0.10);
+    col = mix(col, float3(1.0, 0.97, 0.98), 0.10 * wash);
 
     // ---- glitter ----
     // On a grid so the stars keep still between frames, jittered inside their cells so the grid
@@ -535,12 +571,12 @@ half4 main(float2 xy) {
         float near = 1.0 - clamp(length(p - mid) / reach, 0.0, 1.0);
         nearFace = max(nearFace, near * (i < n ? 1.0 : 0.0));
     }
-    col += bright * (0.55 + 0.45 * nearFace);
+    col += bright * (0.55 + 0.45 * nearFace) * wash;
 
     // ---- a white glow in from the corners ----
     float2 q = (p / size - 0.5) * 2.0;
     float edge = clamp(length(q) - 0.72, 0.0, 1.0);
-    col = mix(col, float3(1.0, 0.98, 0.99), edge * 0.55);
+    col = mix(col, float3(1.0, 0.98, 0.99), edge * 0.55 * wash);
 
     return half4(float4(clamp(col, 0.0, 1.0), 1.0));
 }

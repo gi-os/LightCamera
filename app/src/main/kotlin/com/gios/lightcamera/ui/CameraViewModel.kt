@@ -466,6 +466,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                             stampStyle = prefs.stampStyle.value,
                             faces = faces,
                             overlay = puri,
+                            tune = prefs.puriTune(),
                         )
                     }
                     finish(processed, activeFilter.id)
@@ -543,9 +544,12 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     _shutterTick.tryEmit(Unit)
                     val activeFilter = filter.value
                     val faces = FaceQuads.of(engine.faces.value, grabbed.width, grabbed.height)
+                    // **No date on the panels.** A booth prints it once, in the margin of the strip,
+                    // because the four photographs are one object — four copies of the same date down a
+                    // strip is a bug that looks like a feature. It goes on the sheet below.
                     val puri = puriOverlay(
                         filter = activeFilter,
-                        withDate = prefs.puriDate.value != PuriArt.OFF,
+                        withDate = false,
                         millis = takenAt,
                     )
                     val processed = withContext(Dispatchers.Default) {
@@ -557,6 +561,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                             seed = Random.nextFloat() * 1000f,
                             faces = faces,
                             overlay = puri,
+                            tune = prefs.puriTune(),
                         )
                     }
                     repo.save(
@@ -574,7 +579,16 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 }
 
                 val sheet = withContext(Dispatchers.Default) {
-                    PuriStrip.compose(bitmaps, layout, puriFrame(), takenAt)
+                    PuriStrip.compose(bitmaps, layout, puriFrame(), takenAt)?.also { print ->
+                        PuriArt.drawDate(
+                            canvas = android.graphics.Canvas(print),
+                            w = print.width,
+                            h = print.height,
+                            dateId = prefs.puriDate.value,
+                            seed = _puriSeed.value,
+                            millis = takenAt,
+                        )
+                    }
                 }
                 if (sheet == null) {
                     showNotice("Couldn't build the strip")

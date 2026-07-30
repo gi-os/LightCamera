@@ -336,18 +336,22 @@ fun ViewerScreen(
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
-                        // Resolve before starting: an explicit-package intent nothing can
-                        // handle throws ActivityNotFound, and "LightChat can't take images" is
-                        // a far more useful thing to be told than a crash.
-                        val resolves = runCatching {
-                            context.packageManager.resolveActivity(send, 0) != null
-                        }.getOrDefault(false)
-                        if (!resolves) {
-                            vm.showNotice("LightChat can't receive photos")
-                            return@ChromeIcon
-                        }
+                        // **Try it, then explain.** This used to resolve the intent first and refuse if
+                        // the answer was null — which it always was, because from Android 11 an app
+                        // cannot see another app's activities unless the manifest asks for them. The
+                        // manifest now asks, and the resolve check is gone anyway: attempting the start
+                        // and catching `ActivityNotFound` gets the same information without depending on
+                        // visibility rules at all.
                         runCatching { context.startActivity(send) }
-                            .onFailure { vm.showNotice("LightChat wouldn't open") }
+                            .onFailure {
+                                vm.showNotice(
+                                    if (it is android.content.ActivityNotFoundException) {
+                                        "LightChat isn't installed"
+                                    } else {
+                                        "LightChat wouldn't open"
+                                    },
+                                )
+                            }
                     },
                 )
             }

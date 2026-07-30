@@ -205,12 +205,35 @@ fun CameraScreen(
     val puriMarginStickers by vm.prefs.puriMarginStickers.collectAsState()
     val puriDates by vm.prefs.puriDate.collectAsState()
     val puriStripId by vm.prefs.puriStrip.collectAsState()
+    val puriWash by vm.prefs.puriWash.collectAsState()
+    val puriSkin by vm.prefs.puriSkin.collectAsState()
+    val puriEyes by vm.prefs.puriEyes.collectAsState()
+    val puriChin by vm.prefs.puriChin.collectAsState()
+    val puriSlim by vm.prefs.puriSlim.collectAsState()
     val puriSeed by vm.puriSeed.collectAsState()
     // Which way up the photograph will be, from the same number the shutter uses.
     val turn by vm.engine.previewRotation.collectAsState()
-    LaunchedEffect(liveFilter, seed, frameWidth, frameHeight, faceQuads) {
+    LaunchedEffect(
+        liveFilter,
+        seed,
+        frameWidth,
+        frameHeight,
+        faceQuads,
+        puriWash,
+        puriSkin,
+        puriEyes,
+        puriChin,
+        puriSlim,
+    ) {
         previewView.setRenderEffect(
-            ShaderRuntime.effectFor(liveFilter, frameWidth, frameHeight, seed, faceQuads),
+            ShaderRuntime.effectFor(
+                filter = liveFilter,
+                width = frameWidth,
+                height = frameHeight,
+                seed = seed,
+                faces = faceQuads,
+                tune = vm.prefs.puriTune(),
+            ),
         )
     }
     DisposableEffect(Unit) { onDispose { previewView.setRenderEffect(null) } }
@@ -552,6 +575,16 @@ fun CameraScreen(
                 onMarginStickers = { vm.prefs.setPuriMarginStickers(!puriMarginStickers) },
                 onDate = { vm.prefs.setPuriDate(it) },
                 onStrip = { vm.prefs.setPuriStrip(it) },
+                wash = puriWash,
+                skin = puriSkin,
+                eyes = puriEyes,
+                chin = puriChin,
+                slim = puriSlim,
+                onWash = { vm.prefs.setPuriWash(!puriWash) },
+                onSkin = { vm.prefs.setPuriSkin(!puriSkin) },
+                onEyes = { vm.prefs.setPuriEyes(!puriEyes) },
+                onChin = { vm.prefs.setPuriChin(!puriChin) },
+                onSlim = { vm.prefs.setPuriSlim(!puriSlim) },
                 onClose = { puriOpen = false },
             )
         }
@@ -689,20 +722,21 @@ private fun ModeStrip(
 }
 
 /**
- * Everything a Purikura is made of, on one screen, with a sample of it in the corner.
+ * Everything a Purikura is made of, on one screen, with a sample of it beside the rows.
  *
- * **The whole screen, not a strip beside the band.** Five rows would not fit in a panel the width of
- * the chrome, and a menu you have to scroll on a 3.92" screen held sideways is a menu that hides two of
- * its five options. So this covers the viewfinder while it is open, and nothing scrolls underneath it.
+ * **The whole screen, not a strip beside the band.** A menu you have to scroll on a 3.92" screen held
+ * sideways is a menu that hides half its options, so this covers the viewfinder while it is open and
+ * nothing scrolls underneath it.
  *
- * Frame, Date and Four-shot are **lists**, not values you cycle. Fourteen frames and eight dates are too
- * many to walk one tap at a time, and the first item in each is Random — which is not a novelty setting
- * but the default, and the one a booth would pick for you. A list also lets the sample do its job: tap
- * down the frames and watch the corner change.
+ * Frame, Date, Four-shot and Look are **lists**, not values you cycle: fourteen frames and eight dates
+ * are too many to walk one tap at a time, the first item in each is Random, and every row in a list
+ * carries a thumbnail of what it does — which is the only way to choose between fourteen borders whose
+ * names are one word each.
  *
- * Face stickers and margin stickers stay simple switches, and they are two rather than one because they
- * fail differently: the face-anchored ones depend on the detector finding a face and can land wrong when
- * it drifts, the margin ones cannot.
+ * Look is where the effect itself lives, five switches deep: the wash, the skin, the eyes, the chin, the
+ * slimming. They are separate because they fail separately — the chin and the slimming are the two that
+ * look uncanny on a face the detector has boxed slightly wrong, and you should be able to drop those
+ * without losing the eyes.
  */
 @Composable
 private fun PuriMenu(
@@ -712,37 +746,46 @@ private fun PuriMenu(
     marginStickers: Boolean,
     dateId: String,
     stripId: String,
+    wash: Boolean,
+    skin: Boolean,
+    eyes: Boolean,
+    chin: Boolean,
+    slim: Boolean,
     onFrame: (String) -> Unit,
     onFaceStickers: () -> Unit,
     onMarginStickers: () -> Unit,
     onDate: (String) -> Unit,
     onStrip: (String) -> Unit,
+    onWash: () -> Unit,
+    onSkin: () -> Unit,
+    onEyes: () -> Unit,
+    onChin: () -> Unit,
+    onSlim: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colours = LightThemeTokens.colors
-    // Which list is open, or null for the rows. One at a time, so the sample is always beside something
-    // that changes it.
     var picking by remember { mutableStateOf<String?>(null) }
+    val strip = if (PuriStrip.enabled(stripId)) PuriStrip.resolveLayout(stripId, seed) else null
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(colours.background)
-            // Eats every touch, which is the other half of "nothing scrolls while this is open": the
-            // swipe down to the roll is a drag on a pager two levels up, and a background does not
-            // stop one.
+            // Eats every touch: the swipe down to the roll is a drag on a pager two levels up, and a
+            // background does not stop one.
             .swallowTaps(),
     ) {
         HeldSideways {
-            Row(modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 12.dp)) {
-                Column(modifier = Modifier.weight(1f)) {
+            Row(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 10.dp)) {
+                Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         LightText(
                             text = when (picking) {
                                 "frame" -> "FRAME"
                                 "date" -> "DATE"
                                 "strip" -> "FOUR-SHOT"
+                                "look" -> "LOOK"
                                 else -> "PURIKURA"
                             },
                             variant = LightTextVariant.Detail,
@@ -760,6 +803,9 @@ private fun PuriMenu(
                                 PuriArt.frames.map { it.id to it.label },
                             chosen = frameId,
                             onPick = { onFrame(it); picking = null },
+                            thumbnail = { id, w, h ->
+                                puriTile(w, h, PuriArt.resolveFrame(id, seed), PuriArt.OFF, seed, false, false)
+                            },
                         )
 
                         "date" -> PuriPicker(
@@ -767,6 +813,9 @@ private fun PuriMenu(
                                 PuriArt.dates.map { it.id to it.label },
                             chosen = dateId,
                             onPick = { onDate(it); picking = null },
+                            thumbnail = { id, w, h ->
+                                puriTile(w, h, PuriArt.frameById("none"), id, seed, false, false)
+                            },
                         )
 
                         "strip" -> PuriPicker(
@@ -774,7 +823,36 @@ private fun PuriMenu(
                                 PuriStrip.layouts.drop(1).map { it.id to it.label },
                             chosen = stripId,
                             onPick = { onStrip(it); picking = null },
+                            thumbnail = { id, w, h ->
+                                if (id == PuriStrip.OFF) {
+                                    puriTile(w, h, PuriArt.resolveFrame(frameId, seed), PuriArt.OFF, seed, false, false)
+                                } else {
+                                    puriStripTile(
+                                        w,
+                                        h,
+                                        PuriStrip.resolveLayout(id, seed),
+                                        PuriArt.resolveFrame(frameId, seed),
+                                        seed,
+                                    )
+                                }
+                            },
                         )
+
+                        "look" -> Column(
+                            modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                        ) {
+                            PuriRow("Pink wash", if (wash) "On" else "Off", onWash)
+                            PuriRow("Skin", if (skin) "On" else "Off", onSkin)
+                            PuriRow("Bigger eyes", if (eyes) "On" else "Off", onEyes)
+                            PuriRow("Narrow chin", if (chin) "On" else "Off", onChin)
+                            PuriRow("Smaller face", if (slim) "On" else "Off", onSlim)
+                            LightText(
+                                "The wash is the pink, the blow-out and the glitter. Without it you get the smoothing and the shaping, which is a beauty filter rather than a booth print.",
+                                LightTextVariant.Superfine,
+                                lighten = true,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
 
                         else -> {
                             PuriRow(
@@ -795,12 +873,15 @@ private fun PuriMenu(
                                 "Four-shot",
                                 labelFor(stripId, PuriStrip.layouts.map { it.id to it.label }),
                             ) { picking = "strip" }
+                            PuriRow("Look", "${listOf(wash, skin, eyes, chin, slim).count { it }} of 5") {
+                                picking = "look"
+                            }
                             Spacer(Modifier.weight(1f))
                             LightText(
-                                text = if (PuriStrip.enabled(stripId)) {
-                                    "The shutter takes four, three seconds apart. The strip goes on the roll; the four frames are kept behind it."
+                                text = if (strip != null) {
+                                    "Four shots, three seconds apart. The strip goes on the roll; the frames are kept behind it."
                                 } else {
-                                    "Random is chosen fresh for each photograph, and nothing here is kept when the app closes."
+                                    "Random is chosen fresh for each photograph."
                                 },
                                 variant = LightTextVariant.Superfine,
                                 lighten = true,
@@ -808,19 +889,14 @@ private fun PuriMenu(
                         }
                     }
                 }
-                Spacer(Modifier.width(16.dp))
+                Spacer(Modifier.width(14.dp))
                 PuriSample(
                     seed = seed,
                     frame = PuriArt.resolveFrame(frameId, seed),
                     faceStickers = faceStickers,
                     marginStickers = marginStickers,
                     dateId = dateId,
-                    strip = if (PuriStrip.enabled(stripId)) {
-                        PuriStrip.resolveLayout(stripId, seed)
-                    } else {
-                        null
-                    },
-                    modifier = Modifier.align(Alignment.CenterVertically),
+                    strip = strip,
                 )
             }
         }
@@ -835,18 +911,89 @@ private fun labelFor(id: String, options: List<Pair<String, String>>): String = 
 }
 
 /**
- * A list of options, with the current one filled in.
+ * One cell of the stand-in: a grey head and shoulders with the furniture drawn on it.
  *
- * Filled rather than ticked: there is no tick in the icon set, and an inverted row reads at a glance in
- * a way a small mark beside text does not.
+ * The same call the photograph makes, at the size of a postage stamp. That is the whole reason the
+ * thumbnails are worth having — they are not illustrations of the frames, they are the frames.
+ */
+private fun puriTile(
+    w: Int,
+    h: Int,
+    frame: PuriArt.Frame,
+    dateId: String,
+    seed: Long,
+    faceStickers: Boolean,
+    marginStickers: Boolean,
+): android.graphics.Bitmap {
+    val bitmap = createBitmap(w.coerceAtLeast(1), h.coerceAtLeast(1))
+    val canvas = AndroidCanvas(bitmap)
+    canvas.drawColor(android.graphics.Color.rgb(0x3A, 0x3A, 0x38))
+    val paint = android.graphics.Paint().apply {
+        isAntiAlias = true
+        color = android.graphics.Color.rgb(0x8C, 0x86, 0x80)
+    }
+    canvas.drawCircle(w * 0.5f, h * 0.4f, w * 0.22f, paint)
+    canvas.drawOval(w * 0.16f, h * 0.66f, w * 0.84f, h * 1.3f, paint)
+    PuriArt.draw(
+        canvas = canvas,
+        w = w,
+        h = h,
+        frame = frame,
+        plan = PuriArt.plan(
+            seed = seed,
+            faces = listOf(FaceQuad(cx = 0.5f, cy = 0.4f, hw = 0.22f, hh = 0.165f)),
+            faceStickers = faceStickers,
+            marginStickers = marginStickers,
+            dateId = dateId,
+        ),
+        millis = System.currentTimeMillis(),
+    )
+    return bitmap
+}
+
+/** Four tiles, run through the real strip composer, so a layout row shows its own layout. */
+private fun puriStripTile(
+    w: Int,
+    h: Int,
+    layout: PuriStrip.Layout,
+    frame: PuriArt.Frame,
+    seed: Long,
+): android.graphics.Bitmap {
+    val cellH = (h / PuriStrip.SHOTS).coerceAtLeast(8)
+    val cellW = (cellH * 3 / 4).coerceAtLeast(6)
+    val cells = (0 until PuriStrip.SHOTS).map {
+        puriTile(
+            cellW,
+            cellH,
+            if (layout.outerFrame) PuriArt.frameById("none") else frame,
+            PuriArt.OFF,
+            seed + it * 977L,
+            false,
+            false,
+        )
+    }
+    val sheet = PuriStrip.compose(cells, layout, frame, System.currentTimeMillis())
+    cells.forEach { it.recycle() }
+    return sheet ?: puriTile(w, h, frame, PuriArt.OFF, seed, false, false)
+}
+
+/**
+ * A list of options, each with a thumbnail of itself and the current one filled in.
+ *
+ * Filled rather than ticked: there is no tick in the icon set, and an inverted row reads at a glance in a
+ * way a small mark beside text does not.
  */
 @Composable
 private fun PuriPicker(
     options: List<Pair<String, String>>,
     chosen: String,
     onPick: (String) -> Unit,
+    thumbnail: (String, Int, Int) -> android.graphics.Bitmap,
 ) {
     val colours = LightThemeTokens.colors
+    val density = LocalDensity.current
+    val tileW = with(density) { 26.dp.roundToPx() }
+    val tileH = with(density) { 35.dp.roundToPx() }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -854,14 +1001,27 @@ private fun PuriPicker(
     ) {
         options.forEach { (id, label) ->
             val here = id == chosen
+            // Random has nothing of its own to show, so it borrows whatever the seed currently says.
+            val tile = remember(id, chosen == id, tileW, tileH) {
+                runCatching { thumbnail(id, tileW, tileH).asImageBitmap() }.getOrNull()
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .lightClickable { onPick(id) }
                     .background(if (here) colours.content else Color.Transparent)
-                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                    .padding(horizontal = 5.dp, vertical = 3.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (tile != null) {
+                    Image(
+                        bitmap = tile,
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.width(26.dp).height(35.dp),
+                    )
+                    Spacer(Modifier.width(9.dp))
+                }
                 LightText(
                     text = label,
                     variant = LightTextVariant.Copy,
@@ -873,14 +1033,13 @@ private fun PuriPicker(
 }
 
 /**
- * A thumbnail of what you are about to get.
+ * A thumbnail of what you are about to get, as large as the panel allows.
  *
- * Not the live viewfinder — a stand-in, because the point of it is the *furniture*, and a moving picture
- * behind a menu is a distraction. The grey blocks are shaped like a person so the ears land on a head and
- * the blush on cheeks, which is the only way to tell what those two rows do.
- *
- * With a [strip] it builds four cells and runs them through the real `PuriStrip.compose`, so the sample
- * is not an illustration of a strip — it is one, at a hundredth of the size.
+ * A stand-in rather than the live viewfinder, because the point of it is the *furniture* and a moving
+ * picture behind a menu is a distraction. With a [strip] it builds four cells and runs them through the
+ * real `PuriStrip.compose`, so the sample is not an illustration of a strip — it is one. A strip is 1:4,
+ * so it gets the full height of the panel and takes whatever width that leaves: at a fixed size it came
+ * out the width of a fingernail.
  */
 @Composable
 private fun PuriSample(
@@ -893,72 +1052,52 @@ private fun PuriSample(
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
-    val cellW = with(density) { 96.dp.roundToPx() }
-    val cellH = with(density) { 128.dp.roundToPx() }
+    val cellW = with(density) { 150.dp.roundToPx() }
+    val cellH = with(density) { 200.dp.roundToPx() }
 
-    val sample = remember(
-        seed,
-        frame.id,
-        faceStickers,
-        marginStickers,
-        dateId,
-        strip?.id,
-        cellW,
-        cellH,
-    ) {
-        fun cell(index: Int): android.graphics.Bitmap {
-            val bitmap = createBitmap(cellW, cellH)
-            val canvas = AndroidCanvas(bitmap)
-            canvas.drawColor(android.graphics.Color.rgb(0x3A, 0x3A, 0x38))
-            val paint = android.graphics.Paint().apply {
-                isAntiAlias = true
-                color = android.graphics.Color.rgb(0x8C, 0x86, 0x80)
-            }
-            // A head and a pair of shoulders, where the face quad below says they are.
-            canvas.drawCircle(cellW * 0.5f, cellH * 0.4f, cellW * 0.22f, paint)
-            canvas.drawOval(cellW * 0.16f, cellH * 0.66f, cellW * 0.84f, cellH * 1.3f, paint)
-            PuriArt.draw(
-                canvas = canvas,
-                w = cellW,
-                h = cellH,
-                // With one border going round the whole strip, the cells inside it get none.
-                frame = if (strip?.outerFrame == true) PuriArt.frameById("none") else frame,
-                plan = PuriArt.plan(
-                    // A different seed per cell, because a strip's four panels are decorated
-                    // separately — exactly as the shutter does it.
-                    seed = seed + index * 977L,
-                    faces = listOf(FaceQuad(cx = 0.5f, cy = 0.4f, hw = 0.22f, hh = 0.165f)),
-                    faceStickers = faceStickers,
-                    marginStickers = marginStickers,
-                    // On a strip the date belongs on the print, not in every panel.
-                    dateId = if (strip != null) PuriArt.OFF else dateId,
-                ),
-                millis = System.currentTimeMillis(),
-            )
-            return bitmap
-        }
+    val sample = remember(seed, frame.id, faceStickers, marginStickers, dateId, strip?.id, cellW, cellH) {
         if (strip == null) {
-            cell(0).asImageBitmap()
+            puriTile(cellW, cellH, frame, dateId, seed, faceStickers, marginStickers).asImageBitmap()
         } else {
-            val cells = (0 until PuriStrip.SHOTS).map { cell(it) }
+            val cells = (0 until PuriStrip.SHOTS).map {
+                puriTile(
+                    cellW,
+                    cellH,
+                    // One border round the whole strip means none on the cells inside it.
+                    if (strip.outerFrame) PuriArt.frameById("none") else frame,
+                    // The date goes on the print, once, not into all four panels.
+                    PuriArt.OFF,
+                    // A different seed per cell: a strip's panels are decorated separately, exactly as
+                    // the shutter does it.
+                    seed + it * 977L,
+                    faceStickers,
+                    marginStickers,
+                )
+            }
             val sheet = PuriStrip.compose(cells, strip, frame, System.currentTimeMillis())
             cells.forEach { it.recycle() }
-            (sheet ?: cell(0)).asImageBitmap()
+            sheet?.also {
+                PuriArt.drawDate(AndroidCanvas(it), it.width, it.height, dateId, seed, System.currentTimeMillis())
+            }?.asImageBitmap()
+                ?: puriTile(cellW, cellH, frame, dateId, seed, faceStickers, marginStickers).asImageBitmap()
         }
     }
 
-    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        modifier = modifier.fillMaxHeight(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
         Image(
             bitmap = sample,
             contentDescription = null,
             contentScale = ContentScale.Fit,
-            modifier = Modifier.width(112.dp).height(150.dp),
+            modifier = Modifier.weight(1f),
         )
         LightText(
             text = "EXAMPLE",
             variant = LightTextVariant.Micro,
             lighten = true,
-            modifier = Modifier.padding(top = 4.dp),
+            modifier = Modifier.padding(top = 3.dp),
         )
     }
 }

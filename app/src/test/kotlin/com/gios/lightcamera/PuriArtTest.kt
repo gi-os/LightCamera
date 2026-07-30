@@ -172,7 +172,7 @@ class PuriArtTest {
         (1..80L).forEach { seed ->
             PuriArt.plan(seed, oneFace, faceStickers = false, marginStickers = true, dateId = PuriArt.OFF)
                 .placed
-                .forEach { assertTrue("${it.sticker.id} is tiny: ${it.size}", it.size >= 0.14f) }
+                .forEach { assertTrue("${it.sticker.id} is tiny: ${it.size}", it.size >= 0.18f) }
         }
     }
 
@@ -181,6 +181,23 @@ class PuriArtTest {
         PuriArt.dates.forEach {
             assertTrue("${it.id} has no label", it.label.isNotBlank())
             assertTrue("${it.id} label is too long", it.label.length <= 8)
+        }
+    }
+
+    @Test
+    fun `margin stickers never overlap each other`() {
+        // Three big stickers spaced round the margins is a booth print; five small ones piled into one
+        // corner is a random scatter, and the difference is entirely the rejection loop.
+        (1..300L).forEach { seed ->
+            val free = PuriArt.plan(seed, oneFace, faceStickers = false, marginStickers = true, dateId = PuriArt.OFF)
+                .placed
+            free.forEachIndexed { i, a ->
+                free.drop(i + 1).forEach { b ->
+                    val gap = (a.size + b.size) * 0.62f
+                    val apart = kotlin.math.abs(a.cx - b.cx) >= gap || kotlin.math.abs(a.cy - b.cy) >= gap
+                    assertTrue("seed $seed overlapped ${a.sticker.id} and ${b.sticker.id}", apart)
+                }
+            }
         }
     }
 

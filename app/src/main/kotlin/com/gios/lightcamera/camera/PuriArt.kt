@@ -234,8 +234,11 @@ object PuriArt {
 
         Frame("glitterband", "Glitter") { c, w, h, u ->
             val band = u * 10f
-            c.drawRect(0f, 0f, w, band, fill(0xCCF7CDE1.toInt()))
-            c.drawRect(0f, h - band, w, h, fill(0xCCF7CDE1.toInt()))
+            // **Opaque.** These bands used to be translucent, which let the filter's pink wash and its
+            // glitter show through the border — so the frame looked like part of the photograph rather
+            // than like paper the photograph is mounted on. A frame is printed on top; it is not a tint.
+            c.drawRect(0f, 0f, w, band, fill(0xFFF7CDE1.toInt()))
+            c.drawRect(0f, h - band, w, h, fill(0xFFF7CDE1.toInt()))
             val p = fill(WHITE)
             val rnd = Random(9)
             repeat(26) {
@@ -901,14 +904,19 @@ object PuriArt {
         }
         if (marginStickers) {
             val free = stickers.filter { it.anchor == Anchor.Free }
-            val count = 2 + rnd.nextInt(3)
+            // Fewer, bigger, and **never touching**. Three large stickers spaced around the margins is
+            // what a booth print looks like; five small ones piled into one corner is what a random
+            // scatter looks like, and the difference is entirely this loop. Each candidate is rejected
+            // if it lands within a sticker's width of one already placed, or anywhere near a face, and
+            // after forty tries it gives up with however many it has rather than looping for ever.
+            val count = 2 + rnd.nextInt(2)
             var tries = 0
-            var made = 0
-            while (made < count && tries < 40) {
+            val mine = ArrayList<Placed>(count)
+            while (mine.size < count && tries < 40) {
                 tries++
                 val edge = rnd.nextInt(4)
-                val along = 0.08f + rnd.nextFloat() * 0.84f
-                val depth = 0.05f + rnd.nextFloat() * 0.13f
+                val along = 0.12f + rnd.nextFloat() * 0.76f
+                val depth = 0.07f + rnd.nextFloat() * 0.1f
                 val cx = when (edge) {
                     0, 1 -> along
                     2 -> depth
@@ -919,22 +927,22 @@ object PuriArt {
                     1 -> 1f - depth
                     else -> along
                 }
-                // Keep off the faces.
-                val clear = faces.none { f ->
+                // Bigger again: a booth's stickers are the size of a thumbnail, not a full stop.
+                val size = 0.19f + rnd.nextFloat() * 0.09f
+                val clearOfFaces = faces.none { f ->
                     kotlin.math.abs(cx - f.cx) < f.hw * 1.4f && kotlin.math.abs(cy - f.cy) < f.hh * 1.4f
                 }
-                if (!clear) continue
-                out += Placed(
-                    free.random(rnd),
-                    cx,
-                    cy,
-                    // Bigger than they were. At a tenth of the short edge a heart in the corner of a
-                    // 4:3 frame reads as a speck of dust; a booth's are the size of a thumbnail.
-                    0.15f + rnd.nextFloat() * 0.09f,
-                    rnd.nextFloat() * 40f - 20f,
-                )
-                made++
+                if (!clearOfFaces) continue
+                // A sticker's own size is a fraction of the *short* edge, so the gap it needs is wider
+                // in x than in y on a tall frame — hence the two comparisons rather than a distance.
+                val clearOfOthers = mine.none { other ->
+                    val gap = (size + other.size) * 0.62f
+                    kotlin.math.abs(cx - other.cx) < gap && kotlin.math.abs(cy - other.cy) < gap
+                }
+                if (!clearOfOthers) continue
+                mine += Placed(free.random(rnd), cx, cy, size, rnd.nextFloat() * 40f - 20f)
             }
+            out += mine
         }
         // Resolved from the seed rather than from `rnd`, so that switching a sticker off does not
         // silently change which date you get: the two decisions are independent and should read that
@@ -972,6 +980,25 @@ object PuriArt {
             w.toFloat(),
             h.toFloat(),
             unit,
+            Calendar.getInstance().apply { timeInMillis = millis },
+        )
+    }
+
+    /**
+     * Just the date, onto whatever this canvas is.
+     *
+     * For a strip: the four panels get none, and the print gets one. Four copies of the same date down a
+     * strip is a bug that looks like a feature — a booth prints it once, in the margin, because the four
+     * photographs are one object.
+     */
+    fun drawDate(canvas: Canvas, w: Int, h: Int, dateId: String, seed: Long, millis: Long) {
+        if (w <= 0 || h <= 0) return
+        val style = resolveDate(dateId, seed) ?: return
+        style.draw(
+            canvas,
+            w.toFloat(),
+            h.toFloat(),
+            min(w, h) / 100f,
             Calendar.getInstance().apply { timeInMillis = millis },
         )
     }

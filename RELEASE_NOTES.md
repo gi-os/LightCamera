@@ -1,39 +1,51 @@
-## Roll v2.11 — pick from a list, and the sample shows the strip
+## Roll v2.12 — a Look section, thumbnails in every list, and the send button works
 
-**The black viewfinder is fixed**
+**Look: five switches**
 
-v2.10's overlay was wrapped in the helper that rotates a photograph to the phone — and that helper
-paints black behind its content, which is right for a picture and completely wrong for a transparent
-layer. Tilt the phone past 45° and the viewfinder went black. It now asks for a transparent box.
+Purikura's effect is now five things you can turn on and off separately, under Look in its menu:
 
-**Frame, Date and Four-shot are lists**
+- **Pink wash** — the blow-out, the rose, the glitter. Off, what is left is a beauty filter rather than a
+  booth print, which is a reasonable thing to want.
+- **Skin** — the twelve-tap edge-preserving smoothing.
+- **Bigger eyes** — the magnification.
+- **Narrow chin** — new. A horizontal squeeze that ramps from nothing at the cheekbones to full at the
+  jaw, which is the difference between a taper and a waist.
+- **Smaller face** — new. A gentle radial shrink around the whole head, falling off well outside the
+  rectangle so there is no seam at the hairline.
 
-Fourteen frames and eight dates are too many to walk one tap at a time. Each row opens a list with the
-current choice filled in, and the first item is **Random** — which is the default, not a novelty. Random
-resolves from the seed the app holds still between shots, so it is stable while you compose and different
-on every photograph, and the sample in the corner is showing you the one you are about to get.
+The wash, skin and eyes start on because that is the effect; the chin and the slimming start off, because
+they are the two that look uncanny on a face the detector has boxed slightly wrong. They are amounts in
+the shader rather than branches, so half strength would work if it were ever offered.
 
-The frame, the date and the layout are salted separately, so Random is a combination of choices rather
-than a handful of presets.
+**Every list row shows itself**
 
-**The sample shows the strip**
+Frame, Date and Four-shot rows carry a thumbnail drawn by the same code the photograph uses — the frames
+in the list *are* the frames. Pick a strip layout and its row shows four cells arranged that way.
 
-Turn four-shot on and the example becomes an actual strip: four cells, each decorated separately, run
-through the same `PuriStrip.compose` the shutter uses. With Framed selected the cells lose their own
-borders, because the point of that layout is one border around all four.
+**The example is as big as the panel allows**
 
-**Margin stickers are bigger**
+A strip is 1:4, so at a fixed size it came out the width of a fingernail. It now takes the full height of
+the menu and whatever width that leaves.
 
-Half again. At a tenth of the short edge a heart in the corner of a 4:3 frame read as a speck of dust.
+**Stickers: bigger, spaced, never touching**
 
-**The level lies along the horizon**
+Two or three per photograph instead of two to four, each a fifth of the short edge or more, and a
+candidate is rejected if it lands within a sticker's width of one already placed. Tested over three
+hundred seeds.
 
-Hold the phone sideways and the world's horizon runs *down* the screen, but the level was drawn across
-the panel in every pose — at 90° to the thing it was reporting on. It now turns with the same number the
-photograph is rotated by, so the level and the file agree by construction.
+**The date prints once on a strip**
 
-**The dial catches on Purikura**
+Not into all four panels. A booth prints it in the margin, because the four photographs are one object.
 
-Half a second, where None gets a second and a half. Purikura is the other filter you aim *for* rather than
-pass through — there is a menu behind it — so the wheel should hesitate there too. Shorter than None's,
-because None is the way back to an ordinary photograph and this is somewhere you went on purpose.
+**A frame is paper, not a tint**
+
+The glitter band's pink was translucent, so the wash and the glitter showed through the border and it read
+as part of the photograph. Opaque now.
+
+**The send button works**
+
+It never did. From Android 11 an app cannot see another app's activities unless the manifest says which
+ones it is looking for, and `resolveActivity` returns null for everything else — so the check in front of
+the send always failed and reported that LightChat could not receive photos, on a phone with LightChat
+installed. The manifest now declares the query, and the check is gone anyway: it starts the intent and
+explains itself if that throws.

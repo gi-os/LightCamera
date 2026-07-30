@@ -5,6 +5,7 @@ import com.gios.lightcamera.camera.AfMode
 import com.gios.lightcamera.camera.FlashMode
 import com.gios.lightcamera.camera.FrameAspect
 import com.gios.lightcamera.camera.PuriArt
+import com.gios.lightcamera.filter.FaceTune
 import com.gios.lightcamera.camera.PuriStrip
 import com.gios.lightcamera.media.RollScope
 import kotlin.random.Random
@@ -263,6 +264,39 @@ class Prefs(context: Context) {
     private val _puriStrip = MutableStateFlow(PuriStrip.OFF)
     val puriStrip: StateFlow<String> = _puriStrip.asStateFlow()
 
+    /**
+     * The five parts of the look, each on its own switch.
+     *
+     * **Not randomised, unlike the frame and the stickers.** These are what Purikura *is* rather than
+     * decoration on top of it, and a filter that arrived with the eyes off half the time would look
+     * broken rather than surprising. The wash, the smoothing and the eyes start on because that is the
+     * effect; the chin and the slimming start off because they are the two that can look uncanny on a
+     * face the detector has boxed slightly wrong.
+     */
+    private val _puriWash = MutableStateFlow(true)
+    val puriWash: StateFlow<Boolean> = _puriWash.asStateFlow()
+
+    private val _puriSkin = MutableStateFlow(true)
+    val puriSkin: StateFlow<Boolean> = _puriSkin.asStateFlow()
+
+    private val _puriEyes = MutableStateFlow(true)
+    val puriEyes: StateFlow<Boolean> = _puriEyes.asStateFlow()
+
+    private val _puriChin = MutableStateFlow(false)
+    val puriChin: StateFlow<Boolean> = _puriChin.asStateFlow()
+
+    private val _puriSlim = MutableStateFlow(false)
+    val puriSlim: StateFlow<Boolean> = _puriSlim.asStateFlow()
+
+    /** The five, as the shader wants them. */
+    fun puriTune(): FaceTune = FaceTune.of(
+        eyes = _puriEyes.value,
+        chin = _puriChin.value,
+        slim = _puriSlim.value,
+        skin = _puriSkin.value,
+        wash = _puriWash.value,
+    )
+
     /** The digicam focus beep and the shutter tick. */
     private val _sounds = MutableStateFlow(prefs.getBoolean(SOUNDS, true))
     val sounds: StateFlow<Boolean> = _sounds.asStateFlow()
@@ -319,6 +353,16 @@ class Prefs(context: Context) {
     fun setPuriDate(value: String) { _puriDate.value = value }
 
     fun setPuriStrip(value: String) { _puriStrip.value = value }
+
+    fun setPuriWash(value: Boolean) { _puriWash.value = value }
+
+    fun setPuriSkin(value: Boolean) { _puriSkin.value = value }
+
+    fun setPuriEyes(value: Boolean) { _puriEyes.value = value }
+
+    fun setPuriChin(value: Boolean) { _puriChin.value = value }
+
+    fun setPuriSlim(value: Boolean) { _puriSlim.value = value }
 
     fun setStampPlain(value: Boolean) = set(_stampPlain, value) { putBoolean(STAMP_PLAIN, value) }
 

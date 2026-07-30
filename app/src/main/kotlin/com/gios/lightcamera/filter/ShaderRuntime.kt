@@ -74,8 +74,15 @@ object ShaderRuntime {
      * time, because a `RuntimeShader` keeps its uniforms between draws and a face left over from the
      * last frame would go on warping an empty room.
      */
-    private fun setFaces(shader: RuntimeShader, filter: Filters.Filter, faces: List<FaceQuad>) {
+    private fun setFaces(
+        shader: RuntimeShader,
+        filter: Filters.Filter,
+        faces: List<FaceQuad>,
+        tune: FaceTune,
+    ) {
         if (!filter.facesAware) return
+        shader.setFloatUniform("warp", tune.eyes, tune.chin, tune.slim, tune.skin)
+        shader.setFloatUniform("wash", tune.wash)
         val used = faces.take(FaceQuads.MAX)
         shader.setFloatUniform("faceCount", used.size.toFloat())
         for (slot in 0 until FaceQuads.MAX) {
@@ -103,12 +110,13 @@ object ShaderRuntime {
         height: Int,
         seed: Float,
         faces: List<FaceQuad> = emptyList(),
+        tune: FaceTune = FaceTune(),
     ): RenderEffect? {
         if (width <= 0 || height <= 0) return null
         val shader = shader(filter) ?: return null
         shader.setFloatUniform("size", width.toFloat(), height.toFloat())
         shader.setFloatUniform("seed", seed)
-        setFaces(shader, filter, faces)
+        setFaces(shader, filter, faces, tune)
         return runCatching { RenderEffect.createRuntimeShaderEffect(shader, "src") }
             .onFailure { Log.e(TAG, "effect failed for ${filter.id}", it) }
             .getOrNull()
@@ -123,11 +131,12 @@ object ShaderRuntime {
         filter: Filters.Filter,
         seed: Float,
         faces: List<FaceQuad> = emptyList(),
+        tune: FaceTune = FaceTune(),
     ): Bitmap {
         if (filter.agsl == null) return source
         val renderer = Offscreen(source.width, source.height) ?: return source
         return try {
-            renderer.render(source, filter, seed, faces) ?: source
+            renderer.render(source, filter, seed, faces, tune) ?: source
         } finally {
             renderer.close()
         }
@@ -155,6 +164,7 @@ object ShaderRuntime {
             filter: Filters.Filter,
             seed: Float,
             faces: List<FaceQuad> = emptyList(),
+            tune: FaceTune = FaceTune(),
         ): Bitmap? {
             val shader = shader(filter, owned) ?: return null
             // The bitmap is sampled in its own pixel space, so `size` here is the image and
@@ -162,7 +172,7 @@ object ShaderRuntime {
             // which is what makes the capture match the viewfinder.
             shader.setFloatUniform("size", width.toFloat(), height.toFloat())
             shader.setFloatUniform("seed", seed)
-            setFaces(shader, filter, faces)
+            setFaces(shader, filter, faces, tune)
             val bitmapShader = BitmapShader(source, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
             // Scale the source into the node if the caller handed us a different size —
             // used by the filter grid, whose cells are smaller than the preview frame.

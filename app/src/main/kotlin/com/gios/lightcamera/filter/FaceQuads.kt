@@ -75,3 +75,32 @@ object FaceQuads {
         )
     }
 }
+
+/**
+ * How much of the Purikura treatment to apply, part by part.
+ *
+ * Five numbers rather than five booleans because they multiply amounts inside the shader rather than
+ * gating branches: a half-strength eye would work without touching the AGSL, and switching one off
+ * costs a multiply instead of a second shader. The menu only ever sends 0 or 1.
+ *
+ * [wash] is the pink, the blow-out and the glitter — the part that makes it a booth print. Without it
+ * you get the smoothing and the warps, which is a beauty filter rather than a Purikura, and is a
+ * reasonable thing to want.
+ */
+data class FaceTune(
+    val eyes: Float = 1f,
+    val chin: Float = 0f,
+    val slim: Float = 0f,
+    val skin: Float = 1f,
+    val wash: Float = 1f,
+) {
+    companion object {
+        fun of(eyes: Boolean, chin: Boolean, slim: Boolean, skin: Boolean, wash: Boolean) = FaceTune(
+            eyes = if (eyes) 1f else 0f,
+            chin = if (chin) 1f else 0f,
+            slim = if (slim) 1f else 0f,
+            skin = if (skin) 1f else 0f,
+            wash = if (wash) 1f else 0f,
+        )
+    }
+}

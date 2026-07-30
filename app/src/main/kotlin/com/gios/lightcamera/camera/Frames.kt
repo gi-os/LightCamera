@@ -7,6 +7,7 @@ import androidx.exifinterface.media.ExifInterface
 import com.gios.lightcamera.StampStyle
 import com.gios.lightcamera.filter.FaceQuad
 import com.gios.lightcamera.filter.FaceQuads
+import com.gios.lightcamera.filter.FaceTune
 import com.gios.lightcamera.filter.Filters
 import com.gios.lightcamera.filter.ShaderRuntime
 import java.io.ByteArrayInputStream
@@ -115,6 +116,8 @@ object Frames {
          * bytes: it should not know what a Purikura is.
          */
         overlay: ((android.graphics.Canvas, Int, Int, List<FaceQuad>) -> Unit)? = null,
+        /** Which parts of a face-aware filter to apply. Ignored by every other filter. */
+        tune: FaceTune = FaceTune(),
     ): Processed {
         var bitmap = preview
         var quads = faces
@@ -134,7 +137,9 @@ object Frames {
             bitmap = crop(bitmap, aspect)
             quads = quads.map { FaceQuads.cropped(it, wasW, wasH, bitmap.width, bitmap.height) }
         }
-        if (filter.agsl != null) bitmap = ShaderRuntime.applyToBitmap(bitmap, filter, seed, quads)
+        if (filter.agsl != null) {
+            bitmap = ShaderRuntime.applyToBitmap(bitmap, filter, seed, quads, tune)
+        }
         if (overlay != null) {
             // The shader hands back an immutable bitmap; a frame has to be drawn into a mutable one.
             if (!bitmap.isMutable) {

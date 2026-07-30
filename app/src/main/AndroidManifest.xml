@@ -26,6 +26,20 @@
     <uses-feature android:name="android.hardware.camera.any" android:required="true" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
+    <!--
+        **Package visibility.** From Android 11 an app cannot see another app's activities unless it says
+        which ones it is looking for, and `resolveActivity` simply returns null for everything else. That
+        is why the send button reported "LightChat can't receive photos" on a phone with LightChat
+        installed: the intent resolved fine, we just could not see that it did.
+    -->
+    <queries>
+        <package android:name="com.gios.lightchat" />
+        <intent>
+            <action android:name="android.intent.action.SEND" />
+            <data android:mimeType="image/*" />
+        </intent>
+    </queries>
+
     <application
         android:name=".RollApp"
         android:allowBackup="true"
