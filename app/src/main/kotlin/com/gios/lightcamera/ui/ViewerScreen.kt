@@ -69,7 +69,13 @@ fun ViewerScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val colours = LightThemeTokens.colors
-    val photos by vm.photos.collectAsState()
+    val roll by vm.photos.collectAsState()
+
+    // **Opened out of a strip, the viewer shows its four frames instead of the roll.**
+    // They are deliberately absent from the grid — a booth hands you one print — so this is the only
+    // way to them, and it is a button on the print itself rather than a folder to go and find.
+    var behind by remember { mutableStateOf<List<Photo>>(emptyList()) }
+    val photos = behind.ifEmpty { roll }
 
     // **Pages run oldest to newest, left to right** — the reverse of the list, which is
     // newest-first. The roll grid puts the newest frame bottom-right with the one before it to its
@@ -85,6 +91,9 @@ fun ViewerScreen(
         (photos.size - 1 - found).coerceAtLeast(0)
     }
     val pager = rememberPagerState(initialPage = startIndex, pageCount = { photos.size })
+    // Swapping to the strip's frames changes what page zero means, so go back to the start of the
+    // new list rather than staying on whichever index happened to be current.
+    LaunchedEffect(behind.size) { if (photos.isNotEmpty()) pager.scrollToPage(pager.pageCount - 1) }
     var chromeVisible by remember { mutableStateOf(true) }
 
     // Zoom lives here rather than per page so that leaving a photograph resets it — coming back to
@@ -277,6 +286,32 @@ fun ViewerScreen(
                     },
                 )
                 Spacer(Modifier.weight(1f))
+                // Four-shot strips only. `_strip` in the name is the whole test: the frames behind
+                // one are named from the same stamp, which is the only relationship MediaStore has
+                // anywhere to store.
+                val current = photoAt(pager.currentPage)
+                if (behind.isNotEmpty()) {
+                    ChromeLabel(
+                        text = "Strip",
+                        onClick = { behind = emptyList() },
+                    )
+                    Spacer(Modifier.weight(1f))
+                } else if (current != null && current.name.contains("_strip")) {
+                    ChromeLabel(
+                        text = "Frames",
+                        onClick = {
+                            scope.launch {
+                                val found = vm.framesBehind(current)
+                                if (found.isEmpty()) {
+                                    vm.showNotice("The frames behind this one are gone")
+                                } else {
+                                    behind = found
+                                }
+                            }
+                        },
+                    )
+                    Spacer(Modifier.weight(1f))
+                }
                 // The send button is off unless you have pointed it at LightChat. A share
                 // sheet is the one place a Light Phone stops feeling like a Light Phone — a
                 // grid of every app that ever registered for an image, on a phone whose whole

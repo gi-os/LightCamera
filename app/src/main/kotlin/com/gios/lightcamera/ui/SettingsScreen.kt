@@ -31,7 +31,6 @@ import com.gios.lightcamera.camera.AfMode
 import com.gios.lightcamera.camera.FrameAspect
 import com.gios.lightcamera.hw.CameraKeyAdvice
 import com.gios.lightcamera.hw.LightKeys
-import com.gios.lightcamera.camera.PuriArt
 import com.gios.lightcamera.hw.WheelScroll
 import com.gios.lightcamera.ui.theme.LightIcons
 import com.gios.lightcamera.ui.theme.LightText
@@ -64,8 +63,6 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
     val stampPlain by vm.prefs.stampPlain.collectAsState()
     val stampFiltered by vm.prefs.stampFiltered.collectAsState()
     val stampCoarse by vm.prefs.stampCoarse.collectAsState()
-    val puriFrame by vm.prefs.puriFrame.collectAsState()
-    val puriStickers by vm.prefs.puriStickers.collectAsState()
     val stampStyle by vm.prefs.stampStyle.collectAsState()
     val colour by vm.prefs.colour.collectAsState()
     val sendChat by vm.prefs.sendToLightChat.collectAsState()
@@ -151,12 +148,8 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
             )
 
             Section("Purikura")
-            Setting("Frame", PuriArt.frameById(puriFrame).label) { vm.stepPuriFrame() }
-            Setting("Stickers", if (puriStickers) "Random" else "Off") {
-                vm.prefs.setPuriStickers(!puriStickers)
-            }
             Note(
-                "Fourteen frames, and the same chip appears in the viewfinder band while Purikura is on so you can walk them without coming in here. Stickers are chosen for you — cat ears sit on a head, blush on the cheeks, and the rest land in the margins away from anybody's face — and they are reshuffled after every shot. A Purikura also brings its own date, one of eight, replacing the date back when the date is switched on for filters.",
+                "Purikura has its own menu, in the viewfinder: choose Purikura on the wheel and tap PURI in the band. The frame, the two kinds of sticker, the date and the four-shot strip are all in there, next to the picture they change. Every one of them is rolled at random when the app starts — a booth does not remember what you chose last week — so nothing here is kept between launches.",
             )
 
             Section("Colour")

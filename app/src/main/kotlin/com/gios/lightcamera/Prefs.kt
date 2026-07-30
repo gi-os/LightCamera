@@ -4,7 +4,10 @@ import android.content.Context
 import com.gios.lightcamera.camera.AfMode
 import com.gios.lightcamera.camera.FlashMode
 import com.gios.lightcamera.camera.FrameAspect
+import com.gios.lightcamera.camera.PuriArt
+import com.gios.lightcamera.camera.PuriStrip
 import com.gios.lightcamera.media.RollScope
+import kotlin.random.Random
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -233,18 +236,33 @@ class Prefs(context: Context) {
     val stampStyle: StateFlow<StampStyle> = _stampStyle.asStateFlow()
 
     /**
-     * The Purikura frame, by id, and whether it gets stickers.
+     * Everything about a Purikura that is not the shader: the frame, the two kinds of sticker, its
+     * own date, and whether the shutter takes four.
      *
-     * The frame is a *setting* and the stickers are *random*, which sounds inconsistent and is not:
-     * a booth lets you choose the border and then decorates the print for you. Choosing between
-     * fourteen frames on a phone with one dial is a job for a chip you tap; choosing which of twelve
-     * stickers land where is a job nobody wants.
+     * **Rolled at random every time the app starts, and not written down.** A booth does not remember
+     * what you chose last week; you sit down and it hands you something. So each launch picks a frame
+     * and flips the stickers and the date for you, and the menu is there to overrule it — which is
+     * kept for the rest of the session, but only in memory. Four-shot always starts off: a strip is
+     * something you decide to do, not something that happens to you on the first photograph of the
+     * day.
+     *
+     * The one thing this costs is that turning a sticker off does not stick past a restart, which for
+     * a feature whose whole character is "surprise me" is the right way round.
      */
-    private val _puriFrame = MutableStateFlow(prefs.getString(PURI_FRAME, null) ?: "lace")
+    private val _puriFrame = MutableStateFlow(PuriArt.frames.drop(1).random().id)
     val puriFrame: StateFlow<String> = _puriFrame.asStateFlow()
 
-    private val _puriStickers = MutableStateFlow(prefs.getBoolean(PURI_STICKERS, true))
-    val puriStickers: StateFlow<Boolean> = _puriStickers.asStateFlow()
+    private val _puriFaceStickers = MutableStateFlow(Random.nextBoolean())
+    val puriFaceStickers: StateFlow<Boolean> = _puriFaceStickers.asStateFlow()
+
+    private val _puriMarginStickers = MutableStateFlow(Random.nextBoolean())
+    val puriMarginStickers: StateFlow<Boolean> = _puriMarginStickers.asStateFlow()
+
+    private val _puriDate = MutableStateFlow(Random.nextBoolean())
+    val puriDate: StateFlow<Boolean> = _puriDate.asStateFlow()
+
+    private val _puriStrip = MutableStateFlow(PuriStrip.layouts.first().id)
+    val puriStrip: StateFlow<String> = _puriStrip.asStateFlow()
 
     /** The digicam focus beep and the shutter tick. */
     private val _sounds = MutableStateFlow(prefs.getBoolean(SOUNDS, true))
@@ -292,10 +310,16 @@ class Prefs(context: Context) {
 
     fun setSounds(value: Boolean) = set(_sounds, value) { putBoolean(SOUNDS, value) }
 
-    fun setPuriFrame(value: String) = set(_puriFrame, value) { putString(PURI_FRAME, value) }
+    // Nothing here writes to disk. See the note above: a booth does not remember.
+    fun setPuriFrame(value: String) { _puriFrame.value = value }
 
-    fun setPuriStickers(value: Boolean) =
-        set(_puriStickers, value) { putBoolean(PURI_STICKERS, value) }
+    fun setPuriFaceStickers(value: Boolean) { _puriFaceStickers.value = value }
+
+    fun setPuriMarginStickers(value: Boolean) { _puriMarginStickers.value = value }
+
+    fun setPuriDate(value: Boolean) { _puriDate.value = value }
+
+    fun setPuriStrip(value: String) { _puriStrip.value = value }
 
     fun setStampPlain(value: Boolean) = set(_stampPlain, value) { putBoolean(STAMP_PLAIN, value) }
 
@@ -339,8 +363,6 @@ class Prefs(context: Context) {
         const val STAMP_PLAIN = "stampPlain"
         const val STAMP_FILTERED = "stampFiltered"
         const val STAMP_COARSE = "stampCoarse"
-        const val PURI_FRAME = "puriFrame"
-        const val PURI_STICKERS = "puriStickers"
         const val STAMP_STYLE = "stampStyle"
         const val COLOUR = "colour"
         const val SEND_LIGHTCHAT = "sendLightChat"

@@ -59,6 +59,7 @@ import com.gios.lightcamera.camera.FaceMapper
 import com.gios.lightcamera.camera.FlashMode
 import com.gios.lightcamera.filter.FaceQuads
 import com.gios.lightcamera.camera.PuriArt
+import com.gios.lightcamera.camera.PuriStrip
 import com.gios.lightcamera.filter.ShaderRuntime
 import com.gios.lightcamera.hw.CameraKeyAdvice
 import com.gios.lightcamera.hw.WheelTurns
@@ -129,6 +130,7 @@ fun CameraScreen(
     var frameHeight by remember { mutableStateOf(0) }
     var gridOpen by remember { mutableStateOf(false) }
     var modeOpen by remember { mutableStateOf(false) }
+    var puriOpen by remember { mutableStateOf(false) }
     var evOpen by remember { mutableStateOf(false) }
 
     val previewView = remember {
@@ -195,11 +197,11 @@ fun CameraScreen(
         emptyList()
     }
     val puriFrameId by vm.prefs.puriFrame.collectAsState()
-    val puriStickers by vm.prefs.puriStickers.collectAsState()
+    val puriFaceStickers by vm.prefs.puriFaceStickers.collectAsState()
+    val puriMarginStickers by vm.prefs.puriMarginStickers.collectAsState()
+    val puriDates by vm.prefs.puriDate.collectAsState()
+    val puriStripId by vm.prefs.puriStrip.collectAsState()
     val puriSeed by vm.puriSeed.collectAsState()
-    // The Purikura date follows the same switch the filtered photographs do — it is a filter, and
-    // "on filters" is what that setting means.
-    val puriDates by vm.prefs.stampFiltered.collectAsState()
     LaunchedEffect(liveFilter, seed, frameWidth, frameHeight, faceQuads) {
         previewView.setRenderEffect(
             ShaderRuntime.effectFor(liveFilter, frameWidth, frameHeight, seed, faceQuads),
@@ -288,18 +290,25 @@ fun CameraScreen(
                             Chevron(pointingUp = modeOpen)
                         }
                         Spacer(Modifier.weight(1f))
-                        // The frame chip, and only while Purikura is on. Tap to walk the borders.
-                        // It lives in the band rather than on a wheel gesture because there are
-                        // fourteen of them and the wheel already has a job it does well.
+                        // The Purikura chip, and only while Purikura is on. It opens the menu rather
+                        // than stepping the frame: there are fourteen frames, two kinds of sticker, a
+                        // date and a strip layout behind it, and a chip that cycled one of those and
+                        // hid the rest would be a worse version of both.
                         if (liveFilter.facesAware) {
-                            LightText(
-                                text = PuriArt.frameById(puriFrameId).label.uppercase(),
-                                variant = LightTextVariant.Button,
-                                align = TextAlign.Center,
+                            Row(
                                 modifier = Modifier
-                                    .lightClickable { vm.stepPuriFrame() }
+                                    .lightClickable { puriOpen = !puriOpen }
                                     .padding(horizontal = 6.dp, vertical = 10.dp),
-                            )
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                LightText(
+                                    text = "PURI",
+                                    variant = LightTextVariant.Button,
+                                    align = TextAlign.Center,
+                                )
+                                Spacer(Modifier.width(7.dp))
+                                Chevron(pointingUp = puriOpen)
+                            }
                             Spacer(Modifier.weight(1f))
                         }
                         ChromeIcon(
@@ -382,7 +391,8 @@ fun CameraScreen(
                     val overlay = remember(
                         puriFrameId,
                         puriSeed,
-                        puriStickers,
+                        puriFaceStickers,
+                        puriMarginStickers,
                         puriDates,
                         settled,
                         frameWidth,
@@ -396,7 +406,13 @@ fun CameraScreen(
                             w = ow,
                             h = oh,
                             frame = PuriArt.frameById(puriFrameId),
-                            plan = PuriArt.plan(puriSeed, faceQuads, puriStickers, puriDates),
+                            plan = PuriArt.plan(
+                                seed = puriSeed,
+                                faces = faceQuads,
+                                faceStickers = puriFaceStickers,
+                                marginStickers = puriMarginStickers,
+                                withDate = puriDates,
+                            ),
                             millis = System.currentTimeMillis(),
                         )
                         bitmap.asImageBitmap()
@@ -495,6 +511,23 @@ fun CameraScreen(
         // The strips that open out of the band, drawn over the picture's left edge rather than
         // taking width from it: resizing the preview would rebind the shader and reflow the
         // frame, and a menu should never cost you your framing.
+        if (puriOpen) {
+            PuriMenu(
+                frame = PuriArt.frameById(puriFrameId),
+                faceStickers = puriFaceStickers,
+                marginStickers = puriMarginStickers,
+                date = puriDates,
+                strip = PuriStrip.layoutById(puriStripId),
+                onFrame = { vm.stepPuriFrame() },
+                onFaceStickers = { vm.prefs.setPuriFaceStickers(!puriFaceStickers) },
+                onMarginStickers = { vm.prefs.setPuriMarginStickers(!puriMarginStickers) },
+                onDate = { vm.prefs.setPuriDate(!puriDates) },
+                onStrip = { vm.stepPuriStrip() },
+                onClose = { puriOpen = false },
+                modifier = Modifier.padding(start = BAND),
+            )
+        }
+
         if (modeOpen) {
             ModeStrip(
                 mode = mode,
@@ -624,6 +657,84 @@ private fun ModeStrip(
                 ChromeIcon(icon = LightIcons.Settings, lighten = true, onClick = onSettings)
             }
         }
+    }
+}
+
+/**
+ * Everything a Purikura is made of, in one panel.
+ *
+ * Rows you tap to cycle, which is how LightOS does settings and how the rest of this app already
+ * does them — no switches, no dialogs, nothing to get lost in. It opens out of the band like the mode
+ * picker does, and it is sideways for the same reason: you are holding the phone like a camera.
+ *
+ * Face stickers and margin stickers are separate switches because they fail differently. The
+ * face-anchored ones depend on the detector finding a face and can land wrong when it drifts; the
+ * margin ones cannot. One switch would mean a bad detection cost you the whole look.
+ */
+@Composable
+private fun PuriMenu(
+    frame: PuriArt.Frame,
+    faceStickers: Boolean,
+    marginStickers: Boolean,
+    date: Boolean,
+    strip: PuriStrip.Layout,
+    onFrame: () -> Unit,
+    onFaceStickers: () -> Unit,
+    onMarginStickers: () -> Unit,
+    onDate: () -> Unit,
+    onStrip: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colours = LightThemeTokens.colors
+    Box(
+        modifier = modifier
+            .width(BAND + 128.dp)
+            .fillMaxHeight()
+            .background(colours.background),
+    ) {
+        HeldSideways {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    LightText("PURIKURA", LightTextVariant.Detail)
+                    Spacer(Modifier.weight(1f))
+                    ChromeIcon(icon = LightIcons.Close, lighten = true, onClick = onClose)
+                }
+                Spacer(Modifier.height(4.dp))
+                PuriRow("Frame", frame.label, onFrame)
+                PuriRow("Face stickers", if (faceStickers) "On" else "Off", onFaceStickers)
+                PuriRow("Margin stickers", if (marginStickers) "On" else "Off", onMarginStickers)
+                PuriRow("Date", if (date) "Random" else "Off", onDate)
+                PuriRow("Four-shot strip", strip.label, onStrip)
+                if (strip.id != "off") {
+                    LightText(
+                        "The shutter takes four, three seconds apart. The strip goes on the roll; the four frames are kept behind it.",
+                        LightTextVariant.Superfine,
+                        lighten = true,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PuriRow(label: String, value: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .lightClickable(onClick = onClick)
+            .padding(vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        LightText(label, LightTextVariant.Copy)
+        Spacer(Modifier.weight(1f))
+        LightText(value, LightTextVariant.Copy, lighten = true)
     }
 }
 

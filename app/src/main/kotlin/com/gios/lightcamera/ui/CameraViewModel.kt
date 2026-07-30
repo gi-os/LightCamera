@@ -1,6 +1,8 @@
 package com.gios.lightcamera.ui
 
 import android.app.Application
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
@@ -11,6 +13,7 @@ import com.gios.lightcamera.camera.CameraEngine
 import com.gios.lightcamera.camera.FaceBox
 import com.gios.lightcamera.camera.Frames
 import com.gios.lightcamera.camera.PuriArt
+import com.gios.lightcamera.camera.PuriStrip
 import com.gios.lightcamera.filter.FaceQuads
 import com.gios.lightcamera.filter.Filters
 import com.gios.lightcamera.hw.Beeps
@@ -322,6 +325,18 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         showNotice("Frame: ${next.label}")
     }
 
+    /** Walk to the next strip layout. Off is one of them, so this also switches the feature off. */
+    fun stepPuriStrip(by: Int = 1) {
+        val all = PuriStrip.layouts
+        val at = all.indexOfFirst { it.id == prefs.puriStrip.value }.coerceAtLeast(0)
+        val next = all[((at + by) % all.size + all.size) % all.size]
+        prefs.setPuriStrip(next.id)
+    }
+
+    /** The four frames behind a strip, for the viewer's button. Empty for an ordinary photograph. */
+    suspend fun framesBehind(photo: Photo): List<Photo> =
+        if (photo.name.contains("_strip")) repo.framesOf(photo.name) else emptyList()
+
     /**
      * What to draw on top of a Purikura, or null if this is not one.
      *
@@ -336,7 +351,8 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     ): ((android.graphics.Canvas, Int, Int, List<com.gios.lightcamera.filter.FaceQuad>) -> Unit)? {
         if (!filter.facesAware) return null
         val frame = puriFrame()
-        val stickers = prefs.puriStickers.value
+        val faceStickers = prefs.puriFaceStickers.value
+        val marginStickers = prefs.puriMarginStickers.value
         val seed = _puriSeed.value
         return { canvas, w, h, faces ->
             PuriArt.draw(
@@ -344,7 +360,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 w = w,
                 h = h,
                 frame = frame,
-                plan = PuriArt.plan(seed, faces, stickers, withDate),
+                plan = PuriArt.plan(seed, faces, faceStickers, marginStickers, withDate),
                 millis = millis,
             )
         }
@@ -381,6 +397,14 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         if (_shooting.value) return
+        // Four shots and a strip, if that is what the menu says. Its own routine, because a booth
+        // sequence is not a photograph taken four times: it counts you in, it cannot be stopped
+        // halfway, and what it produces is one print.
+        val strip = PuriStrip.layoutById(prefs.puriStrip.value)
+        if (strip.id != "off" && filter.value.facesAware && !videoMode()) {
+            shootStrip(strip)
+            return
+        }
         val loadedRoll = roll.value
         if (loadedRoll != null && loadedRoll.finished) {
             showNotice("Roll finished — develop it")
@@ -432,10 +456,13 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     // A Purikura brings its own date — a bubble capsule, a ticket stub, one of
                     // eight — so the ordinary date back stands down rather than both of them
                     // printing into the same corner.
+                    // A Purikura's date is its own switch in its own menu, not the date back's:
+                    // they are different objects that happen to both be dates, and one of them is
+                    // random by design.
                     val puri = puriOverlay(
                         filter = activeFilter,
-                        withDate = stampAt != null,
-                        millis = stampAt ?: System.currentTimeMillis(),
+                        withDate = prefs.puriDate.value,
+                        millis = System.currentTimeMillis(),
                     )
                     val processed = withContext(Dispatchers.Default) {
                         Frames.fromPreview(
@@ -485,6 +512,102 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             } finally {
                 _countdown.value = null
                 _shooting.value = false
+            }
+        }
+    }
+
+    /**
+     * Four photographs, three seconds apart, and then the strip.
+     *
+     * Each frame goes through exactly the same path a single Purikura does — same shader, same frame,
+     * same stickers, same date — so a frame off a strip is indistinguishable from one taken on its
+     * own. What differs is where they are saved: the four go into a folder the roll does not show, and
+     * the strip goes into the camera roll as the one photograph you took.
+     *
+     * The stickers are **reshuffled between frames**, which is deliberate. A booth's four panels are
+     * four different decorations of the same three seconds, and a strip with identical cat ears in
+     * every panel looks like a mistake rather than a set.
+     */
+    private fun shootStrip(layout: PuriStrip.Layout) {
+        _shooting.value = true
+        viewModelScope.launch {
+            val bitmaps = ArrayList<Bitmap>(PuriStrip.SHOTS)
+            val takenAt = System.currentTimeMillis()
+            try {
+                for (shot in 1..PuriStrip.SHOTS) {
+                    // Count in before every frame, including the first: a booth gives you a moment
+                    // to arrange your face, and the first one is the one you are least ready for.
+                    for (second in STRIP_GAP_SECONDS downTo 1) {
+                        _countdown.value = second
+                        delay(1_000)
+                    }
+                    _countdown.value = null
+                    showNotice("$shot of ${PuriStrip.SHOTS}")
+
+                    val grabbed = engine.previewFrame()
+                    if (grabbed == null) {
+                        showNotice("Nothing on the viewfinder yet")
+                        return@launch
+                    }
+                    _shutterTick.tryEmit(Unit)
+                    val activeFilter = filter.value
+                    val faces = FaceQuads.of(engine.faces.value, grabbed.width, grabbed.height)
+                    val puri = puriOverlay(
+                        filter = activeFilter,
+                        withDate = prefs.puriDate.value,
+                        millis = takenAt,
+                    )
+                    val processed = withContext(Dispatchers.Default) {
+                        Frames.fromPreview(
+                            preview = grabbed,
+                            rotationDegrees = engine.previewRotationDegrees(),
+                            filter = activeFilter,
+                            aspect = prefs.aspect.value,
+                            seed = Random.nextFloat() * 1000f,
+                            faces = faces,
+                            overlay = puri,
+                        )
+                    }
+                    repo.save(
+                        jpeg = processed.jpeg,
+                        takenAt = takenAt,
+                        width = processed.width,
+                        height = processed.height,
+                        suffix = shot.toString(),
+                        hidden = true,
+                    )
+                    withContext(Dispatchers.Default) {
+                        BitmapFactory.decodeByteArray(processed.jpeg, 0, processed.jpeg.size)
+                    }?.let { bitmaps += it }
+                    reshufflePuri()
+                }
+
+                val sheet = withContext(Dispatchers.Default) {
+                    PuriStrip.compose(bitmaps, layout, puriFrame(), takenAt)
+                }
+                if (sheet == null) {
+                    showNotice("Couldn't build the strip")
+                    return@launch
+                }
+                val jpeg = withContext(Dispatchers.Default) {
+                    java.io.ByteArrayOutputStream(sheet.width * sheet.height / 6).also {
+                        sheet.compress(Bitmap.CompressFormat.JPEG, 95, it)
+                    }.toByteArray()
+                }
+                val uri = repo.save(
+                    jpeg = jpeg,
+                    takenAt = takenAt,
+                    width = sheet.width,
+                    height = sheet.height,
+                    suffix = "strip",
+                )
+                if (uri == null) showNotice("Couldn't save the strip") else showNotice("Strip saved")
+                sheet.recycle()
+            } finally {
+                bitmaps.forEach { it.recycle() }
+                _countdown.value = null
+                _shooting.value = false
+                refreshRoll()
             }
         }
     }
@@ -598,6 +721,9 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
 
     private companion object {
         const val TAG = "CameraViewModel"
+
+        /** The count-in before each frame of a strip. Long enough to change your face, not your mind. */
+        const val STRIP_GAP_SECONDS = 3
         const val NOTICE_MS = 1_400L
     }
 }

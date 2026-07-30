@@ -1,6 +1,7 @@
 package com.gios.lightcamera.media
 
 import android.content.ContentUris
+import com.gios.lightcamera.camera.PuriStrip
 import android.content.ContentValues
 import android.content.Context
 import android.database.ContentObserver
@@ -65,13 +66,18 @@ class MediaStoreRepo(private val context: Context) {
     )
 
     suspend fun load(scope: RollScope): List<Photo> = withContext(Dispatchers.IO) {
+        // **The four frames of a strip are hidden from the roll.** They are saved, and you can open
+        // them from the strip, but a booth hands you one print — four near-identical photographs of
+        // the same three seconds filling a whole screen of the grid is not what you were looking for.
+        // They live in their own folder for exactly this reason, and every query excludes it.
+        val hide = "${MediaStore.Images.Media.RELATIVE_PATH} NOT LIKE ?"
         val selection = when (scope) {
-            RollScope.Camera -> "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?"
-            RollScope.Everything -> null
+            RollScope.Camera -> "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ? AND $hide"
+            RollScope.Everything -> hide
         }
         val args = when (scope) {
-            RollScope.Camera -> arrayOf("DCIM/%")
-            RollScope.Everything -> null
+            RollScope.Camera -> arrayOf("DCIM/%", "$STRIP_PATH%")
+            RollScope.Everything -> arrayOf("$STRIP_PATH%")
         }
         // DATE_TAKEN is null for anything that isn't a photo with EXIF, so it can't be the
         // sort key on its own; COALESCE with DATE_ADDED, which is in seconds.
@@ -113,6 +119,54 @@ class MediaStoreRepo(private val context: Context) {
     }
 
     /**
+     * The four frames behind a strip, oldest first.
+     *
+     * Matched by name rather than by any stored relationship, because there is nowhere in MediaStore
+     * to store one: the strip is `ROLL_<stamp>_strip.jpg` and its frames are `ROLL_<stamp>_1.jpg` to
+     * `_4.jpg`, so the stamp is the link. Same second, same booth visit.
+     */
+    suspend fun framesOf(stripName: String): List<Photo> = withContext(Dispatchers.IO) {
+        val stem = stripName.removeSuffix(".jpg").removeSuffix("_strip")
+        val out = ArrayList<Photo>(PuriStrip.SHOTS)
+        runCatching {
+            context.contentResolver.query(
+                collection,
+                projection,
+                "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ? AND " +
+                    "${MediaStore.Images.Media.DISPLAY_NAME} LIKE ?",
+                arrayOf("$STRIP_PATH%", "$stem%"),
+                "${MediaStore.Images.Media.DISPLAY_NAME} ASC",
+            )?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
+                val takenCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
+                val addedCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
+                val wCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.WIDTH)
+                val hCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.HEIGHT)
+                val bucketCol =
+                    cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(idCol)
+                    out += Photo(
+                        id = id,
+                        uri = ContentUris.withAppendedId(collection, id),
+                        name = cursor.getString(nameCol) ?: "",
+                        takenAt = if (cursor.isNull(takenCol)) {
+                            cursor.getLong(addedCol) * 1000L
+                        } else {
+                            cursor.getLong(takenCol)
+                        },
+                        width = cursor.getInt(wCol),
+                        height = cursor.getInt(hCol),
+                        bucket = cursor.getString(bucketCol),
+                    )
+                }
+            }
+        }.onFailure { Log.e(TAG, "frames query failed", it) }
+        out
+    }
+
+    /**
      * Write a JPEG into the camera roll.
      *
      * [takenAt] is passed in rather than read from the clock because a developed roll has to
@@ -125,13 +179,18 @@ class MediaStoreRepo(private val context: Context) {
         width: Int,
         height: Int,
         suffix: String? = null,
+        /** True for one of the four frames behind a strip: saved, but kept out of the roll. */
+        hidden: Boolean = false,
     ): Uri? = withContext(Dispatchers.IO) {
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date(takenAt))
         val tail = suffix?.let { "_$it" } ?: ""
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, "ROLL_$stamp$tail.jpg")
             put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-            put(MediaStore.Images.Media.RELATIVE_PATH, "DCIM/Camera")
+            put(
+                MediaStore.Images.Media.RELATIVE_PATH,
+                if (hidden) STRIP_PATH else "DCIM/Camera",
+            )
             put(MediaStore.Images.Media.DATE_TAKEN, takenAt)
             put(MediaStore.Images.Media.DATE_ADDED, takenAt / 1000)
             put(MediaStore.Images.Media.DATE_MODIFIED, takenAt / 1000)
@@ -185,6 +244,9 @@ class MediaStoreRepo(private val context: Context) {
     }
 
     private companion object {
+        /** Where the frames behind a strip go, and the one folder the roll never shows. */
+        const val STRIP_PATH = "DCIM/Roll Strips"
+
         const val TAG = "MediaStoreRepo"
     }
 }

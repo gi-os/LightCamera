@@ -827,10 +827,18 @@ object PuriArt {
      * every face: a booth covers the edges of a print in stars and leaves the faces alone, having
      * just spent all that effort on the eyes.
      */
-    fun plan(seed: Long, faces: List<FaceQuad>, withStickers: Boolean, withDate: Boolean): Plan {
+    fun plan(
+        seed: Long,
+        faces: List<FaceQuad>,
+        faceStickers: Boolean,
+        marginStickers: Boolean,
+        withDate: Boolean,
+    ): Plan {
         val rnd = Random(seed)
         val out = ArrayList<Placed>()
-        if (withStickers) {
+        // Rolled in a fixed order whether or not each kind is switched on, so that turning the margin
+        // stickers off does not silently change which ears you get.
+        if (faceStickers) {
             faces.forEach { f ->
                 if (rnd.nextFloat() < 0.65f) {
                     val head = stickers.filter { it.anchor == Anchor.Head }.random(rnd)
@@ -853,6 +861,8 @@ object PuriArt {
                     )
                 }
             }
+        }
+        if (marginStickers) {
             val free = stickers.filter { it.anchor == Anchor.Free }
             val count = 2 + rnd.nextInt(3)
             var tries = 0
