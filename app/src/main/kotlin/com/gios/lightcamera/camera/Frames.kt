@@ -53,9 +53,13 @@ object Frames {
         filter: Filters.Filter,
         aspect: FrameAspect,
         seed: Float,
+        stampAt: Long? = null,
     ): Processed {
         val needsCrop = aspect != FrameAspect.Full
-        if (filter.agsl == null && !needsCrop) {
+        // The date back costs a decode and a re-encode on a photograph that would otherwise have
+        // been written exactly as the camera produced it. That is the price of printing on the
+        // negative, it only applies when the stamp is on, and it is worth saying out loud.
+        if (filter.agsl == null && !needsCrop && stampAt == null) {
             val size = readSize(frame.jpeg)
             return Processed(frame.jpeg, size.first, size.second)
         }
@@ -68,6 +72,10 @@ object Frames {
             bitmap = downscaleIfHuge(bitmap)
             bitmap = ShaderRuntime.applyToBitmap(bitmap, filter, seed)
         }
+        // After the filter, always: a date back printed through the film gate, so the date is on
+        // the emulsion and not under it. Dithering the stamp along with the picture would turn the
+        // digits into confetti.
+        if (stampAt != null) bitmap = DateStamp.apply(bitmap, stampAt)
 
         val out = ByteArrayOutputStream(bitmap.width * bitmap.height / 6)
         bitmap.compress(Bitmap.CompressFormat.JPEG, QUALITY, out)
@@ -92,6 +100,7 @@ object Frames {
         filter: Filters.Filter,
         aspect: FrameAspect,
         seed: Float,
+        stampAt: Long? = null,
     ): Processed {
         var bitmap = preview
         if (rotationDegrees != 0) {

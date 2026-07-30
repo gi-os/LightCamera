@@ -334,8 +334,9 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     val seed = Random.nextFloat() * 1000f
                     val turn = engine.previewRotationDegrees()
                     val aspect = prefs.aspect.value
+                    val stampAt = if (prefs.dateStamp.value) System.currentTimeMillis() else null
                     val processed = withContext(Dispatchers.Default) {
-                        Frames.fromPreview(grabbed, turn, activeFilter, aspect, seed)
+                        Frames.fromPreview(grabbed, turn, activeFilter, aspect, seed, stampAt)
                     }
                     finish(processed, activeFilter.id)
                     return@launch
@@ -360,8 +361,9 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 // identical grain — and so the grain in the file is not the grain that
                 // happened to be on screen at the moment of the press.
                 val seed = Random.nextFloat() * 1000f
+                val stampAt = if (prefs.dateStamp.value) System.currentTimeMillis() else null
                 val processed = withContext(Dispatchers.Default) {
-                    Frames.process(frame, activeFilter, aspect, seed)
+                    Frames.process(frame, activeFilter, aspect, seed, stampAt)
                 }
 
                 finish(processed, activeFilter.id)

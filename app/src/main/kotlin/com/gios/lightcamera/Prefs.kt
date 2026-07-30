@@ -177,6 +177,12 @@ class Prefs(context: Context) {
     private val _sendToLightChat = MutableStateFlow(prefs.getBoolean(SEND_LIGHTCHAT, false))
     val sendToLightChat: StateFlow<Boolean> = _sendToLightChat.asStateFlow()
 
+    /**
+     * The quartz date back. Off by default — it writes on the photograph and there is no undo.
+     */
+    private val _dateStamp = MutableStateFlow(prefs.getBoolean(DATE_STAMP, false))
+    val dateStamp: StateFlow<Boolean> = _dateStamp.asStateFlow()
+
     /** The digicam focus beep and the shutter tick. */
     private val _sounds = MutableStateFlow(prefs.getBoolean(SOUNDS, true))
     val sounds: StateFlow<Boolean> = _sounds.asStateFlow()
@@ -223,6 +229,8 @@ class Prefs(context: Context) {
 
     fun setSounds(value: Boolean) = set(_sounds, value) { putBoolean(SOUNDS, value) }
 
+    fun setDateStamp(value: Boolean) = set(_dateStamp, value) { putBoolean(DATE_STAMP, value) }
+
     fun setColour(value: Colour) = set(_colour, value) { putString(COLOUR, value.name) }
 
     fun setSendToLightChat(value: Boolean) =
@@ -250,6 +258,7 @@ class Prefs(context: Context) {
         const val ROLL_LENGTH = "rollLength"
         const val WHEEL = "wheel"
         const val SOUNDS = "sounds"
+        const val DATE_STAMP = "dateStamp"
         const val COLOUR = "colour"
         const val SEND_LIGHTCHAT = "sendLightChat"
     }

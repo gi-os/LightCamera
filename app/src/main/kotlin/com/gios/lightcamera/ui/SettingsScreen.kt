@@ -59,6 +59,7 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
     val facePriority by vm.prefs.facePriority.collectAsState()
     val timer by vm.prefs.timer.collectAsState()
     val sounds by vm.prefs.sounds.collectAsState()
+    val dateStamp by vm.prefs.dateStamp.collectAsState()
     val colour by vm.prefs.colour.collectAsState()
     val sendChat by vm.prefs.sendToLightChat.collectAsState()
     val wheel by vm.prefs.wheelEnabled.collectAsState()
@@ -120,6 +121,14 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
             }
             Note(
                 "The viewfinder fills the screen and the sensor is 4:3, so the photograph keeps a little more than you saw — at the top and bottom of the frame.",
+            )
+
+            Section("Date")
+            Setting("Date stamp", if (dateStamp) "On" else "Off") {
+                vm.prefs.setDateStamp(!dateStamp)
+            }
+            Note(
+                "The quartz date back off a 1990s compact: month, day, apostrophe-year, in leaning amber dots in the corner of the frame. It is printed into the photograph, so it costs a decode and a re-encode on a shot that would otherwise be saved exactly as the camera made it — and there is no taking it off afterwards.",
             )
 
             Section("Colour")
