@@ -8,11 +8,11 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.gios.lightcamera.CaptureMode
-import com.gios.lightcamera.FlashMode
 import com.gios.lightcamera.Prefs
 import com.gios.lightcamera.camera.CameraEngine
 import com.gios.lightcamera.camera.DateStamp
 import com.gios.lightcamera.camera.FaceBox
+import com.gios.lightcamera.camera.FlashMode
 import com.gios.lightcamera.PhotoSize
 import com.gios.lightcamera.camera.FrameAspect
 import com.gios.lightcamera.camera.Frames
