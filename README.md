@@ -25,6 +25,7 @@ at the half press, `CAMERA` at the bottom. Nothing in LightOS uses the first one
 | Hold the wheel in and turn | Exposure compensation, in thirds of a stop |
 | Click the wheel | Torch |
 | Tap the frame | Focus there |
+| Double tap the frame | Switch lens |
 | Swipe the frame sideways | Next filter |
 | Swipe down | The roll |
 
@@ -86,18 +87,59 @@ The latest build is at <https://github.com/gi-os/LightControl/releases/latest>.
 The stock camera ships two drawables — `ic_camera_focus_locking`, four corner brackets, and
 `ic_camera_focus_locked`, a closed square. That is its entire focus vocabulary, so it is this
 app's too: **brackets while the lens hunts, closing into a box the moment it locks**, tweened
-over the 90 ms the lens actually takes. `AF-S`/`AF-C` sits in the top bar and inverts on lock,
-so autofocus is visibly on rather than something you infer.
+over the 90 ms the lens actually takes. `AF-S`/`AF-C` sits in the corner of the image and
+inverts — white on black becomes black on white — the moment focus locks, so autofocus is
+visibly on rather than something you infer.
 
 And it beeps. Two short blips and a buzz when the lens lands, one lower note when it gives
 up — synthesised PCM rather than shipped audio, on the sonification stream, silent when the
 phone is. It fires off the camera's own `CONTROL_AF_STATE`, so it means the lens has it, not
 that a request was sent.
 
-The viewfinder is otherwise as empty as the stock camera's: the image on top with only the
-focus marks and an `AF-S`/`AF-C` badge on it, one black band underneath holding album, lens,
-mode, flash and brightness, and a horizon line that appears only while the phone is crooked.
-The system bars are hidden, so the picture starts at the panel's top edge.
+## Held like a camera
+
+The whole app is drawn **a quarter turn round inside a portrait-locked window**, which is what
+the stock camera does. Nothing reflows, there is no landscape layout. Turn the phone
+anticlockwise the way you'd pick up a compact camera and everything is upright: the picture
+fills the width, the control band runs along the bottom, and the phone's camera key comes round
+to the top edge exactly where a shutter release belongs. Held in portrait, that band runs down
+the left-hand side.
+
+Three things fall out of it. Nothing moves while you shoot, because a layout that reflowed would
+swap the band from one edge to another as you turned the camera to frame something. Every
+spatial idea survives — the roll is still above the viewfinder and still arrives with a downward
+pull, because "down" in there is down in your hand. And a 4:3 sensor nearly fills a screen
+turned on its side, so almost nothing is cropped away; portrait was throwing out a third of it.
+
+The band is the stock four — **album, the mode slot, flash, brightness** — in the stock order and
+spacing, measured off a photograph of the real thing. The mode slot does the job "PHOTO ⌄" does
+there: it names what the camera is set to and opens the picker. Here that is the filter. The lens
+switch is a **double tap on the image**, which is where every other phone camera keeps it.
+
+The system bars are hidden, so the picture starts at the panel's edge. On the image itself there
+is only the focus mark, the `AF-S`/`AF-C` badge and a horizon line that appears while the phone
+is crooked.
+
+## The viewfinder is in colour
+
+The panel is a **full-colour AMOLED**; Light's black and white is Android's accessibility
+daltonizer pinned to monochromacy — a secure setting and a SurfaceFlinger colour matrix, so it
+lifts instantly with no restart. LightOS does the same thing itself for photos and video.
+
+Roll lifts it while the camera or a photograph is on screen and puts it back the moment the app
+is not in front, because the rest of the phone being grey is your setting and not the camera's.
+Half the filters here are about colour — Thermal is a false-colour ramp, Dither 16 is a
+sixteen-colour palette — and a grey viewfinder was misrepresenting the photograph.
+
+One adb grant, once:
+
+```sh
+adb shell pm grant com.gios.lightcamera android.permission.WRITE_SECURE_SETTINGS
+```
+
+The permission is `signature|privileged|development`, which is why adb can give it and the
+installer cannot. Without it the write is refused, nothing breaks, and everything stays grey.
+Settings → Colour chooses between the viewfinder only, the whole app, and off.
 
 ## Filters are AGSL, and the photo matches the frame
 
