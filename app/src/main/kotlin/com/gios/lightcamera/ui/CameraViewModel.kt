@@ -258,6 +258,25 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         LightHaptics.advance(getApplication<Application>())
         val now = System.currentTimeMillis()
         if (now < dialHeldUntil) return
+
+        // **Simple sits one notch before None on the same track.** The wheel is the one control this phone
+        // has that a camera doesn't, and taking it away in the mode you spend most of your time in would
+        // waste it — so a turn out of Simple lands on Pro with no filter, and carries on into the filters
+        // from there. A turn back at None returns to Simple. One dial, one line: Simple, None, Film, Mono,
+        // and so on.
+        if (prefs.mode.value.isSimple) {
+            if (by <= 0) return
+            setMode(CaptureMode.Photo)
+            prefs.setFilter(Filters.none.id)
+            dialHeldUntil = now + Filters.NONE_DWELL_MS
+            return
+        }
+        if (by < 0 && filter.value.id == Filters.none.id) {
+            setMode(CaptureMode.Simple)
+            dialHeldUntil = now + Filters.NONE_DWELL_MS
+            return
+        }
+
         val next = Filters.step(filter.value, by)
         prefs.setFilter(next.id)
         dialHeldUntil = now + Filters.dwellMs(next)

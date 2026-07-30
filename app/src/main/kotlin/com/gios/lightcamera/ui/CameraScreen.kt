@@ -273,10 +273,9 @@ fun CameraScreen(
     // **Nothing scrolls while the Purikura menu is open.** The menu is a list of five things you are
     // reading; a wheel that walked the filters underneath it would change the picture behind the menu
     // and take Purikura away, closing the menu you were using.
-    WheelTurns(
-        active = active && wheelEnabled && !evOpen && !puriOpen && !mode.isSimple,
-        armed = false,
-    ) { notches ->
+    // Live in Simple too: a turn there steps up into Pro and on into the filters, which is the one place
+    // the wheel is allowed to change the mode.
+    WheelTurns(active = active && wheelEnabled && !evOpen && !puriOpen, armed = false) { notches ->
         vm.stepFilter(if (notches > 0) 1 else -1)
     }
     // Exposure keeps both of its routes: the strip while it is open, and hold-and-turn always.
@@ -429,7 +428,7 @@ fun CameraScreen(
                                 engine.focusAt(x, y, lock = false)
                             },
                             onDoubleTap = { vm.flipLens() },
-                            onFilterStep = { if (!mode.isSimple) vm.stepFilter(it) },
+                            onFilterStep = { vm.stepFilter(it) },
                         ),
                 )
 

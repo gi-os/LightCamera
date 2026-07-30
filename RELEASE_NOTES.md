@@ -1,25 +1,12 @@
-## Roll v2.16 — Simple, and the camera opens on it
+## Roll v2.17 — the wheel walks out of Simple
 
-**Simple**
+Simple sits one notch before None on the same track, so the dial is one line: **Simple, None, Film, Mono,**
+and on through the filters. A turn forward out of Simple lands on Pro with no filter and keeps going; a turn
+back at None returns to Simple.
 
-The camera now opens on Simple every time, and the mode slot reads SIMPLE · PRO · VIDEO · SELFIE. Simple
-takes a photograph and does nothing else: no filter, no crop, no date, no self timer, no wheel, no grid.
-Everything Roll is proud of lives in Pro, exactly as it was.
+The wheel is the one control this phone has that a camera does not, and taking it away in the mode you spend
+most of your time in wasted it. This is also the only place the wheel is allowed to change the mode, which
+is worth saying out loud — it earns that by being the same gesture you were already using to choose a look.
 
-**Why it is quick, in the order that matters**
-
-1. **There is nothing to process.** With no filter, no crop and no date, the JPEG the ISP produced *is* the
-   file — it is written whole, no decode, no re-encode, EXIF intact. A filtered 12MP shot has to be decoded
-   into a 48MB bitmap, pushed through a shader and encoded again; not doing that is most of a second.
-2. **Twelve megapixels, not fifty.** Reading out and encoding the full sensor is most of the ISP's second
-   on its own, and each step down is roughly a halving. 12MP is four times the largest print anybody makes
-   from a phone.
-3. **No waiting for focus.** Continuous AF is already converged on whatever you are pointing at, so a press
-   means take it now. The two-stage focus-and-lock shutter is a Pro feature.
-
-Quality is not what is traded away — the file is the ISP's own output rather than something this app
-re-compressed, which if anything is the *better* image of the two.
-
-The size is set for the duration of the shot and put back afterwards, so passing through Simple never
-quietly rewrites a Pro setting. And Simple is not remembered between launches on purpose: whatever you
-were doing in Pro last night, pressing the camera key today means you want to take a photograph.
+Both ends of the join catch for a second and a half, the same dwell None has always had, so a fast spin
+cannot skate over the boundary between "just take a photograph" and everything else.
