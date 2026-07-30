@@ -117,7 +117,6 @@ fun CameraScreen(
     val torch by engine.torch.collectAsState()
     val notice by vm.notice.collectAsState()
     val countdown by vm.countdown.collectAsState()
-    val shooting by vm.shooting.collectAsState()
     val recording by engine.recording.collectAsState()
     val recordSeconds by vm.recordSeconds.collectAsState()
 
@@ -411,15 +410,10 @@ fun CameraScreen(
                         .padding(bottom = 14.dp),
                 )
 
-                if (shooting) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .height(2.dp)
-                            .background(colours.contentSecondary),
-                    )
-                }
+                // No progress bar while the shutter works. There was a hairline across the
+                // bottom of the frame here, and it was the wrong answer twice over: it drew on
+                // the picture, which nothing else in this app is allowed to do, and it was
+                // apologising for a wait that v1.8 mostly removed. The blink is the feedback.
             }
         }
 

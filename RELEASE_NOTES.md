@@ -31,3 +31,7 @@ JPEG quality is 92 rather than 95, which is invisible and shortens the encode.
 
 If it still feels slow after this, the next lever is a shutter that grabs the preview frame
 instead of taking a real capture — instant, at panel resolution. Say the word.
+
+**Also:** the white hairline that appeared across the bottom of the frame while the shutter
+worked is gone. It was drawing on the picture, which nothing else in this app is allowed to do,
+and it was apologising for a wait this release mostly removes. The blink is the feedback.
