@@ -118,8 +118,16 @@ fun RollScreen(
             }
 
             entries.isEmpty() && !loading -> EmptyState(
-                text = "Nothing on the roll yet.",
-                detail = "Swipe up and take a photograph.",
+                text = if (scope == RollScope.Favourites) {
+                    "Nothing starred yet."
+                } else {
+                    "Nothing on the roll yet."
+                },
+                detail = if (scope == RollScope.Favourites) {
+                    "Open a photograph and tap the star."
+                } else {
+                    "Swipe up and take a photograph."
+                },
             )
 
             // **The newest photograph goes bottom right.**
@@ -210,13 +218,10 @@ fun RollScreen(
                 lighten = true,
                 modifier = Modifier
                     .lightClickable {
-                        vm.prefs.setScope(
-                            if (scope == RollScope.Camera) {
-                                RollScope.Everything
-                            } else {
-                                RollScope.Camera
-                            },
-                        )
+                        // Three now: everything, the camera roll, the starred ones. A tap walks them,
+                        // which is the same shape as every other value in this app.
+                        val all = RollScope.entries
+                        vm.prefs.setScope(all[(all.indexOf(scope) + 1) % all.size])
                     }
                     .padding(horizontal = 8.dp, vertical = 6.dp),
             )

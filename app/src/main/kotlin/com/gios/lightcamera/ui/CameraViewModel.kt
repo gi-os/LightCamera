@@ -28,6 +28,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -56,7 +59,21 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     val roll: StateFlow<Roll?> get() = filmRoll.roll
 
     private val _photos = MutableStateFlow<List<Photo>>(emptyList())
-    val photos: StateFlow<List<Photo>> = _photos.asStateFlow()
+
+    /**
+     * The roll, narrowed to the starred ones when that is the scope.
+     *
+     * Derived rather than re-queried: starring a photograph should update the grid immediately, and a
+     * round trip to MediaStore for a filter this app already has in memory would be slower and would
+     * flicker. Declared here, above `init`, for the reason at the top of that block.
+     */
+    val photos: StateFlow<List<Photo>> = combine(
+        _photos,
+        prefs.favourites,
+        prefs.scope,
+    ) { list, starred, scope ->
+        if (scope == RollScope.Favourites) list.filter { it.name in starred } else list
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _loadingRoll = MutableStateFlow(true)
     val loadingRoll: StateFlow<Boolean> = _loadingRoll.asStateFlow()

@@ -1,4 +1,4 @@
-## Roll v2.14 — three sign errors and a switch
+## Roll v2.14 — favourites, three sign errors and a switch
 
 **Tapping a photograph opens that photograph**
 
@@ -25,3 +25,18 @@ different file; three of those now, which is enough to be a pattern worth rememb
 
 Settings → Camera. On by default, since it only appears when you are crooked and goes away a beat after
 you straighten up — but it is still a line through the middle of the frame.
+
+**Favourites**
+
+Open a photograph and tap the star. The roll's scope label walks three positions now — Camera roll, All
+photos, Starred — so the starred ones are a collection you can browse rather than a flag you can only see
+one photo at a time.
+
+Stored **by file name, not by MediaStore id**. An id is a row number: rescan the volume, move a file or
+restore a backup and the same photograph comes back with a different one, and a favourites list that
+quietly empties itself is worse than none. Unlike the Purikura settings this list is written to disk — a
+star is a statement about a photograph, and it should still be there next week.
+
+The grid narrows in memory rather than re-querying, so starring something updates it immediately instead
+of flickering through a round trip to MediaStore. `IS_FAVORITE` exists in MediaStore and would have been
+the tidy answer, but only the system gallery is allowed to write it.

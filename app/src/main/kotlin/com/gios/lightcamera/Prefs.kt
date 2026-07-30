@@ -299,6 +299,30 @@ class Prefs(context: Context) {
     )
 
     /**
+     * The photographs you starred, by file name.
+     *
+     * **By name, not by id.** A MediaStore id is a row number: rescan the volume, move a file, restore a
+     * backup, and the same photograph comes back with a different one — and a favourites list that
+     * quietly empties itself is worse than none. The name is what the file is called, which survives all
+     * of that.
+     *
+     * Persisted, unlike the Purikura settings: a star is a statement about a photograph, and it should
+     * still be there next week.
+     */
+    private val _favourites = MutableStateFlow(prefs.getStringSet(FAVOURITES, null)?.toSet() ?: emptySet())
+    val favourites: StateFlow<Set<String>> = _favourites.asStateFlow()
+
+    fun toggleFavourite(name: String): Boolean {
+        val next = _favourites.value.toMutableSet()
+        val starred = next.add(name)
+        if (!starred) next.remove(name)
+        set(_favourites, next.toSet()) { putStringSet(FAVOURITES, next) }
+        return starred
+    }
+
+    fun isFavourite(name: String): Boolean = name in _favourites.value
+
+    /**
      * The horizon line.
      *
      * On by default, because it only appears when the phone is crooked and disappears a beat after you
@@ -415,6 +439,7 @@ class Prefs(context: Context) {
         const val WHEEL = "wheel"
         const val SOUNDS = "sounds"
         const val LEVEL = "level"
+        const val FAVOURITES = "favourites"
         /** Kept only so an existing setting can be read forward once. */
         const val DATE_STAMP = "dateStamp"
         const val STAMP_PLAIN = "stampPlain"

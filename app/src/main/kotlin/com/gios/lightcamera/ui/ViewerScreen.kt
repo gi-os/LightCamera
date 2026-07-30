@@ -302,6 +302,20 @@ fun ViewerScreen(
                 // one are named from the same stamp, which is the only relationship MediaStore has
                 // anywhere to store.
                 val current = photoAt(pager.currentPage)
+                // The star. Filled when this photograph is in the list, outline when it is not — the two
+                // icons the SDK set already carries for exactly this.
+                val starred by vm.prefs.favourites.collectAsState()
+                if (current != null) {
+                    ChromeIcon(
+                        icon = if (current.name in starred) LightIcons.Star else LightIcons.StarOutline,
+                        lighten = current.name !in starred,
+                        onClick = {
+                            val nowStarred = vm.prefs.toggleFavourite(current.name)
+                            vm.showNotice(if (nowStarred) "Starred" else "Unstarred")
+                        },
+                    )
+                    Spacer(Modifier.weight(1f))
+                }
                 if (behind.isNotEmpty()) {
                     ChromeLabel(
                         text = "Strip",

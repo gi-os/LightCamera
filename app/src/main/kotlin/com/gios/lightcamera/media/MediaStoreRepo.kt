@@ -35,6 +35,16 @@ enum class RollScope(val label: String) {
 
     /** Every image on the device, screenshots and downloads included. */
     Everything("All photos"),
+
+    /**
+     * The ones you starred.
+     *
+     * Filtered in the view model rather than in the query, because MediaStore has nowhere to record that
+     * you liked something — `IS_FAVORITE` exists but only the system gallery may write it. So the star
+     * list lives in this app's own settings, keyed by file name, and the scope narrows whatever was
+     * loaded.
+     */
+    Favourites("Starred"),
 }
 
 /**
@@ -73,11 +83,13 @@ class MediaStoreRepo(private val context: Context) {
         val hide = "${MediaStore.Images.Media.RELATIVE_PATH} NOT LIKE ?"
         val selection = when (scope) {
             RollScope.Camera -> "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ? AND $hide"
-            RollScope.Everything -> hide
+            // Starred photographs can be anywhere, so the query is the wide one and the narrowing
+            // happens after.
+            RollScope.Everything, RollScope.Favourites -> hide
         }
         val args = when (scope) {
             RollScope.Camera -> arrayOf("DCIM/%", "$STRIP_PATH%")
-            RollScope.Everything -> arrayOf("$STRIP_PATH%")
+            RollScope.Everything, RollScope.Favourites -> arrayOf("$STRIP_PATH%")
         }
         // DATE_TAKEN is null for anything that isn't a photo with EXIF, so it can't be the
         // sort key on its own; COALESCE with DATE_ADDED, which is in seconds.
