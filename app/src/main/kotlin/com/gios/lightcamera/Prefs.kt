@@ -151,7 +151,7 @@ enum class SelfTimer(val seconds: Int, val label: String) {
  */
 class Prefs(context: Context) {
 
-    private val prefs = context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
+    private val prefs = context.getSharedPreferences(PrefsFile.NAME, Context.MODE_PRIVATE)
 
     private val _filterId = MutableStateFlow(prefs.getString(FILTER, "film") ?: "film")
     val filterId: StateFlow<String> = _filterId.asStateFlow()
@@ -503,18 +503,6 @@ class Prefs(context: Context) {
         prefs.edit().apply(write).apply()
     }
 
-    /**
-     * The two things another app needs to read a star without building this whole object.
-     *
-     * Public deliberately and kept to the minimum: `StarsProvider` can be queried while nothing else
-     * in the app is running, and constructing Prefs with its dozen state flows to answer a list of
-     * strings would be absurd.
-     */
-    companion object {
-        const val NAME = "camera"
-        const val FAVOURITES_KEY = "favourites"
-    }
-
     private companion object {
         const val FILTER = "filter"
         const val ASPECT = "aspect"
@@ -541,7 +529,7 @@ class Prefs(context: Context) {
         const val PURI_EYES = "puriEyes"
         const val PURI_CHIN = "puriChin"
         const val PURI_SLIM = "puriSlim"
-        const val FAVOURITES = "favourites"
+        const val FAVOURITES = PrefsFile.FAVOURITES
         /** Kept only so an existing setting can be read forward once. */
         const val DATE_STAMP = "dateStamp"
         const val STAMP_PLAIN = "stampPlain"
@@ -552,4 +540,20 @@ class Prefs(context: Context) {
         const val SEND_LIGHTCHAT = "sendLightChat"
         const val RECENT_RECIPIENTS = "recentRecipients"
     }
+}
+
+/**
+ * The two things another app needs to read a star without building the whole of [Prefs].
+ *
+ * A top-level object rather than a companion: [Prefs] already has one and it is private, a class may
+ * only have the one, and making that private companion public would export every preference key in
+ * the app to satisfy two of them.
+ *
+ * `StarsProvider` can be queried while nothing else here is running, and constructing Prefs with its
+ * dozen state flows to answer a list of strings would be absurd — so it opens the file itself, and
+ * these are the names it needs to do that.
+ */
+object PrefsFile {
+    const val NAME = "camera"
+    const val FAVOURITES = "favourites"
 }

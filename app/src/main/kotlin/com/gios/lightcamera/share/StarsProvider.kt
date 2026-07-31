@@ -5,7 +5,7 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
-import com.gios.lightcamera.Prefs
+import com.gios.lightcamera.PrefsFile
 
 /**
  * The photographs you starred, offered to the rest of the collection.
@@ -43,8 +43,8 @@ class StarsProvider : ContentProvider() {
         // part of the app is running, and building the whole Prefs object with its dozen state flows
         // to answer a list of strings would be absurd.
         val stars = runCatching {
-            context.getSharedPreferences(Prefs.NAME, android.content.Context.MODE_PRIVATE)
-                .getStringSet(Prefs.FAVOURITES_KEY, null)
+            context.getSharedPreferences(PrefsFile.NAME, android.content.Context.MODE_PRIVATE)
+                .getStringSet(PrefsFile.FAVOURITES, null)
                 .orEmpty()
         }.getOrDefault(emptySet())
         stars.sorted().forEach { cursor.addRow(arrayOf(it)) }
