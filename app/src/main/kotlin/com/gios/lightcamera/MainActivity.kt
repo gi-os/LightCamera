@@ -73,6 +73,7 @@ class MainActivity : ComponentActivity() {
 
         val captureOutput = intentCaptureOutput()
         val isCaptureRequest = captureOutput != null || isCaptureAction()
+        val plainCapture = isCaptureRequest && !intent.getBooleanExtra(EXTRA_ALLOW_FILTER, false)
 
         setContent {
             LightCameraTheme {
@@ -81,6 +82,7 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(vm) {
                     vm.captureRequestOutput = captureOutput
+                    if (plainCapture) vm.lockFilterPlain()
                     controls = LightControls(
                         activity = this@MainActivity,
                         wheel = wheel,
@@ -157,6 +159,24 @@ class MainActivity : ComponentActivity() {
     private fun isCaptureAction(): Boolean = when (intent?.action) {
         MediaStore.ACTION_IMAGE_CAPTURE, "android.media.action.IMAGE_CAPTURE_SECURE" -> true
         else -> false
+    }
+
+    companion object {
+        /**
+         * Set true by an `IMAGE_CAPTURE` caller that wants the filter dial left live.
+         *
+         * The default is the other way round — a capture request is served plain — because a
+         * filter is something the *user* chose for their own roll, and silently applying it to
+         * a photograph another app asked for breaks that app in a way neither of them can see.
+         * LightNotebook is the case that decided it: it hands a photographed page to Claude to
+         * read, and a dithered page is illegible, so "Roll had Game Boy selected three days
+         * ago" would surface as "the notebook can't read my handwriting".
+         *
+         * Opt-in rather than opt-out so a caller written before this existed gets the safe
+         * behaviour, and so the interesting case has to say what it wants: attaching a
+         * photograph to a note *should* offer the filters, and passes this.
+         */
+        const val EXTRA_ALLOW_FILTER = "com.gios.lightcamera.extra.ALLOW_FILTER"
     }
 
     private fun finishCaptureRequest(ok: Boolean, output: Uri?) {

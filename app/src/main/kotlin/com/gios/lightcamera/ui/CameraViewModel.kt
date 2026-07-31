@@ -173,6 +173,23 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private val _filter = MutableStateFlow(Filters.byId(prefs.filterId.value))
     val filter: StateFlow<Filters.Filter> = _filter.asStateFlow()
 
+    /**
+     * Locked to None while taking a photograph *for another app*.
+     *
+     * Another app asking for a picture is asking for the picture, not for whatever the dial
+     * happens to be resting on. A scanner, a form, or LightNotebook handing a page to Claude
+     * wants the page — and a Game Boy dither of a page is unreadable, which presents to the
+     * user as "the app can't read my handwriting" with nothing on screen to suggest why. So
+     * filters are **off by default for capture requests** and the caller has to ask for them
+     * with [MainActivity.EXTRA_ALLOW_FILTER].
+     *
+     * Declared above the `init` block on purpose: that block's collector runs synchronously
+     * inside the constructor and reads this flag, and a field declared below it would still be
+     * false there. See the note on `init` below — this is the same trap that shipped v1.5.6's
+     * instant crash, one field along.
+     */
+    private var filterLocked = false
+
     /** Seconds into the current take, for the readout. */
     private val _recordSeconds = MutableStateFlow(0)
     val recordSeconds: StateFlow<Int> = _recordSeconds.asStateFlow()
@@ -203,7 +220,10 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
      */
     init {
         viewModelScope.launch {
-            prefs.filterId.collect { id -> _filter.value = Filters.byId(id) }
+            // `filterLocked` gates this rather than the collector being skipped: the lock is
+            // set after construction, and a user changing the filter in the grid mid-request
+            // must not leak into somebody else's photograph either.
+            prefs.filterId.collect { id -> if (!filterLocked) _filter.value = Filters.byId(id) }
         }
         viewModelScope.launch {
             prefs.afMode.collect { engine.afMode = it }
@@ -302,6 +322,12 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
      * discarded.
      */
     fun stepFilter(by: Int) {
+        if (filterLocked) {
+            // No haptic: a notch that buzzes and does nothing reads as a broken dial, and here
+            // nothing is broken — the filter is deliberately not this photograph's to choose.
+            showNotice("Plain, for the app that asked")
+            return
+        }
         if (videoMode()) {
             showNotice("Filters are photo only")
             return
@@ -338,9 +364,22 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setFilter(id: String) {
+        if (filterLocked) return
         // Chosen deliberately from the grid, so the dial has no business holding on to it.
         dialHeldUntil = 0L
         prefs.setFilter(id)
+    }
+
+    /**
+     * Serve this capture request plain, whatever the dial says.
+     *
+     * Does **not** write to prefs: the user's own filter has to be exactly where they left it
+     * when they next open the app for themselves. This only moves the live value, and the
+     * prefs collector is gated on the same flag so a later write cannot undo it.
+     */
+    fun lockFilterPlain() {
+        filterLocked = true
+        _filter.value = Filters.none
     }
 
     /* ---------------- modes ---------------- */
