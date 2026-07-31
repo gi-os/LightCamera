@@ -78,6 +78,20 @@
               turnScreenOn is what lets the camera key work with the phone locked, and
               the app deliberately refuses to open the roll in that state.
         -->
+        <!--
+          The photographs you starred, offered to the rest of the collection.
+        
+          Read-only, and the smallest useful thing: a list of file names. It exists because a star is
+          the one fact about a photograph that only this app knows — everything else another app
+          wants is already in MediaStore, which is why LightNotebook can put your pictures on its
+          calendar with no bridge at all. MediaStore's IS_FAVORITE is effectively writable only by
+          the system gallery, so the list lives here and has to be handed over deliberately.
+        -->
+        <provider
+            android:name=".share.StarsProvider"
+            android:authorities="${applicationId}.stars"
+            android:exported="true" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

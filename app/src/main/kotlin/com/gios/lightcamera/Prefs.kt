@@ -151,7 +151,7 @@ enum class SelfTimer(val seconds: Int, val label: String) {
  */
 class Prefs(context: Context) {
 
-    private val prefs = context.getSharedPreferences("camera", Context.MODE_PRIVATE)
+    private val prefs = context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
 
     private val _filterId = MutableStateFlow(prefs.getString(FILTER, "film") ?: "film")
     val filterId: StateFlow<String> = _filterId.asStateFlow()
@@ -501,6 +501,18 @@ class Prefs(context: Context) {
     ) {
         flow.value = value
         prefs.edit().apply(write).apply()
+    }
+
+    /**
+     * The two things another app needs to read a star without building this whole object.
+     *
+     * Public deliberately and kept to the minimum: `StarsProvider` can be queried while nothing else
+     * in the app is running, and constructing Prefs with its dozen state flows to answer a list of
+     * strings would be absurd.
+     */
+    companion object {
+        const val NAME = "camera"
+        const val FAVOURITES_KEY = "favourites"
     }
 
     private companion object {
