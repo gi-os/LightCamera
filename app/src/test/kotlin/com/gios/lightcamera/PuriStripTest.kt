@@ -128,4 +128,64 @@ class PuriStripTest {
     private fun assertEquals(expected: Int, actual: Int, tolerance: Int) {
         assertTrue("expected $expected +/- $tolerance but was $actual", kotlin.math.abs(expected - actual) <= tolerance)
     }
+
+    /* ---------------- one shape for all four ---------------- */
+
+    @Test
+    fun `a frame the same shape is used whole`() {
+        val crop = PuriStrip.sourceCrop(1080, 1440, 1080, 1440)
+        assertEquals(0, crop.left)
+        assertEquals(0, crop.top)
+        assertEquals(1080, crop.width)
+        assertEquals(1440, crop.height)
+    }
+
+    @Test
+    fun `the same shape at another size is still used whole`() {
+        // The sheet is measured from the first frame, so a half-size frame of the same aspect is
+        // scaled, not cropped — that is drawBitmap's job and it does it without distortion.
+        val crop = PuriStrip.sourceCrop(540, 720, 1080, 1440)
+        assertEquals(540, crop.width)
+        assertEquals(720, crop.height)
+    }
+
+    @Test
+    fun `a landscape frame in a portrait cell is trimmed at the sides`() {
+        // The case that used to squash a face: 4:3 wide into a 3:4 tall cell.
+        val crop = PuriStrip.sourceCrop(1440, 1080, 1080, 1440)
+        assertEquals("full height kept", 1080, crop.height)
+        assertEquals(810, crop.width)
+        assertEquals("centred", (1440 - 810) / 2, crop.left)
+        assertEquals(0, crop.top)
+    }
+
+    @Test
+    fun `a portrait frame in a landscape cell is trimmed top and bottom`() {
+        val crop = PuriStrip.sourceCrop(1080, 1440, 1440, 1080)
+        assertEquals("full width kept", 1080, crop.width)
+        assertEquals(810, crop.height)
+        assertEquals(0, crop.left)
+        assertEquals("centred", (1440 - 810) / 2, crop.top)
+    }
+
+    @Test
+    fun `a crop never leaves the frame`() {
+        for (fw in intArrayOf(1, 17, 640, 1080, 4000)) {
+            for (fh in intArrayOf(1, 17, 640, 1440, 3000)) {
+                val crop = PuriStrip.sourceCrop(fw, fh, 1080, 1440)
+                assertTrue("left in range", crop.left >= 0 && crop.left < fw)
+                assertTrue("top in range", crop.top >= 0 && crop.top < fh)
+                assertTrue("right in range", crop.right in 1..fw)
+                assertTrue("bottom in range", crop.bottom in 1..fh)
+                assertTrue("non-empty", crop.width >= 1 && crop.height >= 1)
+            }
+        }
+    }
+
+    @Test
+    fun `a nonsense size asks for the whole frame rather than throwing`() {
+        val crop = PuriStrip.sourceCrop(0, 0, 1080, 1440)
+        assertEquals(0, crop.width)
+        assertEquals(0, crop.height)
+    }
 }

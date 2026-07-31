@@ -48,6 +48,38 @@ object PuriStrip {
     }
 
     /**
+     * The part of a frame that fills a cell, centred.
+     *
+     * Four photographs on one sheet are one object, so they have to be one shape. The sheet is
+     * measured from the first frame, and `drawBitmap` with a null source rect **stretches** — so a
+     * frame that came out the other way up used to be squashed into a cell built for its neighbour,
+     * which is what a mixed-orientation strip looked like. [Layout] can't fix that; the frames
+     * should never differ in the first place, and `shootStrip` locks the orientation for the whole
+     * sequence so they don't. This is the second line: given a frame that differs anyway — a lens
+     * rebind mid-sequence, a future caller composing older files — take the middle of it at the
+     * cell's aspect ratio rather than distorting a face.
+     */
+    fun sourceCrop(frameW: Int, frameH: Int, cellW: Int, cellH: Int): Cell {
+        if (frameW <= 0 || frameH <= 0 || cellW <= 0 || cellH <= 0) return Cell(0, 0, frameW, frameH)
+        val want = cellW.toFloat() / cellH
+        val have = frameW.toFloat() / frameH
+        // Within a rounding error of the same shape: use the whole frame, so the common case is
+        // byte for byte what it was before this existed.
+        if (kotlin.math.abs(want - have) < 0.001f) return Cell(0, 0, frameW, frameH)
+        return if (have > want) {
+            // Too wide: trim the sides.
+            val w = (frameH * want).roundToInt().coerceIn(1, frameW)
+            val left = (frameW - w) / 2
+            Cell(left, 0, left + w, frameH)
+        } else {
+            // Too tall: trim top and bottom.
+            val h = (frameW / want).roundToInt().coerceIn(1, frameH)
+            val top = (frameH - h) / 2
+            Cell(0, top, frameW, top + h)
+        }
+    }
+
+    /**
      * How four frames are arranged, and what is left blank around them.
      *
      * @param columns 1 for a strip, 2 for a sheet
@@ -214,7 +246,14 @@ object PuriStrip {
         }
 
         frames.take(SHOTS).forEachIndexed { index, frame ->
-            canvas.drawBitmap(frame, null, layout.cellAt(index, cellW, cellH).toRect(), null)
+            // Source rect rather than null: see [sourceCrop]. A frame the same shape as the first
+            // gives the whole bitmap back, so nothing changes for a strip that was already right.
+            canvas.drawBitmap(
+                frame,
+                sourceCrop(frame.width, frame.height, cellW, cellH).toRect(),
+                layout.cellAt(index, cellW, cellH).toRect(),
+                null,
+            )
         }
 
         if (layout.outerFrame) {

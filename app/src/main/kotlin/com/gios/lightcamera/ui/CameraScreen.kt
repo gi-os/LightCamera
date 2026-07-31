@@ -441,6 +441,10 @@ fun CameraScreen(
                             },
                             onDoubleTap = { vm.flipLens() },
                             onFilterStep = { vm.stepFilter(it) },
+                            // The ratio is applied to the zoom the pinch started from, so the
+                            // gesture is absolute rather than accumulating drift over a long one.
+                            onPinchStart = { engine.zoom.value },
+                            onPinch = { engine.setZoom(it) },
                         ),
                 )
 
@@ -1331,11 +1335,15 @@ private fun Modifier.viewfinderGestures(
     onTapFocus: (Float, Float) -> Unit,
     onDoubleTap: () -> Unit,
     onFilterStep: (Int) -> Unit,
+    onPinchStart: () -> Float,
+    onPinch: (Float) -> Unit,
 ): Modifier = this.then(
     Modifier.pointerInput(enabled) {
         if (!enabled) return@pointerInput
         val slopPx = 14.dp.toPx()
         val swipePx = 52.dp.toPx()
+        // Enough span change to be a pinch rather than a second thumb landing untidily.
+        val pinchSlopPx = 18.dp.toPx()
         // Kept across gestures, which is the only way to see a double tap: two taps are two
         // complete gestures, and the second only means anything in the light of the first.
         var lastTapAt = 0L
@@ -1346,9 +1354,42 @@ private fun Modifier.viewfinderGestures(
             var horizontal = false
             var decided = false
             var fired = false
+            // A pinch, once it starts, owns the rest of the gesture. Nothing else may fire from it.
+            var pinching = false
+            var startSpan = 0f
+            var startZoom = 1f
             while (true) {
                 val event = awaitPointerEvent(PointerEventPass.Initial)
                 if (event.changes.none { it.pressed }) break
+                val pressed = event.changes.filter { it.pressed }
+                if (pressed.size >= 2) {
+                    // **Two fingers are never anything else.** Before this, the second finger was
+                    // simply not looked at: the loop followed the first pointer only, so a pinch
+                    // arrived as one finger wandering sideways and stepped the filter instead of
+                    // zooming. Claiming the gesture here is what makes both work.
+                    val span = (pressed[0].position - pressed[1].position).getDistance()
+                    if (!pinching) {
+                        if (startSpan == 0f) startSpan = span
+                        if (abs(span - startSpan) > pinchSlopPx) {
+                            pinching = true
+                            // Suppress the single-finger readings: whatever the first pointer did
+                            // while the second was arriving is not a swipe and not a tap.
+                            decided = true
+                            fired = true
+                            startSpan = span
+                            startZoom = onPinchStart()
+                        }
+                    } else if (startSpan > 0f) {
+                        onPinch(startZoom * (span / startSpan))
+                    }
+                    event.changes.forEach { it.consume() }
+                    continue
+                }
+                if (pinching) {
+                    // A finger lifted mid-pinch. Don't resume swiping with what's left of it.
+                    event.changes.forEach { it.consume() }
+                    continue
+                }
                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
                 val delta = change.positionChange()
                 dx += delta.x
@@ -1365,7 +1406,7 @@ private fun Modifier.viewfinderGestures(
                     }
                 }
             }
-            if (!decided && abs(dx) < slopPx && abs(dy) < slopPx) {
+            if (!pinching && !decided && abs(dx) < slopPx && abs(dy) < slopPx) {
                 val now = System.currentTimeMillis()
                 if (now - lastTapAt < DOUBLE_TAP_MS) {
                     lastTapAt = 0L

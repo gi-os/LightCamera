@@ -878,6 +878,18 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val bitmaps = ArrayList<Bitmap>(PuriStrip.SHOTS)
             val takenAt = System.currentTimeMillis()
+            // **One orientation for all four, decided before the first frame.**
+            //
+            // Four photographs on a strip are one object, and the sheet is measured from the first
+            // of them — so a phone turned between shots used to give a strip of frames that didn't
+            // match, stretched into cells built for a different shape. Read the way up once, here,
+            // and hold it for the whole sequence. Turning the phone halfway through a booth
+            // countdown now changes nothing, which is the correct amount for it to change.
+            //
+            // The aspect ratio is pinned for the same reason and at the same moment: it is a setting,
+            // and a setting that moves mid-sequence is four photographs that don't stack.
+            val stripRotation = engine.previewRotationDegrees()
+            val stripAspect = prefs.aspect.value
             try {
                 for (shot in 1..PuriStrip.SHOTS) {
                     // Count in before every frame, including the first: a booth gives you a moment
@@ -908,9 +920,9 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     val processed = withContext(Dispatchers.Default) {
                         Frames.fromPreview(
                             preview = grabbed,
-                            rotationDegrees = engine.previewRotationDegrees(),
+                            rotationDegrees = stripRotation,
                             filter = activeFilter,
-                            aspect = prefs.aspect.value,
+                            aspect = stripAspect,
                             seed = Random.nextFloat() * 1000f,
                             faces = faces,
                             overlay = puri,
