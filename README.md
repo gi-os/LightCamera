@@ -12,11 +12,11 @@ It replaces both the stock Camera and the stock Album, and it can be set as the 
 default camera, so the hardware camera button opens this instead. It is not a fork — a
 full rewrite, and the app that has shipped the most releases in this collection.
 
-**Current version:** `versionName` in `app/build.gradle.kts` is `1.9.0`. The latest
-published release is `v1.8.11` (2026-07-30); one further commit sits on top of it,
-already carrying release notes for `v1.9` (shutter reliability, legible chrome, roll
-ordering) and the version bump, so a `v1.9.x` tag is the next push away. See
-[Version history](#version-history) for the full run from `v1.0.1`.
+**Current version:** `versionName` in `app/build.gradle.kts` is `2.34.0`, and the patch is
+the CI run number — so the release published from the current `main` is `v2.34.50`
+(2026-07-31), the one that made the shutter incapable of failing quietly and put filtered
+selfies the right way up. See [Version history](#version-history) for the full run from
+`v1.0.1`.
 
 ## Quick start
 
@@ -237,6 +237,13 @@ over a bitmap and you silently get nothing. `filter/ShaderRuntime.kt` drives a
 on screen. The alternative would have been a second, CPU implementation of every filter,
 drifting from the shader within a week.
 
+Because it is the GPU, it can decline: a driver has a maximum texture size, a compile can fail,
+and a full-resolution still is a much larger ask than a preview. So the still path is written to
+fail **soft** — `ShaderRuntime.applyToBitmap` hands back the bitmap it was given rather than
+throwing, and `Frames.process` catches everything, out-of-memory included, and writes the
+sensor's own frame. A filter that could not run costs you the filter. It must never cost you the
+photograph.
+
 ## Film-roll mode
 
 Load a roll of 12, 24 or 36. Photographs go into app-private storage instead of the gallery,
@@ -322,6 +329,7 @@ ui/         the two pages, the viewfinder chrome, the filter grid
 
 | Version | Date | Notes |
 |---|---|---|
+| `v2.34.50` | 2026-07-31 | **Filtered selfies come out the right way up, and the shutter can no longer fail in silence.** `Frames` mirrored the frame *before* turning it upright, and those two do not commute — a mirror followed by a quarter turn is the same transform as the quarter turn followed by a vertical flip, so every filtered photograph off the front lens was saved upside down and mirrored the wrong way, while an unfiltered one, written as the sensor's own bytes, never came through that code at all. The flipped EXIF orientations (`TRANSVERSE` and friends) are understood now too, so a HAL that has already declared the frame mirrored is not mirrored a second time. Alongside it, four ways the shutter could produce nothing at all: `takePicture` now has a twelve-second deadline, because a capture whose callback never arrived left `_shooting` latched and every later press was dropped without a word; a capture that misses the deadline saves the viewfinder frame rather than nothing; a filter that the GPU refuses on a full-resolution still now writes the unfiltered photograph instead of throwing out of the coroutine and killing the process; and every shooting routine catches everything and names it on the viewfinder. Also: a 50MP filtered capture no longer decodes 200MB of ARGB before scaling it straight back down, and pressing the shutter with the camera unbound says so instead of looking ordinary. |
 | `v2.34.x` (pending) | — | Serves the starred list to the rest of the collection, read-only, over `com.gios.lightcamera.stars`. A star is the one fact about a photograph only this app knows — everything else another app wants is already in MediaStore — and `IS_FAVORITE` is effectively writable only by the system gallery, so it has to be offered deliberately. Names, not ids: an id is a row number that changes on a rescan. [LightNotebook](https://github.com/gi-os/LightNotebook) uses it to pick which photograph goes behind a day on its planner. |
 | `v2.33.x` (pending) | — | Another app's `IMAGE_CAPTURE` request is now served **plain**, whatever the filter dial says, unless the caller passes `EXTRA_ALLOW_FILTER`. A filter is something the user chose for their own roll, and silently applying it to a photograph another app asked for breaks that app in a way neither of them can see — [LightNotebook](https://github.com/gi-os/LightNotebook) hands a photographed page to Claude to read, and a dithered page is illegible, so "Roll had Game Boy selected three days ago" surfaced there as "the notebook can't read my handwriting". Opt-in rather than opt-out, so a caller written before this gets the safe behaviour. |
 | `v1.9.x` (pending) | — | Drops zero shutter lag (it was the cause of "Shutter failed", not a fix for it — CameraX accepted the mode but refused the first captures while its buffer filled); moves every readout up two type-scale steps off the unreadable `Micro` size; fixes the roll grid so the newest photo lands bottom-right, not bottom-left, matching a real contact sheet. |

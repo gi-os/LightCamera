@@ -114,18 +114,26 @@ object ShaderRuntime {
         tune: FaceTune = FaceTune(),
     ): RenderEffect? {
         if (width <= 0 || height <= 0) return null
-        val shader = shader(filter) ?: return null
-        shader.setFloatUniform("size", width.toFloat(), height.toFloat())
-        shader.setFloatUniform("seed", seed)
-        setFaces(shader, filter, faces, tune)
-        return runCatching { RenderEffect.createRuntimeShaderEffect(shader, "src") }
-            .onFailure { Log.e(TAG, "effect failed for ${filter.id}", it) }
-            .getOrNull()
+        // The uniforms are inside the net along with the effect, for the same reason they are in
+        // [Offscreen.render]: this runs from a composition on the main thread, so a shader that turns
+        // out not to declare a uniform this code sets would take the app down rather than the filter.
+        return runCatching {
+            val shader = shader(filter) ?: return@runCatching null
+            shader.setFloatUniform("size", width.toFloat(), height.toFloat())
+            shader.setFloatUniform("seed", seed)
+            setFaces(shader, filter, faces, tune)
+            RenderEffect.createRuntimeShaderEffect(shader, "src")
+        }.onFailure { Log.e(TAG, "effect failed for ${filter.id}", it) }.getOrNull()
     }
 
     /**
      * One-shot filtering of a still. Convenient, but it builds and tears down a renderer
      * each time; the filter grid uses a long-lived [Offscreen] instead.
+     *
+     * **Returns the source unchanged when the filter cannot be run**, and never throws — callers on
+     * the shutter's path read that as "unfiltered", which is the right answer to a driver that will
+     * not give a texture this big or a shader the platform declines. The one thing it must never do
+     * is lose the frame.
      */
     fun applyToBitmap(
         source: Bitmap,
@@ -160,14 +168,24 @@ object ShaderRuntime {
         private val paint = Paint()
         private val owned = HashMap<String, RuntimeShader>()
 
+        /**
+         * Filter [source]. Null when the filter could not be run at all.
+         *
+         * **Total: it does not throw, whatever the platform says.** Every caller is on the way from a
+         * shutter press to a file, and there the only acceptable failure is an unfiltered photograph
+         * — so the uniforms, the shader compile, the recording and the read-back are all inside the
+         * same net. They were not, and the ones outside it were the interesting ones: setting a
+         * uniform a shader does not declare throws, and so does a `BitmapShader` over a bitmap that
+         * something else has already recycled.
+         */
         fun render(
             source: Bitmap,
             filter: Filters.Filter,
             seed: Float,
             faces: List<FaceQuad> = emptyList(),
             tune: FaceTune = FaceTune(),
-        ): Bitmap? {
-            val shader = shader(filter, owned) ?: return null
+        ): Bitmap? = runCatching {
+            val shader = shader(filter, owned) ?: return@runCatching null
             // The bitmap is sampled in its own pixel space, so `size` here is the image and
             // every pattern in the shader scales to it. Same numbers the preview uses,
             // which is what makes the capture match the viewfinder.
@@ -185,32 +203,36 @@ object ShaderRuntime {
             shader.setInputShader("src", bitmapShader)
             paint.shader = shader
 
+            // **`endRecording` in a `finally`, because a node left recording never recovers.** Every
+            // later `beginRecording` on it throws "Recording currently in progress", so one draw that
+            // failed halfway would take the filter grid's long-lived renderer down with it for good.
             val canvas = node.beginRecording()
-            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
-            node.endRecording()
+            try {
+                canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
+            } finally {
+                node.endRecording()
+            }
 
-            return runCatching {
-                renderer.createRenderRequest().setWaitForPresent(true).syncAndDraw()
-                val image = reader.acquireLatestImage() ?: return@runCatching null
+            renderer.createRenderRequest().setWaitForPresent(true).syncAndDraw()
+            val image = reader.acquireLatestImage() ?: return@runCatching null
+            try {
+                val buffer = image.hardwareBuffer ?: return@runCatching null
                 try {
-                    val buffer = image.hardwareBuffer ?: return@runCatching null
-                    try {
-                        val wrapped = Bitmap.wrapHardwareBuffer(
-                            buffer,
-                            ColorSpace.get(ColorSpace.Named.SRGB),
-                        ) ?: return@runCatching null
-                        // Copy out: the hardware bitmap is a view onto a buffer that is
-                        // about to be handed back to the reader, and JPEG encoding needs
-                        // pixels it can read on the CPU anyway.
-                        wrapped.copy(Bitmap.Config.ARGB_8888, false)
-                    } finally {
-                        buffer.close()
-                    }
+                    val wrapped = Bitmap.wrapHardwareBuffer(
+                        buffer,
+                        ColorSpace.get(ColorSpace.Named.SRGB),
+                    ) ?: return@runCatching null
+                    // Copy out: the hardware bitmap is a view onto a buffer that is
+                    // about to be handed back to the reader, and JPEG encoding needs
+                    // pixels it can read on the CPU anyway.
+                    wrapped.copy(Bitmap.Config.ARGB_8888, false)
                 } finally {
-                    image.close()
+                    buffer.close()
                 }
-            }.onFailure { Log.e(TAG, "offscreen render failed", it) }.getOrNull()
-        }
+            } finally {
+                image.close()
+            }
+        }.onFailure { Log.e(TAG, "offscreen render failed", it) }.getOrNull()
 
         fun close() {
             runCatching {

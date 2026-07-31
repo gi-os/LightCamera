@@ -30,6 +30,7 @@ import com.gios.lightcamera.media.Thumbs
 import com.gios.lightcamera.roll.FilmRoll
 import com.gios.lightcamera.roll.Roll
 import com.gios.lightcamera.ui.theme.LightHaptics
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -43,6 +44,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlin.random.Random
 
 /**
@@ -523,6 +525,15 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         if (_shooting.value) return
+        // **A camera that never came up has to say so, because the viewfinder cannot.** `rebind`
+        // unbinds before it binds, and a bind that fails — the front lens declining a configuration
+        // the back one accepted is the case that happens — leaves the panel showing the last frame
+        // the TextureView held, an `ImageCapture` attached to no camera, and a shutter that looks
+        // ordinary. This is the only place that can tell the difference.
+        if (!engine.ready.value) {
+            showNotice("Camera isn't ready")
+            return
+        }
         // **Simple: the shortest route from a press to a file.** No filter, no crop, no stamp, no timer
         // and no roll, so `Frames.process` recognises that there is nothing to do and writes the sensor's
         // own JPEG straight out — no decode of a huge bitmap, no re-encode, EXIF intact. Everything below
@@ -568,53 +579,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     filter.value.lowRes ||
                     filter.value.facesAware
                 ) {
-                    val grabbed = engine.previewFrame()
-                    if (grabbed == null) {
-                        showNotice("Nothing on the viewfinder yet")
-                        return@launch
-                    }
-                    _shutterTick.tryEmit(Unit)
-                    val activeFilter = filter.value
-                    val seed = Random.nextFloat() * 1000f
-                    val turn = engine.previewRotationDegrees()
-                    val aspect = prefs.aspect.value
-                    val stampAt = stampTime(activeFilter)
-                    // The faces as the preview found them, in the preview's own pixels. `fromPreview`
-                    // carries them through the turn and the crop, so the warp stays on the face.
-                    val faces = if (activeFilter.facesAware) {
-                        FaceQuads.of(engine.faces.value, grabbed.width, grabbed.height)
-                    } else {
-                        emptyList()
-                    }
-                    // A Purikura brings its own date — a bubble capsule, a ticket stub, one of
-                    // eight — so the ordinary date back stands down rather than both of them
-                    // printing into the same corner.
-                    // A Purikura's date is its own switch in its own menu, not the date back's:
-                    // they are different objects that happen to both be dates, and one of them is
-                    // random by design.
-                    val puri = puriOverlay(
-                        filter = activeFilter,
-                        withDate = prefs.puriDate.value != PuriArt.OFF,
-                        millis = System.currentTimeMillis(),
-                    )
-                    val processed = withContext(Dispatchers.Default) {
-                        Frames.fromPreview(
-                            preview = grabbed,
-                            rotationDegrees = turn,
-                            filter = activeFilter,
-                            aspect = aspect,
-                            seed = seed,
-                            stampAt = if (puri != null) null else stampAt,
-                            stampStyle = prefs.stampStyle.value,
-                            faces = faces,
-                            overlay = puri,
-                            tune = prefs.puriTune(),
-                        )
-                    }
-                    finish(processed, activeFilter.id)
-                    // A fresh arrangement for the next one, so two shots in a row are not the same
-                    // print with a different face in it.
-                    if (puri != null) reshufflePuri()
+                    if (!shootPanelFrame(click = true)) showNotice("Nothing on the viewfinder yet")
                     return@launch
                 }
 
@@ -643,7 +608,14 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
                 val startedAt = System.nanoTime()
-                val attempt = runCatching { engine.capture() }
+                // **A deadline on the capture, because a shutter that hangs never comes back.**
+                // `takePicture` reports both success and failure through a callback, and a HAL that
+                // delivers neither leaves this coroutine suspended for ever — with `_shooting` still
+                // latched, which is the first line of this function, so every press after it is
+                // dropped in silence and the only cure is force-stopping the app. Stills measure 1.8 s
+                // on this camera; twelve seconds is not a budget, it is the line past which the sensor
+                // has plainly stopped answering.
+                val attempt = runCatching { withTimeout(CAPTURE_DEADLINE_MS) { engine.capture() } }
                     .onFailure { Log.e(TAG, "capture failed", it) }
                 // Averaged over four, so one slow shot in the dark does not make every bar wrong afterwards.
                 val took = (System.nanoTime() - startedAt) / 1_000_000
@@ -654,11 +626,24 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 if (prefs.timings.value) showNotice("${took}ms shot")
                 val frame = attempt.getOrNull()
                 if (frame == null) {
-                    // Say *what* went wrong. "Shutter failed" cost a round trip to work out that
-                    // zero-shutter-lag was accepting the configuration and then refusing every
-                    // capture; the camera's own message would have named it.
+                    // **The frame on the panel rather than no photograph at all.** The shutter was
+                    // pressed and there is a picture on the screen; saving that is worse than the
+                    // capture would have been and better than everything else on offer. It also
+                    // means a camera whose stills unit has stopped answering degrades to a working
+                    // camera instead of a dead button.
+                    //
+                    // Say *what* went wrong either way. "Shutter failed" cost a round trip to work
+                    // out that zero-shutter-lag was accepting the configuration and then refusing
+                    // every capture; the camera's own message would have named it.
+                    val rescued = shootPanelFrame(click = false)
                     val why = attempt.exceptionOrNull()?.message?.take(48)
-                    showNotice(if (why.isNullOrBlank()) "Shutter failed" else "Shutter: $why")
+                    showNotice(
+                        when {
+                            rescued -> "Sensor didn't answer — saved the viewfinder frame"
+                            why.isNullOrBlank() -> "Shutter failed"
+                            else -> "Shutter: $why"
+                        },
+                    )
                     return@launch
                 }
                 val activeFilter = filter.value
@@ -673,6 +658,10 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 }
 
                 finish(processed, activeFilter.id)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                reportShutterFailure(failure)
             } finally {
                 // Let the picture go, whatever happened: saved, failed, or cancelled. A viewfinder frozen for
                 // ever is a worse bug than a slow one.
@@ -681,6 +670,77 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 _shooting.value = false
             }
         }
+    }
+
+    /**
+     * The photograph off the panel, filter and all. False when there was nothing there to take.
+     *
+     * The whole of `Screen` size and the only route the coarse and face-aware filters ever take —
+     * and, since the capture has a deadline now, what happens when the sensor does not answer. Its
+     * own function because it has two callers with two different ideas about the shutter click: at a
+     * deliberate panel grab the click *is* the exposure, while after a failed capture the click
+     * already sounded at the press and a second one would claim a second photograph.
+     */
+    private suspend fun shootPanelFrame(click: Boolean): Boolean {
+        val grabbed = engine.previewFrame() ?: return false
+        if (click) _shutterTick.tryEmit(Unit)
+        val activeFilter = filter.value
+        val seed = Random.nextFloat() * 1000f
+        val turn = engine.previewRotationDegrees()
+        val aspect = prefs.aspect.value
+        val stampAt = stampTime(activeFilter)
+        // The faces as the preview found them, in the preview's own pixels. `fromPreview`
+        // carries them through the turn and the crop, so the warp stays on the face.
+        val faces = if (activeFilter.facesAware) {
+            FaceQuads.of(engine.faces.value, grabbed.width, grabbed.height)
+        } else {
+            emptyList()
+        }
+        // A Purikura brings its own date — a bubble capsule, a ticket stub, one of
+        // eight — so the ordinary date back stands down rather than both of them
+        // printing into the same corner.
+        // A Purikura's date is its own switch in its own menu, not the date back's:
+        // they are different objects that happen to both be dates, and one of them is
+        // random by design.
+        val puri = puriOverlay(
+            filter = activeFilter,
+            withDate = prefs.puriDate.value != PuriArt.OFF,
+            millis = System.currentTimeMillis(),
+        )
+        val processed = withContext(Dispatchers.Default) {
+            Frames.fromPreview(
+                preview = grabbed,
+                rotationDegrees = turn,
+                filter = activeFilter,
+                aspect = aspect,
+                seed = seed,
+                stampAt = if (puri != null) null else stampAt,
+                stampStyle = prefs.stampStyle.value,
+                faces = faces,
+                overlay = puri,
+                tune = prefs.puriTune(),
+            )
+        }
+        finish(processed, activeFilter.id)
+        // A fresh arrangement for the next one, so two shots in a row are not the same
+        // print with a different face in it.
+        if (puri != null) reshufflePuri()
+        return true
+    }
+
+    /**
+     * A failed shutter, said out loud.
+     *
+     * **Nothing may leave the shutter quietly.** An exception out of one of these coroutines reaches
+     * `viewModelScope`, which has no handler of its own, so the process dies — and because the camera
+     * key relaunches Roll, that arrives as a shutter that did nothing rather than as a crash. Every
+     * shooting routine therefore catches everything and names it on the viewfinder, where the phone
+     * has no other way of telling you.
+     */
+    private fun reportShutterFailure(failure: Throwable) {
+        Log.e(TAG, "shutter failed", failure)
+        val why = failure.message?.take(48)
+        showNotice(if (why.isNullOrBlank()) "Shutter failed" else "Shutter: $why")
     }
 
     /**
@@ -745,39 +805,56 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 val takenAt = System.currentTimeMillis()
                 val stamp = if (prefs.stampPlain.value) prefs.stampStyle.value else null
                 val reportTimings = prefs.timings.value
+                // Its own catch, because it is its own coroutine: a throw in here would not pass
+                // through the one below it and would reach `viewModelScope` unhandled.
                 viewModelScope.launch {
-                    val savedAt = System.nanoTime()
-                    val size = Frames.sizeOf(frame.jpeg)
-                    val uri = repo.save(
-                        jpeg = frame.jpeg,
-                        takenAt = takenAt,
-                        width = size.first,
-                        height = size.second,
-                    )
-                    val saveMs = (System.nanoTime() - savedAt) / 1_000_000
-                    Log.i(TAG, "simple: shot ${captureMs}ms, save ${saveMs}ms, ${size.first}x${size.second}")
-                    // The achieved resolution is reported rather than assumed: an analysis stream is often
-                    // capped well below the sensor, and what this camera actually hands over is a fact
-                    // about the phone rather than something the code gets to decide.
-                    if (reportTimings) {
-                        val mp = (size.first.toLong() * size.second / 100_000) / 10.0
-                        showNotice("${captureMs}ms shot · ${saveMs}ms save · ${mp}MP")
-                    }
-                    if (uri == null) {
-                        showNotice("Couldn't save")
-                        return@launch
-                    }
-                    // The date goes on after the file exists, for the same reason: printing it means
-                    // decoding a 12MP JPEG and encoding it again, which is a second that has no business
-                    // being between a finger and a photograph. Worst case is an undated photograph.
-                    if (stamp != null) {
-                        val stamped = withContext(Dispatchers.Default) {
-                            DateStamp.applyTo(frame.jpeg, takenAt, stamp)
+                    try {
+                        val savedAt = System.nanoTime()
+                        val size = Frames.sizeOf(frame.jpeg)
+                        val uri = repo.save(
+                            jpeg = frame.jpeg,
+                            takenAt = takenAt,
+                            width = size.first,
+                            height = size.second,
+                        )
+                        val saveMs = (System.nanoTime() - savedAt) / 1_000_000
+                        Log.i(
+                            TAG,
+                            "simple: shot ${captureMs}ms, save ${saveMs}ms, " +
+                                "${size.first}x${size.second}",
+                        )
+                        // The achieved resolution is reported rather than assumed: an analysis stream is
+                        // often capped well below the sensor, and what this camera actually hands over is
+                        // a fact about the phone rather than something the code gets to decide.
+                        if (reportTimings) {
+                            val mp = (size.first.toLong() * size.second / 100_000) / 10.0
+                            showNotice("${captureMs}ms shot · ${saveMs}ms save · ${mp}MP")
                         }
-                        if (stamped != null) repo.rewrite(uri, stamped)
-                        refreshRoll()
+                        if (uri == null) {
+                            showNotice("Couldn't save")
+                            return@launch
+                        }
+                        // The date goes on after the file exists, for the same reason: printing it means
+                        // decoding a 12MP JPEG and encoding it again, which is a second that has no
+                        // business being between a finger and a photograph. Worst case is an undated
+                        // photograph.
+                        if (stamp != null) {
+                            val stamped = withContext(Dispatchers.Default) {
+                                DateStamp.applyTo(frame.jpeg, takenAt, stamp)
+                            }
+                            if (stamped != null) repo.rewrite(uri, stamped)
+                            refreshRoll()
+                        }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Throwable) {
+                        reportShutterFailure(failure)
                     }
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                reportShutterFailure(failure)
             } finally {
                 _shooting.value = false
             }
@@ -877,6 +954,10 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 )
                 if (uri == null) showNotice("Couldn't save the strip") else showNotice("Strip saved")
                 sheet.recycle()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                reportShutterFailure(failure)
             } finally {
                 bitmaps.forEach { it.recycle() }
                 _countdown.value = null
@@ -1004,5 +1085,14 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         /** The count-in before each frame of a strip. Long enough to change your face, not your mind. */
         const val STRIP_GAP_SECONDS = 3
         const val NOTICE_MS = 1_400L
+
+        /**
+         * How long the shutter waits for `takePicture` before it gives up on the sensor.
+         *
+         * Generous on purpose. A 50MP capture with the flash on auto is a slow thing on this phone
+         * and cutting a real photograph short would be the worse bug; this is only here to make sure
+         * a capture that is never coming cannot hold the shutter shut for ever.
+         */
+        const val CAPTURE_DEADLINE_MS = 12_000L
     }
 }
