@@ -1,36 +1,28 @@
-## Roll v2.34 — filtered selfies come out the right way up, and the shutter says something when it fails
+## Roll v2.35 — shake the phone to report a glitch
 
-**A mirror and a quarter turn do not commute.**
+**Shake Roll twice and a small SEND ERROR? chip appears in the corner; tap it and the phone files
+a GitHub issue against the private tracker.**
 
-`Frames` mirrored a captured frame first and turned it upright second. A mirror followed by a
-quarter turn is the same transform as the quarter turn followed by a *vertical* flip, so every
-filtered photograph taken on the front lens was saved upside down and mirrored the wrong way.
-An unfiltered selfie was fine, which is what hid it: with no filter, no crop and no date the
-sensor's own JPEG is the file and it never reaches that code. The mirror now happens after the
-rotation, in the finished frame's own axes.
+The report carries what went wrong, the build and firmware, how much space and heap were left, the
+last crash log if there is one, and — only while the row stays ticked — a screenshot of the moment
+you started shaking. The same sheet is on the settings screen under SEND A REPORT.
 
-The flipped EXIF orientations are understood too. A HAL that writes `TRANSVERSE` or
-`FLIP_HORIZONTAL` has already declared the frame mirrored, and mirroring it again for the
-selfie put it back exactly where it started — so the two now cancel.
+This is the same reporting that landed in gi-os/LightNotebook, ported deliberately unchanged. It is
+diagnostic UI rather than product surface, so it should look and behave identically in every app
+that has it: one learned gesture, not four.
 
-**Four ways the shutter could produce nothing at all**
+**Roll now has the INTERNET permission, which it never had before.**
 
-- `takePicture` reports success and failure through a callback, and a capture that delivers
-  neither used to leave the shooting flag latched. That flag is the first line of the shutter, so
-  every press after it was dropped without a word until the app was force-stopped. There is a
-  twelve-second deadline on the capture now — long enough that no real photograph is ever cut
-  short.
-- A capture that misses the deadline saves the frame on the viewfinder instead of nothing, and
-  says so. A camera whose stills unit has stopped answering degrades into a working camera.
-- A filter the GPU refuses on a full-resolution still used to throw out of the shutter's
-  coroutine, which has no handler, which kills the process — and since the camera key relaunches
-  Roll, that arrived as a shutter that had done nothing. Now the unfiltered photograph is written.
-  A filter that could not run costs you the filter, never the picture.
-- Every shooting routine catches everything and names it on the viewfinder.
+Worth saying plainly, because a camera app that can reach the network is a thing you should notice
+rather than discover. Roll holds the camera, the microphone, your contacts and your whole photo
+library, and until now it had no way to send any of it anywhere. It opens a socket in exactly one
+place — `report/Reports.kt`, after you have tapped SEND on a report you wrote yourself. Nothing is
+uploaded in the background, on launch, or on a timer.
 
-**Two things found on the way**
+The key it posts with can do one thing: file issues on one private repository. It cannot read that
+repository's contents, and it cannot touch any other repo. That constraint is why the screenshot
+travels as base64 inside the issue body rather than as a committed file.
 
-A 50-megapixel filtered capture was decoding all 200MB of it before scaling straight back down
-to fit a GPU texture; it samples down in the decoder now, for half a percent of a linear edge and
-150MB of peak. And pressing the shutter while the camera is unbound — a lens switch the phone
-refused, most likely — says "camera isn't ready" rather than looking ordinary and doing nothing.
+**The gesture is four reversals past 0.46g** — two quick shakes. It counts reversals rather than
+force, which is what separates it from a camera being carried, pointed and set down all day. Being
+wrong is meant to be cheap: the chip fades after four seconds and deletes nothing.

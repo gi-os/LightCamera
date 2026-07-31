@@ -39,6 +39,11 @@ jobs:
         run: ./gradlew :app:testDebugUnitTest --stacktrace
 
       - name: Build APKs
+        env:
+          # Scoped to issues:write on the private gi-os/light-reports repo and nothing else,
+          # because it ends up inside a sideloaded APK anyone can unzip. A missing secret is
+          # not a build failure: reports queue on the phone until a keyed build arrives.
+          REPORT_TOKEN: ${{ secrets.REPORT_TOKEN }}
         run: ./gradlew :app:assembleDebug :app:assembleRelease --stacktrace
 
       - name: Collect APK

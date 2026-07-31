@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Shake-to-report, and nothing else. Roll had no network permission at all before
+         this; it opens a socket only after you tap SEND on a report you wrote yourself.
+         See report/Reports.kt. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- The roll above the viewfinder is the device's real camera roll, not a private
          folder, so the whole of DCIM has to be readable. -->
