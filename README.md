@@ -12,11 +12,10 @@ It replaces both the stock Camera and the stock Album, and it can be set as the 
 default camera, so the hardware camera button opens this instead. It is not a fork — a
 full rewrite, and the app that has shipped the most releases in this collection.
 
-**Current version:** `versionName` in `app/build.gradle.kts` is `2.35.0`, and the patch is
-the CI run number — so the release published from the current `main` is `v2.35.x`
-(2026-07-31), the one that made the shutter incapable of failing quietly and put filtered
-selfies the right way up. See [Version history](#version-history) for the full run from
-`v1.0.1`.
+**Current version:** `versionName` in `app/build.gradle.kts` is `2.36.0`, and the patch is
+the CI run number — so the release published from the current `main` is `v2.36.x`
+(2026-08-01), the one that turned QR scanning into a camera mode. See
+[Version history](#version-history) for the full run from `v1.0.1`.
 
 ## Quick start
 
@@ -57,7 +56,7 @@ half press, `CAMERA` at the bottom — and nothing in stock LightOS uses the fir
 | Control | Does |
 |---|---|
 | Camera button, half press | Autofocus and lock on the nearest face, or the centre |
-| Camera button, pressed through | Shutter |
+| Camera button, pressed through | Shutter — in QR, opens the code on screen |
 | Either volume key | Shutter, as a fallback |
 | Turn the wheel | The next filter |
 | Hold the wheel in and turn | Exposure compensation, in thirds of a stop |
@@ -244,6 +243,52 @@ throwing, and `Frames.process` catches everything, out-of-memory included, and w
 sensor's own frame. A filter that could not run costs you the filter. It must never cost you the
 photograph.
 
+## QR is a mode, not an app
+
+Pick **QR** from the mode slot and the viewfinder starts decoding. Point it at a code and what it
+says comes up on screen; the camera button, or OPEN, does the obvious thing with it.
+
+**Nothing launches by itself, and that is the whole design.** Every other scanner opens the link
+the moment it reads one. On a phone whose camera is also its default camera that is a trap: you
+point it at a table to photograph the food, it reads the code on the menu, and a browser is now in
+front of the picture you were about to take. So a scan holds — the host is set large, the raw
+payload sits under it, and you decide. It is also the only defence anyone has against a sticker
+pasted over the QR code on a parking meter.
+
+Seven schemes are ever handed to the system:
+
+```
+http  https  tel  mailto  sms  smsto  geo
+```
+
+Anything else is text you can copy and nothing more, `intent:` URIs very much included. A QR code
+is a string a stranger printed on a wall, and `startActivity` on an arbitrary scheme is how a
+poster gets to poke at whatever handlers happen to be installed. The list lives in
+`Codes.openable`, which has no Android imports and is tested.
+
+Wi-Fi codes get taken apart rather than shown raw: `WIFI:S:…;T:WPA;P:…;;` arrives as a network
+name, a password large enough to read off the screen while you type it into a laptop, and a COPY
+PASSWORD row — because the password is the only part of that payload anybody wants. The parser
+honours the format's backslash escapes, which a `split(';')` does not; a password with a semicolon
+in it is exactly the kind of password people use.
+
+The mode is back-lens only, with no filters, no grid and no film counter. Filters are off for a
+reason worth stating: the decoder reads the camera's own frames, which a `RenderEffect` never
+touches, so a Game Boy viewfinder would carry on scanning perfectly while showing you something
+unreadable — a viewfinder that lies about why it failed. The flash slot becomes the torch, since a
+flash mode is a property of a capture and this mode takes none.
+
+Decoding is [ZXing](https://github.com/zxing/zxing), pure Java, inside the APK. ML Kit is the
+obvious choice on any other Android phone and is unavailable here: its barcode model is delivered
+through Play Services, which LightOS does not ship, so it would install, bind, and never return a
+result.
+
+Under it, an `ImageAnalysis` at 1280×720 bound in place of the shutter, and bound **only** in this
+mode — an analysis stream is a second full-rate consumer of the ISP, and leaving one attached in
+Photo would cost every shot for a feature nobody switched on. Frames are dropped rather than queued
+when a decode runs long, or the preview would stutter whenever you pointed the camera at something
+busy.
+
 ## Film-roll mode
 
 Load a roll of 12, 24 or 36. Photographs go into app-private storage instead of the gallery,
@@ -303,6 +348,7 @@ camera/     CameraX, hardware face detection, AF, capture, EXIF and cropping
 filter/     the AGSL sources and the two ways they get run
 hw/         the wheel and the two-stage camera button
 media/      MediaStore reads and writes, thumbnails
+qr/         QR mode: the ZXing analyser, and the payload rules it is judged by
 roll/       film-roll mode
 ui/         the two pages, the viewfinder chrome, the filter grid
 ```
@@ -329,7 +375,8 @@ ui/         the two pages, the viewfinder chrome, the filter grid
 
 | Version | Date | Notes |
 |---|---|---|
-| `v2.35.x` (pending) | — | **Shake the phone twice and a SEND ERROR? chip appears in the corner; tap it and Roll files a GitHub issue against the private tracker.** The report carries the symptom, an optional note, the build and firmware, free space and heap, the last crash log if there is one, and — only while the row stays ticked — a screenshot taken at the moment of the shake. Ported unchanged from [LightNotebook](https://github.com/gi-os/LightNotebook), deliberately: this is diagnostic UI, not product surface, so it should be one learned gesture across every app rather than four. **Roll gains the `INTERNET` permission, which it never had before** — worth noticing rather than discovering, in an app that holds the camera, the microphone, your contacts and your whole photo library. It opens a socket in exactly one place, `report/Reports.kt`, after you tap SEND on a report you wrote yourself; never in the background, on launch, or on a timer. The key it posts with can only file issues on one private repo — it cannot read that repo's contents or touch any other, which is why the screenshot travels as base64 in the issue body rather than as a committed file. The gesture counts *reversals* rather than force (four past 0.46g), which is what separates it from a camera being carried, pointed and set down all day; being wrong is cheap, because the chip fades after four seconds and deletes nothing. |
+| `v2.36.x` (pending) | — | **QR scanning is a camera mode.** Pick QR from the mode slot and the viewfinder starts reading codes; point it at one and the payload appears with OPEN and COPY under it. [LightQR](https://github.com/gi-os/LightQR) folded into the camera, because it was one launcher entry and one cold start away from a viewfinder that is already open. **Nothing opens by itself** — most scanners launch the link the instant they read one, which is wrong on a phone whose camera is also its default camera, so the destination is legible before anything is launched. Only seven schemes are ever handed on (`http`, `https`, `tel`, `mailto`, `sms`, `smsto`, `geo`); anything else, including `intent:` URIs, is text you can copy. Wi-Fi codes are parsed into a network name and a password with its own COPY row, honouring the format's backslash escapes — a `split(';')` cuts a password containing a semicolon in half. Two bugs came over from LightQR and are fixed: the analyser ignored the luminance plane's `rowStride`, so at any padded resolution the decoder saw a sheared image and never found a code; and `Patterns.WEB_URL` was deciding what a link was, which takes `1.2` and `v2.0` as web addresses. The camera button is the accept key rather than a scan trigger, the flash slot becomes the torch, and the mode is back-lens only with no filters, no grid and no film counter. `ImageAnalysis` at 1280×720 in place of the shutter, bound only in this mode; ZXing rather than ML Kit, which needs Play Services this phone does not have. |
+| `v2.35.x` | ff584c3 | **Shake the phone twice and a SEND ERROR? chip appears in the corner; tap it and Roll files a GitHub issue against the private tracker.** The report carries the symptom, an optional note, the build and firmware, free space and heap, the last crash log if there is one, and — only while the row stays ticked — a screenshot taken at the moment of the shake. Ported unchanged from [LightNotebook](https://github.com/gi-os/LightNotebook), deliberately: this is diagnostic UI, not product surface, so it should be one learned gesture across every app rather than four. **Roll gains the `INTERNET` permission, which it never had before** — worth noticing rather than discovering, in an app that holds the camera, the microphone, your contacts and your whole photo library. It opens a socket in exactly one place, `report/Reports.kt`, after you tap SEND on a report you wrote yourself; never in the background, on launch, or on a timer. The key it posts with can only file issues on one private repo — it cannot read that repo's contents or touch any other, which is why the screenshot travels as base64 in the issue body rather than as a committed file. The gesture counts *reversals* rather than force (four past 0.46g), which is what separates it from a camera being carried, pointed and set down all day; being wrong is cheap, because the chip fades after four seconds and deletes nothing. |
 | `v2.35.x` | 2026-07-31 | **A booth strip holds one orientation, and two fingers zoom.** The way up was read per frame inside the countdown loop, so turning the phone between shots gave four photographs of different shapes — and the sheet is measured from the first of them, with `drawBitmap` stretching the rest into cells built for it. The orientation and the aspect ratio are now read once, before the first frame, and held for the whole sequence; turning the phone mid-countdown changes nothing. `PuriStrip.sourceCrop` is the second line of that defence: a frame that differs anyway is centre-cropped to the cell's shape rather than distorted. Separately, the viewfinder only ever followed the first pointer, so a pinch arrived as one finger wandering sideways and **stepped the filter instead of zooming** — two fingers now claim the gesture outright, scaling from the zoom the pinch started at, and nothing else can fire from it. Double tap to swap lenses was already there and is no longer competing with a half-read pinch. |
 | `v2.34.50` | 2026-07-31 | **Filtered selfies come out the right way up, and the shutter can no longer fail in silence.** `Frames` mirrored the frame *before* turning it upright, and those two do not commute — a mirror followed by a quarter turn is the same transform as the quarter turn followed by a vertical flip, so every filtered photograph off the front lens was saved upside down and mirrored the wrong way, while an unfiltered one, written as the sensor's own bytes, never came through that code at all. The flipped EXIF orientations (`TRANSVERSE` and friends) are understood now too, so a HAL that has already declared the frame mirrored is not mirrored a second time. Alongside it, four ways the shutter could produce nothing at all: `takePicture` now has a twelve-second deadline, because a capture whose callback never arrived left `_shooting` latched and every later press was dropped without a word; a capture that misses the deadline saves the viewfinder frame rather than nothing; a filter that the GPU refuses on a full-resolution still now writes the unfiltered photograph instead of throwing out of the coroutine and killing the process; and every shooting routine catches everything and names it on the viewfinder. Also: a 50MP filtered capture no longer decodes 200MB of ARGB before scaling it straight back down, and pressing the shutter with the camera unbound says so instead of looking ordinary. |
 | `v2.34.x` (pending) | — | Serves the starred list to the rest of the collection, read-only, over `com.gios.lightcamera.stars`. A star is the one fact about a photograph only this app knows — everything else another app wants is already in MediaStore — and `IS_FAVORITE` is effectively writable only by the system gallery, so it has to be offered deliberately. Names, not ids: an id is a row number that changes on a rescan. [LightNotebook](https://github.com/gi-os/LightNotebook) uses it to pick which photograph goes behind a day on its planner. |

@@ -67,6 +67,7 @@ import com.gios.lightcamera.camera.PuriArt
 import com.gios.lightcamera.camera.PuriStrip
 import com.gios.lightcamera.filter.ShaderRuntime
 import com.gios.lightcamera.hw.CameraKeyAdvice
+import com.gios.lightcamera.qr.Codes
 import com.gios.lightcamera.hw.WheelTurns
 import com.gios.lightcamera.ui.theme.LightHaptics
 import com.gios.lightcamera.ui.theme.LightIcons
@@ -129,6 +130,7 @@ fun CameraScreen(
     val countdown by vm.countdown.collectAsState()
     val recording by engine.recording.collectAsState()
     val recordSeconds by vm.recordSeconds.collectAsState()
+    val scanned by vm.scan.collectAsState()
 
     var frameWidth by remember { mutableStateOf(0) }
     var frameHeight by remember { mutableStateOf(0) }
@@ -208,7 +210,11 @@ fun CameraScreen(
     // **Simple has no filter, and cannot be talked into one.** Not merely hidden: the shutter writes the
     // sensor's JPEG untouched, so a filtered preview would be promising something the file would not
     // deliver — the same reason video forces it off.
-    val liveFilter = if (mode == CaptureMode.Video || mode.isSimple) {
+    // QR joins them for a third reason: the analyser reads the camera's own frames, which a
+    // `RenderEffect` never touches, so a dithered viewfinder would be showing you a picture the
+    // decoder is not looking at — and half the filters here would make a code unreadable to a person
+    // while it carried on scanning perfectly, which is a viewfinder that lies about why it failed.
+    val liveFilter = if (mode == CaptureMode.Video || mode.isSimple || mode.isScan) {
         com.gios.lightcamera.filter.Filters.none
     } else {
         filter
@@ -383,23 +389,36 @@ fun CameraScreen(
                             }
                             Spacer(Modifier.weight(1f))
                         }
-                        ChromeIcon(
-                            icon = when (flash) {
-                                FlashMode.Off -> LightIcons.FlashOff
-                                FlashMode.On -> LightIcons.FlashOn
-                                FlashMode.Auto -> LightIcons.FlashAuto
-                            },
-                            lighten = flash == FlashMode.Off,
-                            onClick = {
-                                vm.prefs.setFlash(
-                                    when (flash) {
-                                        FlashMode.Off -> FlashMode.Auto
-                                        FlashMode.Auto -> FlashMode.On
-                                        FlashMode.On -> FlashMode.Off
-                                    },
-                                )
-                            },
-                        )
+                        // **The same slot, and in QR it is the torch.** A flash mode is a property
+                        // of a capture and QR takes none, so the control would be dead there — while
+                        // the thing you actually want in a dim restaurant, a lamp held on the code,
+                        // has no home in the chrome at all. Same icon, same place, and it is on or
+                        // off rather than a three-way cycle because a torch has two states.
+                        if (mode.isScan) {
+                            ChromeIcon(
+                                icon = if (torch) LightIcons.FlashOn else LightIcons.FlashOff,
+                                lighten = !torch,
+                                onClick = { engine.toggleTorch() },
+                            )
+                        } else {
+                            ChromeIcon(
+                                icon = when (flash) {
+                                    FlashMode.Off -> LightIcons.FlashOff
+                                    FlashMode.On -> LightIcons.FlashOn
+                                    FlashMode.Auto -> LightIcons.FlashAuto
+                                },
+                                lighten = flash == FlashMode.Off,
+                                onClick = {
+                                    vm.prefs.setFlash(
+                                        when (flash) {
+                                            FlashMode.Off -> FlashMode.Auto
+                                            FlashMode.Auto -> FlashMode.On
+                                            FlashMode.On -> FlashMode.Off
+                                        },
+                                    )
+                                },
+                            )
+                        }
                         if (!mode.isSimple) ChromeIcon(
                             icon = LightIcons.Exposure,
                             lighten = !evOpen && ev == 0,
@@ -520,9 +539,10 @@ fun CameraScreen(
                 }
 
                 FrameOverlay(
-                    // Simple draws no grid: the one decoration that is only useful when you are composing
-                    // deliberately, in the mode for when you are not.
-                    chrome = if (mode.isSimple) Chrome.Clean else chrome,
+                    // Simple draws no grid, and neither does QR: a rule-of-thirds grid is for
+                    // composing, and in QR the only thing on screen that should draw the eye is the
+                    // window you are meant to put the code in.
+                    chrome = if (mode.isSimple || mode.isScan) Chrome.Clean else chrome,
                     faces = faces,
                     priority = priority,
                     afState = afState,
@@ -574,6 +594,12 @@ fun CameraScreen(
                             size = Size(size.width * progress, size.height),
                         )
                     }
+                }
+
+                // The scanning window. Drawn only while nothing has been found, so the moment a code
+                // lands the marks come off and the sheet is the only thing on screen.
+                if (mode.isScan && scanned == null) {
+                    ScanWindow(Modifier.fillMaxSize())
                 }
 
                 if (blink > 0f) {
@@ -703,7 +729,18 @@ fun CameraScreen(
                 modifier = Modifier.padding(start = BAND),
             )
         }
-        if (roll != null && mode != CaptureMode.Video) {
+        scanned?.let { payload ->
+            ScanSheet(
+                raw = payload,
+                onOpen = { vm.openScan() },
+                onCopy = { vm.copyScan() },
+                onCopyPassword = { vm.copyScanPassword() },
+                onClose = { vm.dismissScan() },
+            )
+        }
+        // No counter in Video or QR: neither one spends a frame, and a film counter beside a mode
+        // that cannot advance it is a number that looks stuck.
+        if (roll != null && mode != CaptureMode.Video && !mode.isScan) {
             // The film counter down the far edge, opposite the band: it belongs to the
             // photograph rather than to the controls.
             Box(
@@ -755,7 +792,12 @@ fun CameraScreen(
 }
 
 /**
- * Camera, Video, Selfie — the stock camera's three, out of the same slot and in the same order.
+ * Camera, Video, Selfie — the stock camera's three, out of the same slot and in the same order,
+ * with QR on the end of them.
+ *
+ * QR is last rather than folded in among the picture-taking modes because it is the one entry that
+ * does not produce a photograph, and putting it between Video and Selfie would have it caught by
+ * somebody stepping through the modes looking for a camera.
  *
  * A strip beside the band rather than a sheet over the picture, so it reads as the band opening
  * out. Filters and settings are on the end of it because the viewfinder has no room for them and
@@ -1425,3 +1467,162 @@ private fun Modifier.viewfinderGestures(
 
 /** Long enough to be deliberate, short enough that two taps to focus aren't one gesture. */
 private const val DOUBLE_TAP_MS = 320L
+
+/**
+ * Where to point it, and nothing else.
+ *
+ * **Four corner marks, not a rectangle.** The decoder reads the whole frame — there is no crop and
+ * the window is not a boundary — so a closed box would be claiming a restriction the camera does not
+ * have, and people dutifully line codes up inside boxes that mean nothing. Corners read as *aim
+ * here*, which is true: a code near the middle is in focus and large in the frame, and both of those
+ * are what make it decode from across a room.
+ *
+ * Sized off the short edge in grid units like everything else in this app, so it is the same
+ * proportion of the panel whichever way the phone is held.
+ */
+@Composable
+private fun ScanWindow(modifier: Modifier = Modifier) {
+    val colours = LightThemeTokens.colors
+    Canvas(modifier) {
+        val short = minOf(size.width, size.height)
+        val side = short * 0.62f
+        val left = (size.width - side) / 2f
+        val top = (size.height - side) / 2f
+        val arm = side * 0.16f
+        val stroke = short / 220f
+        val corners = listOf(
+            // x, y, dx, dy for the two arms of each corner
+            Triple(Offset(left, top), Offset(arm, 0f), Offset(0f, arm)),
+            Triple(Offset(left + side, top), Offset(-arm, 0f), Offset(0f, arm)),
+            Triple(Offset(left, top + side), Offset(arm, 0f), Offset(0f, -arm)),
+            Triple(Offset(left + side, top + side), Offset(-arm, 0f), Offset(0f, -arm)),
+        )
+        corners.forEach { (corner, across, down) ->
+            drawLine(
+                color = colours.content,
+                start = corner,
+                end = Offset(corner.x + across.x, corner.y + across.y),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round,
+            )
+            drawLine(
+                color = colours.content,
+                start = corner,
+                end = Offset(corner.x + down.x, corner.y + down.y),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round,
+            )
+        }
+    }
+}
+
+/**
+ * What was scanned, over the picture, with the destination legible before anything is launched.
+ *
+ * **The whole screen, like the Purikura menu and for the same reason** — a payload can be a URL
+ * eighty characters long and this panel is 3.92" held sideways, so a strip beside the band would
+ * show a third of it. Covering the viewfinder is also honest here in a way it would not be in Pro:
+ * the camera has finished, there is nothing left to frame.
+ *
+ * Three rows at most, which is the LightOS bottom-bar rule applied to a sheet: OPEN, COPY, and the
+ * way out. A payload with nowhere to go drops OPEN rather than showing it greyed — a row you cannot
+ * press is a row explaining itself.
+ *
+ * The title is the host, or the network name, or the person's name — the part that answers "do I
+ * want this", set in Heading. The raw payload is underneath in Detail, scrollable, because on a code
+ * with a tracking query string forty characters long the thing that matters is the domain and the
+ * rest is evidence.
+ */
+@Composable
+private fun ScanSheet(
+    raw: String,
+    onOpen: () -> Unit,
+    onCopy: () -> Unit,
+    onCopyPassword: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colours = LightThemeTokens.colors
+    val kind = remember(raw) { Codes.kindOf(raw) }
+    val title = remember(raw) { Codes.title(raw) }
+    val target = remember(raw) { Codes.openable(raw) }
+    val wifi = remember(raw) { Codes.wifi(raw) }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(colours.background)
+            // Eats every touch, or the swipe down to the roll would drag the pager underneath it.
+            .swallowTaps(),
+    ) {
+        HeldSideways {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        LightText(Codes.heading(kind), LightTextVariant.Detail)
+                        Spacer(Modifier.weight(1f))
+                        ChromeIcon(icon = LightIcons.Close, lighten = true, onClick = onClose)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    LightText(title, LightTextVariant.Heading)
+                    Spacer(Modifier.height(8.dp))
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                    ) {
+                        if (wifi != null) {
+                            // A Wi-Fi code is the one payload whose parts are separately useful:
+                            // nobody wants `WIFI:S:...;T:WPA;P:...;;` on the clipboard, they want the
+                            // password, and they want to be able to read it off the screen while
+                            // typing it into a laptop.
+                            LightText("Network  ${wifi.ssid}", LightTextVariant.Detail, lighten = true)
+                            if (wifi.password.isNotEmpty()) {
+                                LightText(
+                                    "Password  ${wifi.password}",
+                                    LightTextVariant.Detail,
+                                    lighten = true,
+                                )
+                            }
+                            LightText(
+                                "Security  ${wifi.security.uppercase()}",
+                                LightTextVariant.Detail,
+                                lighten = true,
+                            )
+                        } else {
+                            LightText(raw, LightTextVariant.Detail, lighten = true)
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    if (target != null) {
+                        ScanAction(label = "Open", onTap = onOpen)
+                    }
+                    if (wifi != null && wifi.password.isNotEmpty()) {
+                        ScanAction(label = "Copy password", onTap = onCopyPassword)
+                    } else {
+                        ScanAction(label = "Copy", lighten = target != null, onTap = onCopy)
+                    }
+                    ScanAction(label = "Scan again", lighten = true, onTap = onClose)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ScanAction(label: String, lighten: Boolean = false, onTap: () -> Unit) {
+    LightText(
+        text = label.uppercase(),
+        variant = LightTextVariant.Button,
+        lighten = lighten,
+        modifier = Modifier
+            .fillMaxWidth()
+            .lightClickable { onTap() }
+            .padding(vertical = 12.dp),
+    )
+}

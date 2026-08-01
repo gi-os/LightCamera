@@ -35,7 +35,7 @@ android {
         targetSdk = 35
         // CI overwrites both from the workflow run number; see .github/workflows/build.yml
         versionCode = 1
-        versionName = "2.35.0"
+        versionName = "2.36.0"
 
         buildConfigField("String", "REPORT_TOKEN", "\"$reportToken\"")
         buildConfigField("String", "REPORT_REPO", "\"gi-os/light-reports\"")
@@ -97,6 +97,11 @@ dependencies {
     // Shake-to-report posts a GitHub issue. The only network this app does, and only ever
     // after you have tapped SEND on a report you wrote yourself.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // QR mode. ZXing rather than ML Kit, and not as a preference: ML Kit's barcode reader is
+    // delivered through Play Services, which LightOS does not have — it would bind and never
+    // answer. This is pure Java, 500 kB, and needs nothing from the platform. See qr/QrAnalyzer.kt.
+    implementation("com.google.zxing:core:3.5.3")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 

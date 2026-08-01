@@ -23,6 +23,9 @@ import com.gios.lightcamera.filter.FaceQuads
 import com.gios.lightcamera.filter.Filters
 import com.gios.lightcamera.filter.ShaderRuntime
 import com.gios.lightcamera.hw.Beeps
+import com.gios.lightcamera.qr.CodeHandoff
+import com.gios.lightcamera.qr.Codes
+import com.gios.lightcamera.qr.ScanGate
 import com.gios.lightcamera.media.MediaStoreRepo
 import com.gios.lightcamera.media.Photo
 import com.gios.lightcamera.media.RollScope
@@ -160,6 +163,22 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private val _notice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = _notice.asStateFlow()
 
+    /**
+     * The QR payload currently being offered, or null while the camera is still looking.
+     *
+     * **Held rather than acted on.** An early version opened links the instant it read one, which is
+     * how most scanners behave and is wrong on a phone whose camera is also its default camera: you
+     * point it at a table, it reads a code on a menu you did not mean to scan, and a browser is now
+     * in front of the picture you were about to take. So a scan puts a sheet up with the payload on
+     * it and waits — the destination is legible *before* anything is launched, which is the only
+     * defence a person has against a sticker over a QR code on a parking meter.
+     */
+    private val _scan = MutableStateFlow<String?>(null)
+    val scan: StateFlow<String?> = _scan.asStateFlow()
+
+    /** Decides which decoded frames are news; see [ScanGate]. */
+    private val scanGate = ScanGate()
+
     /** The most recent developed roll, so the contact sheet can be shown. */
     private val _developed = MutableStateFlow<FilmRoll.DevelopedRoll?>(null)
     val developed: StateFlow<FilmRoll.DevelopedRoll?> = _developed.asStateFlow()
@@ -269,6 +288,9 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             shutterTick.collect { if (prefs.sounds.value) beeps.shutter() }
         }
+        // Arrives on the camera's analysis thread, so it is hopped onto the view model's scope
+        // before it touches any state the UI is reading.
+        engine.onCode = { text -> viewModelScope.launch { onCodeRead(text) } }
         // The elapsed counter ticks only while something is being recorded, so an idle camera
         // isn't waking up once a second to look at a clock.
         viewModelScope.launch {
@@ -331,6 +353,13 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         if (videoMode()) {
+            showNotice("Filters are photo only")
+            return
+        }
+        // The wheel is a filter dial and QR has no filters, but it also must not silently walk the
+        // dial underneath a mode that isn't showing it — coming back to Pro to find a different
+        // filter on than the one you left is worse than the wheel doing nothing here.
+        if (prefs.mode.value.isScan) {
             showNotice("Filters are photo only")
             return
         }
@@ -398,6 +427,10 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         // which is most of a second that a mode whose whole argument is speed should not be spending. Off
         // by default there; explicitly turning it on in Simple still works.
         if (next.isSimple && prefs.flash.value == FlashMode.Auto) prefs.setFlash(FlashMode.Off)
+        // A result belongs to the mode that produced it. Leaving QR with the sheet up would carry a
+        // stale payload back into Pro, where the shutter would then try to open it.
+        _scan.value = null
+        scanGate.reset()
         prefs.setMode(next)
         engine.setMode(next, prefs.flash.value)
         showNotice(next.bandLabel)
@@ -408,6 +441,9 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         when (prefs.mode.value) {
             CaptureMode.Simple, CaptureMode.Photo -> setMode(CaptureMode.Selfie)
             CaptureMode.Selfie -> setMode(CaptureMode.Photo)
+            // Nothing to flip to: QR is the back lens by definition, and a double tap that quietly
+            // moved you into Selfie would be the camera changing mode behind your back.
+            CaptureMode.Scan -> showNotice("QR uses the back camera")
             CaptureMode.Video -> {
                 if (engine.recording.value) return
                 val front = engine.lensFacing.value ==
@@ -436,6 +472,77 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         }
         val started = engine.startRecording(withAudio = audioGranted)
         if (!started) showNotice("Couldn't start recording")
+    }
+
+    /* ---------------- QR ---------------- */
+
+    /**
+     * A frame that decoded. Most of them are the same code as the last twenty frames.
+     */
+    private fun onCodeRead(text: String) {
+        if (!prefs.mode.value.isScan) return
+        // The gate first and unconditionally, even when a sheet is already up: its window slides on
+        // every read, so a code sitting in frame while you read the result does not re-fire the
+        // moment you dismiss it.
+        if (!scanGate.accept(text, System.currentTimeMillis())) return
+        if (_scan.value != null) return
+        _scan.value = text
+        // The same two blips the lens makes when focus lands. A scan is the same event as far as the
+        // camera is concerned — it found the thing you pointed it at — and it needs to be felt,
+        // because you are looking at a poster rather than at the screen.
+        LightHaptics.click(getApplication<Application>())
+        if (prefs.sounds.value) beeps.focusLocked()
+    }
+
+    /** Put the sheet away and go back to looking. */
+    fun dismissScan() {
+        _scan.value = null
+    }
+
+    /**
+     * Do the obvious thing with the payload: open it if it is openable, copy it if it is not.
+     *
+     * Falling back to a copy rather than refusing, because "there is nothing to open" is a fact
+     * about the payload and not a mistake the user made — a Wi-Fi credential or a paragraph of text
+     * is still something they scanned on purpose and still something they want in hand.
+     */
+    fun openScan() {
+        val raw = _scan.value
+        if (raw == null) {
+            showNotice("Point at a code")
+            return
+        }
+        val target = Codes.openable(raw)
+        if (target == null) {
+            copyScan()
+            return
+        }
+        if (CodeHandoff.open(getApplication<Application>(), target)) {
+            dismissScan()
+        } else {
+            showNotice("Nothing here opens that")
+        }
+    }
+
+    /** The payload on the clipboard, verbatim. */
+    fun copyScan() {
+        val raw = _scan.value ?: return
+        CodeHandoff.copy(getApplication<Application>(), raw)
+        showNotice("Copied")
+        dismissScan()
+    }
+
+    /** Just the password out of a `WIFI:` payload — the only part of one anybody retypes. */
+    fun copyScanPassword() {
+        val raw = _scan.value ?: return
+        val password = Codes.wifi(raw)?.password.orEmpty()
+        if (password.isEmpty()) {
+            copyScan()
+            return
+        }
+        CodeHandoff.copy(getApplication<Application>(), password)
+        showNotice("Password copied")
+        dismissScan()
     }
 
     /* ---------------- the shutter ---------------- */
@@ -522,6 +629,14 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         // every camera with a video mode has always done.
         if (videoMode()) {
             toggleRecording()
+            return
+        }
+        // **In QR the shutter is the accept key.** It does not scan — the camera is already
+        // scanning, continuously, and a button that started that would be a button that did nothing
+        // visible. It commits to the result on screen, which is the one decision left to make and
+        // exactly what the hardware key is best at: your eyes are on the payload, not on the panel.
+        if (prefs.mode.value.isScan) {
+            openScan()
             return
         }
         if (_shooting.value) return

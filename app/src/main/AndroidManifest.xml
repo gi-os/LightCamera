@@ -57,6 +57,34 @@
             <action android:name="android.intent.action.SEND_MULTIPLE" />
             <data android:mimeType="image/*" />
         </intent>
+        <!--
+            QR mode hands a scanned payload to whatever handles its scheme. Declared here so the
+            phone's own handlers are visible to this app at all; the launch itself is a plain
+            `startActivity` in a `runCatching`, because `resolveActivity` answering null is not
+            evidence of anything under package visibility. The scheme list is closed on purpose and
+            matches `Codes.openable` — a QR code is a string a stranger printed on a wall, and
+            `intent:` URIs are the reason that matters.
+        -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="tel" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="mailto" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="smsto" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="geo" />
+        </intent>
     </queries>
 
     <application

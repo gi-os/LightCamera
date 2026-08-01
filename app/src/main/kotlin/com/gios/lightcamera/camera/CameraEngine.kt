@@ -47,6 +47,7 @@ import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import com.gios.lightcamera.CaptureMode
 import com.gios.lightcamera.PhotoSize
+import com.gios.lightcamera.qr.QrAnalyzer
 import androidx.lifecycle.LifecycleOwner
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -212,6 +213,15 @@ class CameraEngine(private val context: Context) {
     @Volatile private var imageAnalysis: ImageAnalysis? = null
 
     /**
+     * Where a decoded QR payload goes, set by the view model.
+     *
+     * Called on [captureExecutor], not the main thread — everything on the other end of it has to
+     * be safe to touch from a camera callback. It is a plain volatile field rather than a flow
+     * because the analyser is created inside `rebind` and would otherwise need one built per bind.
+     */
+    @Volatile var onCode: ((String) -> Unit)? = null
+
+    /**
      * The newest frame off the live stream, already in NV21, waiting to be asked for.
      *
      * Replaced thirty times a second and read once per shutter press. `@Volatile` rather than a lock: a
@@ -306,6 +316,9 @@ class CameraEngine(private val context: Context) {
         if (_recording.value) return
         runCatching { orientation.disable() }
         runCatching { provider?.unbindAll() }
+        // The analyser holds a reference to the view model through its callback and would otherwise
+        // keep decoding frames from a stream nobody is watching.
+        runCatching { imageAnalysis?.clearAnalyzer() }
         _faces.value = emptyList()
     }
 
@@ -339,7 +352,9 @@ class CameraEngine(private val context: Context) {
         if (_recording.value) return
         val lens = when (next) {
             CaptureMode.Selfie -> CameraSelector.LENS_FACING_FRONT
-            CaptureMode.Simple, CaptureMode.Photo -> CameraSelector.LENS_FACING_BACK
+            // QR is the back lens and cannot be talked out of it: the front camera on this phone is
+            // fixed focus and lower resolution, and a code held up to it is a code you cannot read.
+            CaptureMode.Simple, CaptureMode.Photo, CaptureMode.Scan -> CameraSelector.LENS_FACING_BACK
             // Video keeps whichever lens you were using; it is a mode, not a camera.
             CaptureMode.Video -> _lensFacing.value
         }
@@ -582,6 +597,47 @@ class CameraEngine(private val context: Context) {
         // everything that measured: the fast post-processing keys, zero shutter lag once the buffer is warm,
         // no auto-flash metering, the save off the critical path, and the date printed afterwards. The
         // shutter is 1.8 s on this hardware, and the instant option below is the honest way around it.
+        // **QR mode binds an `ImageAnalysis` where the other modes bind a shutter**, and it is built
+        // only in that mode: an analysis stream is a second full-rate consumer of the ISP, and
+        // leaving one attached in Photo would cost every shot for a feature nobody had switched on.
+        //
+        // 1280×720 rather than anything larger. A QR code is found from its three finder squares
+        // and the modules between them, and at 720p a code filling a third of the frame is still
+        // forty pixels across its smallest square — plenty. The cost is not the decode but the
+        // copy: [QrAnalyzer] walks the whole Y plane per frame, and 12MP of that twenty times a
+        // second would heat the phone to read a poster.
+        //
+        // `KEEP_ONLY_LATEST` is what makes a slow frame harmless. `TRY_HARDER` occasionally takes
+        // longer than a frame interval; with the default blocking strategy that back-pressures the
+        // camera and the *preview* stutters, which reads as the viewfinder breaking when you point
+        // it at something busy. Dropping the frames nobody will miss costs nothing — the next one
+        // is 33 ms away and the code has not moved.
+        imageAnalysis?.clearAnalyzer()
+        imageAnalysis = null
+        val analysis = if (mode.isScan) {
+            ImageAnalysis.Builder()
+                .setResolutionSelector(
+                    ResolutionSelector.Builder()
+                        .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
+                        .setResolutionStrategy(
+                            ResolutionStrategy(
+                                Size(1280, 720),
+                                ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER,
+                            ),
+                        )
+                        .build(),
+                )
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+                .build()
+                .also { unit ->
+                    unit.setAnalyzer(captureExecutor, QrAnalyzer { text -> onCode?.invoke(text) })
+                    imageAnalysis = unit
+                }
+        } else {
+            null
+        }
+
         val cameraSelector = CameraSelector.Builder()
             .requireLensFacing(_lensFacing.value)
             .build()
@@ -589,7 +645,13 @@ class CameraEngine(private val context: Context) {
         runCatching {
             provider.unbindAll()
             preview.setSurfaceProvider(view.surfaceProvider)
-            val second = if (mode == CaptureMode.Video) video else capture
+            // One use case beside the preview, whichever mode it is. Preview + capture + video is
+            // only guaranteed on LEVEL_3 hardware, and the same caution applies to the analyser.
+            val second = when {
+                mode == CaptureMode.Video -> video
+                analysis != null -> analysis
+                else -> capture
+            }
             val bound = provider.bindToLifecycle(owner, cameraSelector, preview, second)
             camera = bound
             readCameraLimits(bound)

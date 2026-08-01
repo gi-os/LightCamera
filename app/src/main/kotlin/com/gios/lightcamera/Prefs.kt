@@ -74,6 +74,20 @@ enum class CaptureMode(val label: String) {
     Photo("Pro"),
     Video("Video"),
     Selfie("Selfie"),
+
+    /**
+     * **The camera pointed at a code instead of at a picture.**
+     *
+     * A mode rather than a separate app, because it is the same sentence as every other mode here:
+     * point the camera at a thing, press the button, get the thing. LightQR was that app, and it was
+     * one launcher entry, one cold start and one camera bind away from the viewfinder that is
+     * already open — for a job that takes two seconds and is then over.
+     *
+     * Nothing is written and nothing lands on the roll: a scan produces a string, and the string is
+     * either opened or copied. Which is also why the shutter means something else here — see
+     * [com.gios.lightcamera.ui.CameraViewModel.shoot].
+     */
+    Scan("QR"),
     ;
 
     /** What the mode slot in the band reads. */
@@ -83,10 +97,14 @@ enum class CaptureMode(val label: String) {
             Photo -> "PRO"
             Video -> "VIDEO"
             Selfie -> "SELFIE"
+            Scan -> "QR"
         }
 
     /** True where the app gets out of the way: no filter, no crop, no stamp, no timer. */
     val isSimple: Boolean get() = this == Simple
+
+    /** True in the one mode that takes no photograph at all. */
+    val isScan: Boolean get() = this == Scan
 }
 
 /**
