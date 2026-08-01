@@ -1524,6 +1524,18 @@ private fun ScanWindow(modifier: Modifier = Modifier) {
  * show a third of it. Covering the viewfinder is also honest here in a way it would not be in Pro:
  * the camera has finished, there is nothing left to frame.
  *
+ * **It turns with the phone, and it is the only thing in the viewfinder that does.** Everything else
+ * here is chrome, and chrome is pinned sideways on purpose — you turn the phone anticlockwise to
+ * shoot, which brings the camera key round to the top edge where a shutter release belongs, and the
+ * band comes with it. A scan result is not chrome. It is a paragraph of text you stopped to read,
+ * and you read it holding the phone the way you were already holding it when you pointed it at the
+ * code — which, for a poster or a menu or a parking meter, is upright. The first version wrapped
+ * this in [HeldSideways] like every other panel and it was sideways text on an upright phone.
+ *
+ * So it is [RotatedToDevice] off the accelerometer instead: at 0 it lays out portrait and fills the
+ * long edge, at 90 it is exactly what [HeldSideways] used to give, and the 60° of hysteresis in
+ * [rememberDeviceQuarter] is what stops it flipping while you are halfway through reading it.
+ *
  * Three rows at most, which is the LightOS bottom-bar rule applied to a sheet: OPEN, COPY, and the
  * way out. A payload with nowhere to go drops OPEN rather than showing it greyed — a row you cannot
  * press is a row explaining itself.
@@ -1555,7 +1567,9 @@ private fun ScanSheet(
             // Eats every touch, or the swipe down to the roll would drag the pager underneath it.
             .swallowTaps(),
     ) {
-        HeldSideways {
+        // `opaque = false`: the Box above has already painted the background across the whole panel,
+        // and a second fill inside the rotation would letterbox the corners in a different black.
+        RotatedToDevice(quarter = rememberDeviceQuarter(), opaque = false) {
             Row(
                 modifier = Modifier
                     .fillMaxSize()
