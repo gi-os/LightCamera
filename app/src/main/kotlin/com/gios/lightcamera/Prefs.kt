@@ -6,6 +6,7 @@ import com.gios.lightcamera.camera.FlashMode
 import com.gios.lightcamera.camera.FrameAspect
 import com.gios.lightcamera.camera.PuriArt
 import com.gios.lightcamera.filter.FaceTune
+import com.gios.lightcamera.filter.Filters
 import com.gios.lightcamera.camera.PuriStrip
 import com.gios.lightcamera.media.RollScope
 import kotlin.random.Random
@@ -171,7 +172,26 @@ class Prefs(context: Context) {
 
     private val prefs = context.getSharedPreferences(PrefsFile.NAME, Context.MODE_PRIVATE)
 
-    private val _filterId = MutableStateFlow(prefs.getString(FILTER, "film") ?: "film")
+    /**
+     * **The camera opens plain, every time, and this is deliberately not persisted.**
+     *
+     * It used to be, seeded from `"film"`, which meant the filter you last chose was still on when
+     * you next reached for the camera — and a filter is not a setting, it is a decision you made
+     * about one photograph. The failure mode is the whole argument: you shoot a roll through Game
+     * Boy on a Tuesday, and on Thursday somebody does something worth photographing and you get a
+     * 160-cell dither of it. There is no undo on that. The reverse mistake costs one turn of the
+     * wheel.
+     *
+     * The same reasoning as [mode] below, and it is the reason both live in memory rather than in
+     * `SharedPreferences`: what the camera hands you when you open it should be a camera.
+     *
+     * **"Open" means the process starting, not every glance at the app.** The value survives for as
+     * long as Roll is alive, so walking to the roll, opening a photograph, going to settings and
+     * coming back leaves the dial exactly where you left it — resetting on every resume would take
+     * the filter away every time you checked the shot you just took, which is the one moment you are
+     * most likely to want another frame of the same thing.
+     */
+    private val _filterId = MutableStateFlow(Filters.none.id)
     val filterId: StateFlow<String> = _filterId.asStateFlow()
 
     /**
@@ -439,7 +459,9 @@ class Prefs(context: Context) {
     private val _wheelEnabled = MutableStateFlow(prefs.getBoolean(WHEEL, true))
     val wheelEnabled: StateFlow<Boolean> = _wheelEnabled.asStateFlow()
 
-    fun setFilter(id: String) = set(_filterId, id) { putString(FILTER, id) }
+    fun setFilter(id: String) {
+        _filterId.value = id
+    }
 
     fun setMode(value: CaptureMode) {
         _mode.value = value
@@ -522,7 +544,6 @@ class Prefs(context: Context) {
     }
 
     private companion object {
-        const val FILTER = "filter"
         const val ASPECT = "aspect"
         const val SIZE = "photoSize"
         const val CHROME = "chrome"
