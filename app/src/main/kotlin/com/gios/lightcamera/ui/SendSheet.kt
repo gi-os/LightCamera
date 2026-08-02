@@ -45,6 +45,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.gios.lightcamera.media.Photo
 import com.gios.lightcamera.send.ContactsRepo
+import com.gios.lightcamera.send.Group
+import com.gios.lightcamera.send.Groups
+import com.gios.lightcamera.send.GroupsRepo
 import com.gios.lightcamera.send.Handoff
 import com.gios.lightcamera.send.Recipient
 import com.gios.lightcamera.send.Recipients
@@ -73,6 +76,11 @@ import com.gios.lightcamera.ui.theme.lightTextStyle
  *
  * A full screen, not a sheet — LightOS has no bottom sheets, and something that half-covers a
  * photograph is a Material idiom rather than a Light one.
+ *
+ * **Groups sit above the address book**, because they are not in it and never can be — a group
+ * iMessage is a room on the server, not a person with a number. They come from LightChat's own
+ * list (see [GroupsRepo]); on a phone without it there are none and this screen is exactly what
+ * it was before.
  */
 @Composable
 fun SendSheet(
@@ -121,6 +129,17 @@ fun SendSheet(
         all = ContactsRepo(context).load()
     }
 
+    // Groups need no permission of ours — they come out of LightChat's provider, not the
+    // address book — but they are loaded on the same trigger anyway, because they are rendered
+    // above a list that isn't there until contacts are granted. Read once per opening rather
+    // than cached: the whole list is four fields per group, and a stale one would offer a
+    // thread that has since been renamed.
+    var groups by remember { mutableStateOf<List<Group>>(emptyList()) }
+    LaunchedEffect(granted) {
+        if (!granted) return@LaunchedEffect
+        groups = GroupsRepo(context).load()
+    }
+
     var query by remember { mutableStateOf("") }
 
     /**
@@ -131,7 +150,7 @@ fun SendSheet(
      * photograph to the wrong person, and there is no unsend. So a tap now *chooses*, and
      * sending is its own deliberate act.
      */
-    var chosen by remember { mutableStateOf<Recipient?>(null) }
+    var chosen by remember { mutableStateOf<Choice?>(null) }
 
     // Back steps out of the choice before it steps out of the picker — one level at a time,
     // the same expectation as everywhere else. Only then does it close, landing where you
@@ -176,7 +195,11 @@ fun SendSheet(
         // making you cancel first.
         val picked = chosen
         if (picked != null) {
-            val address = picked.forPhoto
+            // A person can be picked and still have nowhere to send to; a group always has its
+            // room. Resolved once here so the confirmation line, the dimming and the send all
+            // read the same answer.
+            val address = (picked as? Choice.Person)?.who?.forPhoto
+            val sendable = picked is Choice.Chat || address != null
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -197,9 +220,14 @@ fun SendSheet(
                 )
                 // The number it is actually going to, spelled out. A contact with several is
                 // the case where a confirmation step earns its keep — this is the line that
-                // catches a photograph about to go to somebody's old landline.
+                // catches a photograph about to go to somebody's old landline. A group has no
+                // number to check, so it says how many people are about to see the photograph,
+                // which is the fact worth a second look on that side.
                 LightText(
-                    text = address?.raw ?: "No way to reach them",
+                    text = when (picked) {
+                        is Choice.Chat -> picked.group.subtitle
+                        is Choice.Person -> address?.raw ?: "No way to reach them"
+                    },
                     variant = LightTextVariant.Detail,
                     lighten = true,
                     maxLines = 1,
@@ -221,12 +249,21 @@ fun SendSheet(
                         variant = LightTextVariant.Button,
                         // Dimmed rather than hidden when there is nowhere to send: the reason
                         // is on the line above it, and a button that vanishes explains nothing.
-                        lighten = address == null,
-                        modifier = Modifier.lightClickable(enabled = address != null) {
-                            if (address == null) return@lightClickable
-                            when (val outcome = Handoff.send(context, photos.map { it.uri }, address)) {
+                        lighten = !sendable,
+                        modifier = Modifier.lightClickable(enabled = sendable) {
+                            val uris = photos.map { it.uri }
+                            val outcome = when (picked) {
+                                is Choice.Chat -> Handoff.sendToGroup(context, uris, picked.group)
+                                is Choice.Person ->
+                                    address?.let { Handoff.send(context, uris, it) }
+                                        ?: return@lightClickable
+                            }
+                            when (outcome) {
                                 is Handoff.Outcome.Sent -> {
-                                    onRemember(address.key)
+                                    // Recents are an address-book idea and groups are ordered by
+                                    // their own last activity already, which is a better signal
+                                    // than this and doesn't spend one of six slots.
+                                    if (picked is Choice.Person) address?.let { onRemember(it.key) }
                                     onClose()
                                 }
                                 Handoff.Outcome.Chooser -> {
@@ -313,6 +350,16 @@ fun SendSheet(
                         Recipients.Ordered(emptyList(), filtered)
                     }
                 }
+                // At rest, the few most recently active. Once something has been typed, every
+                // group that matches it — the cap exists to stop groups pushing contacts off
+                // the resting screen, and a search has already narrowed the screen.
+                val shownGroups = remember(groups, query) {
+                    if (query.isBlank()) {
+                        groups.take(Groups.RESTING)
+                    } else {
+                        groups.filter { Groups.matches(it, query) }
+                    }
+                }
 
                 SearchField(
                     value = query,
@@ -322,23 +369,46 @@ fun SendSheet(
 
                 // Tapping a name selects it. Tapping the one already selected clears it, so
                 // the gesture that chose is also the gesture that un-chooses.
-                val choose: (Recipient) -> Unit = { who ->
-                    chosen = if (chosen?.id == who.id) null else who
+                val choose: (Choice) -> Unit = { next ->
+                    chosen = if (chosen == next) null else next
                 }
 
-                if (loaded.isEmpty()) {
+                if (loaded.isEmpty() && shownGroups.isEmpty()) {
                     EmptyState(
                         text = "No contacts on this phone.",
                         detail = "Add somebody to the address book and they will appear here.",
                     )
-                } else if (filtered.isEmpty()) {
+                } else if (filtered.isEmpty() && shownGroups.isEmpty()) {
                     EmptyState(text = "Nobody matches “${query.trim()}”.")
                 } else {
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        // Above everything, including recents. A group is the thing you cannot
+                        // reach any other way from here, and there are at most five of them.
+                        if (shownGroups.isNotEmpty()) {
+                            item(key = "groups-heading") { SectionHeading("GROUPS") }
+                            items(shownGroups, key = { "group-${it.guid}" }) { group ->
+                                val choice = Choice.Chat(group)
+                                PickerRow(
+                                    title = group.name,
+                                    subtitle = group.subtitle,
+                                    chosen = chosen == choice,
+                                    onClick = { choose(choice) },
+                                )
+                            }
+                            item(key = "groups-rule") {
+                                HorizontalDivider(
+                                    thickness = 1.dp,
+                                    color = colours.rule,
+                                    modifier = Modifier.padding(vertical = 6.dp),
+                                )
+                            }
+                        }
                         if (ordered.recent.isNotEmpty()) {
                             item(key = "recent-heading") { SectionHeading("RECENT") }
                             items(ordered.recent, key = { "recent-${it.id}" }) { who ->
-                                RecipientRow(who, chosen = chosen?.id == who.id, onClick = { choose(who) })
+                                RecipientRow(who, chosen = chosen == Choice.Person(who)) {
+                                    choose(Choice.Person(who))
+                                }
                             }
                             item(key = "recent-rule") {
                                 HorizontalDivider(
@@ -349,7 +419,9 @@ fun SendSheet(
                             }
                         }
                         items(ordered.rest, key = { it.id }) { who ->
-                            RecipientRow(who, chosen = chosen?.id == who.id, onClick = { choose(who) })
+                            RecipientRow(who, chosen = chosen == Choice.Person(who)) {
+                                choose(Choice.Person(who))
+                            }
                         }
                         // The last row clears the gesture strip.
                         item(key = "tail") { Spacer(Modifier.height(4f.gridUnitsAsDp())) }
@@ -405,6 +477,30 @@ private fun SectionHeading(text: String) {
 }
 
 /**
+ * What the picker is currently pointed at.
+ *
+ * A sealed pair rather than one nullable-everything row type, because the two cases diverge at
+ * exactly one point — the send — and everywhere else they are a name and a second line. Making
+ * that divergence a `when` the compiler checks is the cheapest way to be sure a group never
+ * takes the address path, which is the failure that would look like success: LightChat would
+ * receive the photographs with no recipient and wait for a thread to be opened.
+ *
+ * Data classes, so equality is by value: the selection is compared against freshly built
+ * instances while the list recomposes, and identity would never match.
+ */
+private sealed interface Choice {
+    val name: String
+
+    data class Person(val who: Recipient) : Choice {
+        override val name: String get() = who.name
+    }
+
+    data class Chat(val group: Group) : Choice {
+        override val name: String get() = group.name
+    }
+}
+
+/**
  * One person. Name over address, which is the SDK's list row — `copy` over `detail`.
  *
  * No avatar. Contact photos are a colour circle on a greyscale panel, and reading them means a
@@ -412,6 +508,20 @@ private fun SectionHeading(text: String) {
  */
 @Composable
 private fun RecipientRow(who: Recipient, chosen: Boolean, onClick: () -> Unit) {
+    PickerRow(title = who.name, subtitle = who.subtitle, chosen = chosen, onClick = onClick)
+}
+
+/**
+ * A row in the picker, whoever it names.
+ *
+ * Groups and people share it deliberately. They are different kinds of destination and the
+ * temptation is to mark the difference — an icon, an indent, a different weight — but on this
+ * panel that reads as two lists that happen to be adjacent. The heading above already says
+ * which is which, and the second line ("4 people" against a phone number) says it again. What
+ * the user is doing is picking one name.
+ */
+@Composable
+private fun PickerRow(title: String, subtitle: String, chosen: Boolean, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -419,19 +529,18 @@ private fun RecipientRow(who: Recipient, chosen: Boolean, onClick: () -> Unit) {
             .padding(horizontal = 1f.gridUnitsAsDp(), vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-      Column(modifier = Modifier.weight(1f)) {
-        LightText(who.name, LightTextVariant.Copy, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        val subtitle = who.subtitle
-        if (subtitle.isNotBlank()) {
-            LightText(
-                subtitle,
-                LightTextVariant.Detail,
-                lighten = true,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        Column(modifier = Modifier.weight(1f)) {
+            LightText(title, LightTextVariant.Copy, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (subtitle.isNotBlank()) {
+                LightText(
+                    subtitle,
+                    LightTextVariant.Detail,
+                    lighten = true,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
-      }
         // The same mark the roll uses for a picked frame, so "chosen" looks the same
         // wherever it appears.
         if (chosen) {

@@ -38,6 +38,19 @@ object Handoff {
      */
     const val EXTRA_ADDRESS = "address"
 
+    /**
+     * The chat room, for a group.
+     *
+     * Private between this app and LightChat, and it has to be: AOSP's model of a recipient is
+     * an address, and a group iMessage does not have one. It is a room on the server whose
+     * membership is a property of the room rather than a way to reach it, so there is no
+     * convention to follow here and nothing else on the phone would know what to do with it.
+     * That is also why a group send never falls back to another app (see [sendToGroup]) — the
+     * one thing every other receiver would do with this intent is ignore the extra and lose the
+     * group.
+     */
+    const val EXTRA_CHAT_GUID = "chat_guid"
+
     sealed interface Outcome {
         /** Opened [pkg] with the photographs attached and the recipient filled in. */
         data class Sent(val pkg: String) : Outcome
@@ -114,6 +127,36 @@ object Handoff {
     }
 
     /**
+     * Sends [uris] to [group].
+     *
+     * **No chooser, and no second-choice app.** The address send below can fall through to any
+     * messaging app because an `address` extra is a convention every one of them understands;
+     * a chat guid is understood by exactly one package on the phone. Handing this intent to
+     * anything else would strip the recipient and drop the photographs into a thread the user
+     * never chose — the same lie the address path was fixed for, except worse, because a group
+     * has no address for the receiving app to fall back to and the send would look like it
+     * worked. So if LightChat won't take it, this says so and nothing happens.
+     */
+    fun sendToGroup(context: Context, uris: List<Uri>, group: Group): Outcome {
+        if (uris.isEmpty()) return Outcome.Failed("Nothing to send")
+        if (group.guid.isBlank()) return Outcome.Failed("That group has no thread")
+        if (!lightChatCanReceive(context)) return Outcome.Failed("LightChat isn't here to take it")
+        val intent = intentFor(context, uris, to = null).apply {
+            putExtra(EXTRA_CHAT_GUID, group.guid)
+            setPackage(LIGHT_CHAT)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return runCatching { context.startActivity(intent) }
+            .fold(
+                onSuccess = { Outcome.Sent(LIGHT_CHAT) },
+                onFailure = {
+                    Log.w(TAG, "group send failed: $it")
+                    Outcome.Failed("Couldn't open LightChat")
+                },
+            )
+    }
+
+    /**
      * The packages that handle *addressed messages* of this kind — `smsto:` for a number,
      * `mailto:` for an email address. Being registered for one of these is the closest thing
      * Android offers to "this app knows what a recipient is"; a gallery editor is not.
@@ -162,7 +205,7 @@ object Handoff {
      * sent the plural one — it either resolves to nothing or receives an extra of the wrong
      * type and reads null.
      */
-    private fun intentFor(context: Context, uris: List<Uri>, to: Address): Intent {
+    private fun intentFor(context: Context, uris: List<Uri>, to: Address?): Intent {
         val multiple = uris.size > 1
         return Intent(if (multiple) Intent.ACTION_SEND_MULTIPLE else Intent.ACTION_SEND).apply {
             // **Asked, not assumed.** The roll shows every image on the device by default, so a
@@ -183,9 +226,12 @@ object Handoff {
             // **The recipient goes in the extra that matches its kind.** `address` is the SMS
             // convention and means nothing to a mail client; putting an email address in it hands
             // a messaging app something it will try to text.
-            when (to.kind) {
+            // Null for a group, whose recipient is the guid the caller attaches instead — there
+            // is no address to put here and inventing one would address a person.
+            when (to?.kind) {
                 Address.Kind.Phone -> putExtra(EXTRA_ADDRESS, to.raw)
                 Address.Kind.Email -> putExtra(Intent.EXTRA_EMAIL, arrayOf(to.raw))
+                null -> Unit
             }
             // A real resolver, not null: `newUri` asks it for the URI's mime type and throws on
             // a content:// URI without one.
