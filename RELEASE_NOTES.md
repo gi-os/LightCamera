@@ -1,43 +1,55 @@
-## Roll v2.38 — the send picker can reach a group
+## Roll v2.38 — send a photo to a group chat
 
-*Docs only in this build: the README is now written for someone who has never seen the app —
-screenshots, a step-by-step sideload, an honest list of what it does that the stock camera
-doesn't, and the questions people actually ask before installing something unofficial on their
-phone. No code changed.*
+**What's new:** the send picker can now send a photo to a group chat, not just to one person.
 
+### How it works
 
-**"Who is this photograph for?" had one answer it could never give.** Groups now sit at the
-top of the send picker, above your contacts, and a photograph sent to one lands in the actual
-thread.
+Tap send on a photo and you get Roll's own picker — recent recipients, then your contacts,
+searchable. Group chats now sit at the top of that list, above the contacts: five of them at
+rest, and all of them once you start typing a name. Pick one and the photo lands in that thread.
 
-The picker owns the address book on purpose — the system chooser asks which app, which on a
-phone with three of them is a question with an obvious answer wrapped in a grid of icons. But
-an address book knows about people, and a group iMessage is not a person: it is a chat room
-living on the Mac, identified by a guid like `iMessage;+;chat684…`, with no phone number and no
-contact row. There was nothing in the picker to select and nothing in the intent to carry it,
-so sending to a group meant handing the photographs to LightChat unaddressed and finding the
-thread by hand.
+Long-press a frame in the roll to select several photos and send them together, as before.
 
-LightChat now publishes its group conversations read-only, and Roll reads them: name, member
-count, last activity, ordered newest first, with the names already resolved through the
-BlueBubbles address book so a group reads here the same as it does over there. Five at rest —
-they sit above the contact list and each one is a contact pushed off the screen — and every
-match once you start typing. A query with a digit in it excludes them all, because in the
-contact half digits search phone numbers, and a group has no number to search.
+Two details you may notice:
 
-Sending picks its own path. A person goes out as `ACTION_SEND` with the AOSP `address` extra,
-exactly as before, and can fall through to any messaging app that understands it. A group goes
-to LightChat and nowhere else, with the guid in a `chat_guid` extra, and **there is no chooser
-fallback** — every other receiver would ignore the extra and drop the photographs into a thread
-the user never chose, which is the same lie the address path was fixed for and worse, because a
-group has no address for the receiving app to fall back on. If LightChat isn't there to take
-it, the picker says so and nothing happens.
+- **Typing a digit hides the groups.** In the contacts half of the list, digits search phone
+  numbers. A group has no number, so a query with a digit in it can only mean a contact.
+- **Groups don't show up in Recents.** They already sort themselves by last activity, which is a
+  better signal than a six-slot recents list — and every group in recents would push a contact
+  out of it.
 
-Groups aren't recorded as recents. Recents are an address-book idea and groups already sort by
-their own last activity, which is a better signal and doesn't spend one of six slots.
+### What you need
 
-On a phone without LightChat — or with a build older than v1.2 — there are no groups and this
-screen is exactly what it was.
+**[LightChat](https://github.com/gi-os/LightChat) v1.2 or newer.** Roll reads your groups from
+LightChat and sends to them through LightChat, so both halves of this feature ship in that
+release. Without LightChat, or on an older build, there are simply no groups in the list and the
+picker is exactly what it was before. Nothing else changes and nothing breaks.
 
-**Needs LightChat v1.2 or newer.** The provider Roll reads and the extra it sends both land in
-that release.
+### Why this needed a release at all
+
+Sending to a person is easy: a contact has a phone number, and a number goes into a standard
+Android intent that any messaging app understands. A group chat has neither. It is a thread
+living on your Mac, identified by a string like `iMessage;+;chat684…` — no contact row, no phone
+number to address it with. So there was nothing for the picker to show and nothing in the intent
+to carry it. Sending to a group used to mean handing the photos to LightChat with no destination
+attached, then finding the right thread by hand.
+
+Two things fixed that:
+
+1. **LightChat now publishes its group threads,** read-only, for other apps to read: name,
+   member count, last activity, newest first, with the names already resolved through the
+   BlueBubbles address book — so a group reads the same in Roll as it does in LightChat.
+2. **Roll sends to a group down its own path.** The group's id travels in a `chat_guid` extra
+   addressed to LightChat and nowhere else, with **no fallback to other apps**. Any other app
+   would ignore that extra and drop your photos into whichever thread it happened to have open,
+   which is worse than not sending at all. If LightChat isn't installed, the picker says so
+   rather than sending your photo somewhere you didn't pick.
+
+Sending to a *person* is untouched — still a standard `ACTION_SEND` with the address attached,
+still able to fall through to any messaging app that handles it.
+
+### Also in this release
+
+Documentation only, no code: the README is rewritten for someone who has never seen the app —
+screenshots, a step-by-step sideload starting from enabling USB debugging, what Roll does that
+the stock camera doesn't, and the questions worth asking before installing an unofficial APK.
