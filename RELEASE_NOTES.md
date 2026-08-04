@@ -1,5 +1,11 @@
 ## Roll v2.38 — the send picker can reach a group
 
+*Docs only in this build: the README is now written for someone who has never seen the app —
+screenshots, a step-by-step sideload, an honest list of what it does that the stock camera
+doesn't, and the questions people actually ask before installing something unofficial on their
+phone. No code changed.*
+
+
 **"Who is this photograph for?" had one answer it could never give.** Groups now sit at the
 top of the send picker, above your contacts, and a photograph sent to one lands in the actual
 thread.

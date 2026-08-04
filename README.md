@@ -1,6 +1,27 @@
 # Roll
 
-A camera for the Light Phone III.
+**A replacement camera and gallery for the Light Phone III.**
+Filters, film-roll mode, QR scanning, hardware face detection, and the wheel as a lens ring.
+
+[**⬇ Download the latest APK**](https://github.com/gi-os/LightCamera/releases/latest) · free,
+open source, no account, no network except when you send a bug report.
+
+<table>
+<tr>
+<td width="33%"><img src="docs/screenshots/01-viewfinder.jpg" alt="The viewfinder, with the control band written sideways down the left edge"></td>
+<td width="33%"><img src="docs/screenshots/02-mode-picker.jpg" alt="The mode picker: PRO, VIDEO, SELFIE, QR, FILTERS, settings"></td>
+<td width="33%"><img src="docs/screenshots/03-roll.jpg" alt="The roll: a contact sheet of photos above the viewfinder"></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/04-bulge.jpg" alt="The Bulge filter, with a date back stamped in the corner"></td>
+<td><img src="docs/screenshots/05-dither.jpg" alt="A dithered filter at full resolution"></td>
+<td><img src="docs/screenshots/06-film.jpg" alt="The Film filter with a Dots date back"></td>
+</tr>
+</table>
+
+<sup>Shot on an LPIII. The panel is greyscale in normal use — Roll lifts that while you are
+looking through it, which is why these are in colour. See
+[The viewfinder is in colour](#the-viewfinder-is-in-colour).</sup>
 
 The roll sits **above** the viewfinder. Pull down on the camera and your photographs come
 into view — every photo on the phone, newest one first, hanging against the top-right corner
@@ -12,33 +33,74 @@ It replaces both the stock Camera and the stock Album, and it can be set as the 
 default camera, so the hardware camera button opens this instead. It is not a fork — a
 full rewrite, and the app that has shipped the most releases in this collection.
 
-**Current version:** `versionName` in `app/build.gradle.kts` is `2.38.0`, and the patch is
-the CI run number — so the release published from the current `main` is `v2.38.x`
-(2026-08-01), the one whose send picker can reach a group. See
-[Version history](#version-history) for the full run from `v1.0.1`.
+**This is not made by Light.** It is a community app, unaffiliated and unsupported by
+The Light Phone. It installs as an ordinary APK, needs no root and no unlocked bootloader,
+and uninstalling it leaves the stock camera exactly as it was.
 
-## Quick start
+### What you get over the stock camera
 
-Sideload a release APK — no build required:
+| | |
+|---|---|
+| **A shutter that fires** | The stock "one to three seconds" is the sensor being read at 50MP. Capture is capped at 12MP by default, so the photograph is taken when you press the button. Choose 50MP back if you want it. |
+| **18 filters, live** | Real fragment shaders on the viewfinder *and* on the saved file — Film, Dither BW, Dither 16, Dither 32, Halftone, Game Boy, Thermal, Purikura, and the Photo Booth distortions. Turn the wheel to change filter. |
+| **The wheel does things** | Filters on a bare turn, exposure compensation held-and-turned, torch on a click, and it scrolls the roll. No service, no permission. |
+| **A two-stage shutter** | The camera button's half press locks focus, the full press shoots — LightOS itself uses only the second detent. |
+| **Face detection** | From the camera's own hardware detector, not a bundled model. Focus follows the face the lens is working on. |
+| **A gallery worth using** | Every photo on the phone, day headings, multi-select, trash, and a send picker that hands a photo to a contact instead of opening a share sheet. |
+| **Film-roll mode** | Load 12, 24 or 36. No preview, no review, just a counter and a click, until you develop the roll. |
+| **QR scanning** | A camera mode rather than a separate app, and nothing launches by itself. |
+| **Date backs** | Three of them, drawn the way the originals were: LED dot matrix, seven-segment quartz, and camcorder character generator. |
+| **Colour while you shoot** | The panel is a full-colour AMOLED; Light's greyscale is a setting Roll lifts while the viewfinder is up and puts straight back afterwards. |
+
+## Install it
+
+You need a computer with `adb` on it and a USB-C cable. Nothing else — no root, no
+bootloader unlock, no factory reset.
+
+**1. Turn on developer options and USB debugging on the phone.**
+Settings → About → tap **Build number** seven times, then Settings → Developer options →
+**USB debugging** on. Plug the phone in and accept the "Allow USB debugging?" prompt.
+
+**2. Get `adb`.** It ships in Android's
+[platform-tools](https://developer.android.com/tools/releases/platform-tools) — download,
+unzip, and run it out of that folder. On a Mac, `brew install android-platform-tools`.
+
+**3. Download and install.** Grab `LightCamera-v<version>.apk` from
+[Releases](https://github.com/gi-os/LightCamera/releases/latest), then:
 
 ```sh
-# grab LightCamera-v<version>.apk from https://github.com/gi-os/LightCamera/releases
-adb install -r LightCamera-v1.8.11.apk
+adb install -r LightCamera-v2.38.55.apk
 ```
 
-Every build is signed with the same committed key, fingerprint pinned in
-`signing-fingerprint.txt` and checked in CI, so later releases install over this one — or
-track the repo in [Obtainium](https://github.com/ImranR98/Obtainium) for automatic updates.
+It appears in the launcher as **Roll**. Grant it camera, photos and — if you want the send
+picker — contacts access on first use, the ordinary Android way.
 
-To make it the default camera so the hardware camera button opens it: the first press
-after installing shows a chooser with an **"always"** option — pick Roll there. If the
-stock camera already claims the default, clear it first in **Settings → Apps → Camera →
-Open by default → Clear defaults** (Android has no adb command for setting a default
-camera, only the launcher). With [LightControl](https://github.com/gi-os/LightControl)
-installed you can skip all of that and bind the camera button straight to
-`com.gios.lightcamera`.
+**4. Optional, one line, and worth it — colour in the viewfinder:**
 
-To build it yourself:
+```sh
+adb shell pm grant com.gios.lightcamera android.permission.WRITE_SECURE_SETTINGS
+```
+
+Half the filters are about colour, and without this the viewfinder is grey while the file
+isn't. Nothing breaks if you skip it. Details in
+[The viewfinder is in colour](#the-viewfinder-is-in-colour).
+
+**5. Optional — make the hardware camera button open Roll.** The first press after
+installing shows a chooser with an **"always"** option; pick Roll there. If the stock
+camera already claims the default, clear it first in **Settings → Apps → Camera → Open by
+default → Clear defaults** (Android has no adb command for a default camera, only the
+launcher). With [LightControl](https://github.com/gi-os/LightControl) installed you can skip
+all of that and bind the button straight to `com.gios.lightcamera`.
+
+### Updating
+
+Every build is signed with the same committed key — the fingerprint is pinned in
+`signing-fingerprint.txt` and checked in CI — so a later release installs straight over an
+earlier one with `adb install -r` and keeps your settings. Or point
+[Obtainium](https://github.com/ImranR98/Obtainium) at this repo and it will offer new
+releases as they are cut, which is most days.
+
+### Build it yourself
 
 ```sh
 git clone https://github.com/gi-os/LightCamera.git
@@ -47,6 +109,10 @@ cd LightCamera
 ```
 
 Requires JDK 17. `minSdk` is 33 because [AGSL](https://developer.android.com/develop/ui/views/graphics/agsl) — every filter is a fragment shader — is API 33.
+
+**Current version:** `versionName` in `app/build.gradle.kts` is `2.38.0`, and the patch is
+the CI run number — so the release published from the current `main` is `v2.38.x`. See
+[Version history](#version-history) for the full run from `v1.0.1`.
 
 ## Controls
 
@@ -63,8 +129,10 @@ half press, `CAMERA` at the bottom — and nothing in stock LightOS uses the fir
 | Click the wheel | Torch |
 | Tap the frame | Focus there |
 | Double tap the frame | Switch lens |
+| Pinch the frame | Zoom — two fingers claim the gesture, so it can't be read as a filter swipe |
 | Swipe the frame sideways | Next filter |
 | Swipe down | The roll |
+| Long-press a frame in the roll | Multi-select, for sending or deleting several at once |
 
 There is **no shutter button on screen**, on purpose: the phone has one on its side, and a
 circle on the glass duplicating it only costs image area and teaches the wrong gesture. If the
@@ -199,7 +267,7 @@ Settings → Colour chooses between the viewfinder only, the whole app, and off.
 
 ## Filters are AGSL, and the photo matches the frame
 
-Seventeen filters, each one a fragment shader. The same shader source runs twice: as a
+Eighteen filters, each one a fragment shader. The same shader source runs twice: as a
 `RenderEffect` on the live preview, and over a `BitmapShader` when the photograph is
 written. So there is one definition of what Halftone looks like, and the file you get is the
 frame you saw.
@@ -208,11 +276,16 @@ frame you saw.
   grain moves.
 - **Dither 16** — the EGA palette, ordered-dithered with a Bayer matrix. Very dithered, very
   sixteen colours.
-- **1-Bit** — pure black and white, dithered. The phone's own idea of a photograph.
+- **Dither BW / Dither 32** — sixteen greys ordered-dithered, and a thirty-two colour palette
+  that spends its extra entries on greys and shadow. Dither BW is the phone's own idea of a
+  photograph.
 - **Halftone** — a rotated dot screen, one read per cell, so the dots stay round.
 - **Game Boy / GB Color** — the DMG and GBC palettes through a Bayer threshold, and the
   other half of the look: both quantise the image onto a grid of 128 cells across the
   short edge, the Game Boy Camera's real sensor width, sampling once per cell.
+- **Purikura** — the Japanese photo booth, as a mode rather than a filter: a frame, two kinds
+  of sticker, a date, skin and eye work, and a four-shot strip on a countdown. Its menu is in
+  the viewfinder, under **PURI**, and every setting is rolled at random when the app starts.
 - **Mono, Comic, Thermal, X-Ray, Glow** and the Photo Booth distortions: **Twirl, Bulge,
   Mirror, Kaleido, Tunnel**.
 
@@ -318,19 +391,45 @@ than you saw at the top and bottom of the frame. An earlier version did draw the
 aspect as a bordered box with the controls in the margins, which was honest about cropping and
 horrible to look through.
 
+## Date backs
+
+Three of them, off by default, in Settings. They are drawn three different ways because they
+were three different machines:
+
+- **Dots** — a compact camera's LED matrix. A 5x7 bitmask where every lit cell is a circle at
+  0.42 of the cell, so the hairline gaps show, leaning per row so the digits staircase.
+  Amber-green, space-padded: `11  5 '21`.
+- **Quartz** — a film SLR's back. Seven segments as sheared parallelograms, orange-red,
+  year first and zero-padded: `'99 12 29`.
+- **Camcorder** — a character generator, so it is the one style where a real typeface is
+  correct: upright bold `08/31/2015` with a black stroke keyline.
+
+The cell and text size is a fraction of the image rather than a pixel count, so the stamp
+looks the same at 2MP and at 50MP. Turning one on costs a decode and a re-encode on a
+photograph that would otherwise be saved byte-for-byte off the sensor.
+
 ## Sending a photo
 
-The viewer's send button is disabled until **Settings → Sending → Use LightChat** is turned on.
-Then it hands the photograph over to [LightChat](https://github.com/gi-os/LightChat) by explicit
-package, with no chooser — a share sheet with every app that has ever registered for an image is
-the one place a Light Phone stops feeling like a Light Phone. It resolves the intent first, so an
-absent LightChat is a sentence rather than a crash.
+The send button asks **who the photograph is for**, not which app it should go through. A share
+sheet listing every app that has ever registered for an image is the one place a Light Phone stops
+feeling like a Light Phone — and on a phone with three messaging apps installed, "which app" is a
+question with an obvious answer wrapped in a grid of icons.
+
+So the button opens the address book instead: recent recipients first, then your contacts, search
+by name or number. Pick someone and the photograph is handed to a messaging app already addressed
+to them. Long-press a frame in the roll to select several and send them together.
+
+If [LightChat](https://github.com/gi-os/LightChat) v1.2 or newer is installed, your group threads
+sit above the contacts, with their names resolved the same way they read over there — an address
+book knows about people, and a group iMessage is a chat room rather than a person, so it has to be
+offered deliberately. Groups go to LightChat alone; a single person can fall through to any
+messaging app that understands the standard extra.
 
 ## Setting it as the default camera
 
 The app claims `STILL_IMAGE_CAMERA`, `IMAGE_CAPTURE`, `CAMERA_BUTTON` and the `_SECURE`
 variants, and it honours `EXTRA_OUTPUT`, so other apps' "take a photo" works properly. See
-[Quick start](#quick-start) above for setting it as the default.
+[Install it](#install-it) above for setting it as the default.
 
 Launched for `IMAGE_CAPTURE` the app shows only the viewfinder — no roll, no settings — takes
 one photograph, writes it where the caller asked and finishes.
@@ -343,22 +442,89 @@ hand:
 | Setting | Options | Notes |
 |---|---|---|
 | Colour | Viewfinder only / whole app / off | Needs the `WRITE_SECURE_SETTINGS` grant above; degrades to grey without it. |
-| Aspect | 4:3, 3:2, 16:9, 1:1 | Applied as a centre crop at save time — the live viewfinder always fills the screen. |
-| Resolution | Capped at 4000×3000 (12MP) | Down from the sensor's native 50MP, since v1.8 — see [Version history](#version-history). |
-| Sending | Off / Use LightChat | Enables the viewer's send button, targeted at `com.gios.lightchat` with no chooser. |
-| Film roll | Off / 12 / 24 / 36 | Switches the shutter release from a circle to a square; develops on completion or on demand. |
+| Frame | 4:3, 3:2, 16:9, 1:1 | Applied as a centre crop at save time — the live viewfinder always fills the screen. |
+| Size | 50MP / 12MP / 5MP / 2MP / Screen | 12MP by default: the sensor's native 50MP readout *is* the shutter lag. **Screen** never calls the shutter at all — it keeps the frame you were looking at, instantly, filter included. |
+| Date | Off / Dots / Quartz / Camcorder | And whether the stamp goes on plain photos, filtered ones, or the coarse filters where it would be unreadable. |
+| Film | Off / 12 / 24 / 36 frames | Switches the shutter release from a circle to a square; develops on completion or on demand. |
+| Wheel | Filters / EV | What a bare turn does. |
+| Focus | Single / Continuous, faces on or off, priority | Plus the focus beep. |
+| Grid | Off / Thirds | |
+| Self timer | Off / seconds | |
+| Sounds | On / off | Follows the ringer either way — a silent phone is a silent camera. |
+| Sending | Recents, and clearing them | The send picker's six-slot recent-recipient list. |
+| Simple mode | On / off | Hides the parts of the viewfinder you are not using. |
+| Purikura | — | Has its own menu in the viewfinder: choose Purikura on the wheel and tap **PURI** in the band. Frame, stickers, date and the four-shot strip live next to the picture they change, and every choice is rolled at random when the app starts, because a booth does not remember what you picked last week. |
+| About | Last crash | The first lines of the last uncaught exception, worth pasting into an issue. |
 
 ## Layout
 
 ```
-camera/     CameraX, hardware face detection, AF, capture, EXIF and cropping
+camera/     CameraX, hardware face detection, AF, capture, EXIF, cropping, date backs
 filter/     the AGSL sources and the two ways they get run
-hw/         the wheel and the two-stage camera button
+hw/         the wheel, the two-stage camera button, the synthesised beeps
 media/      MediaStore reads and writes, thumbnails
 qr/         QR mode: the ZXing analyser, and the payload rules it is judged by
+report/     the shake gesture and the issue it files
 roll/       film-roll mode
+send/       the address book, the group provider, and the addressed intents
 ui/         the two pages, the viewfinder chrome, the filter grid
 ```
+
+## If something goes wrong
+
+**Shake the phone twice** and a `SEND ERROR?` chip appears in the corner for four seconds.
+Tap it, write a line about what happened, and Roll files a report against the tracker — the
+symptom, your note, the build and firmware, free space, the last crash log if there is one,
+and a screenshot of the moment you shook it, which you can untick. It fades and deletes
+nothing if you ignore it. That is the fastest way to get something fixed, because it carries
+the details a description never does.
+
+Otherwise: [open an issue](https://github.com/gi-os/LightCamera/issues). Settings shows the
+first lines of the last crash, which is worth pasting in — a sideloaded app on the LPIII is
+otherwise a black box.
+
+## Questions people ask
+
+**Does it need root, or an unlocked bootloader?** No. It is an ordinary APK signed with an
+ordinary key, installed over adb, and uninstalled the same way any app is.
+
+**Will it break my phone, or a LightOS update?** It does not touch the system partition, and
+it changes exactly one system setting — the accessibility daltonizer, which is what makes
+Light's greyscale greyscale — only while you are looking through the viewfinder, and it puts
+it back when you leave. If the app dies with the viewfinder open the phone can be left in
+colour; opening and closing Roll again restores it, as does a reboot. A LightOS update may
+remove sideloaded apps; reinstall the APK if it does.
+
+**Does it phone home?** No. There is one socket in the whole app, in `report/Reports.kt`, and
+it opens when you tap SEND on a bug report you wrote yourself. Never on launch, never in the
+background, never on a timer. No analytics. Your photographs stay on the phone.
+
+**Does it replace the stock camera and album?** It can be the default camera, so the hardware
+button opens it, but the stock apps stay installed and untouched. Nothing is migrated,
+because there is nothing to migrate — Roll reads and writes the same MediaStore your photos
+are already in.
+
+**Where do the photos go?** `DCIM/Camera`, as normal JPEGs with normal EXIF, so anything else
+on the phone or on your computer reads them. Film-roll frames sit in app-private storage
+until you develop them, and then land in `DCIM/Camera` too, each keeping the time it was
+actually taken.
+
+**Is the wheel really the filter dial and not zoom?** Yes, since v1.6. The LPIII has no
+optical zoom and the stock camera offers none, so a dial spent on digital crop was a dial
+spent on nothing. Pinch with two fingers if you want to zoom.
+
+**Do I need LightControl?** No. The wheel, the camera button and the volume keys all work in
+Roll with nothing else installed. LightControl adds the wheel *everywhere else on the phone*,
+and deliberately hands the camera button to whichever camera is in front, so the two do not
+fight. If the camera button does nothing in Roll, you are on a LightControl older than
+v1.1.6 — update it.
+
+**Battery?** The heavy parts are the ones you are looking at. A live shader on the preview
+costs GPU while the viewfinder is open, and QR mode binds a second analysis stream, which is
+why it binds only in that mode. Nothing runs when the app is closed.
+
+**Does it work on the Light Phone II?** No. It is a full-colour AMOLED, CameraX and AGSL app
+for the LPIII.
 
 ## Contributing
 
