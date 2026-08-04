@@ -30,9 +30,9 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gios.lightcamera.hw.LightControls
-import com.gios.lightcamera.hw.LocalWheelBus
+import com.gios.light.common.hw.LocalWheelBus
 import com.gios.lightcamera.hw.ShutterRelease
-import com.gios.lightcamera.hw.WheelBus
+import com.gios.light.common.hw.WheelBus
 import com.gios.lightcamera.report.ReportContext
 import com.gios.lightcamera.report.Reports
 import com.gios.lightcamera.report.Screenshot

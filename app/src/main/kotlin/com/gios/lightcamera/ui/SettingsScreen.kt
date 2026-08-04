@@ -31,8 +31,8 @@ import com.gios.lightcamera.StampStyle
 import com.gios.lightcamera.camera.AfMode
 import com.gios.lightcamera.camera.FrameAspect
 import com.gios.lightcamera.hw.CameraKeyAdvice
-import com.gios.lightcamera.hw.LightKeys
-import com.gios.lightcamera.hw.WheelScroll
+import com.gios.light.common.hw.LightKeys
+import com.gios.light.common.hw.WheelScroll
 import com.gios.lightcamera.ui.theme.LightIcons
 import com.gios.lightcamera.ui.theme.LightText
 import com.gios.lightcamera.ui.theme.LightTextVariant

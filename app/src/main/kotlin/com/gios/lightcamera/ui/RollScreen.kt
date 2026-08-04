@@ -37,7 +37,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import com.gios.lightcamera.hw.WheelScroll
+import com.gios.light.common.hw.WheelScroll
 import com.gios.lightcamera.media.DayLabels
 import com.gios.lightcamera.media.Photo
 import com.gios.lightcamera.media.RollScope

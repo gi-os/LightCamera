@@ -68,7 +68,7 @@ import com.gios.lightcamera.camera.PuriStrip
 import com.gios.lightcamera.filter.ShaderRuntime
 import com.gios.lightcamera.hw.CameraKeyAdvice
 import com.gios.lightcamera.qr.Codes
-import com.gios.lightcamera.hw.WheelTurns
+import com.gios.light.common.hw.WheelTurns
 import com.gios.lightcamera.ui.theme.LightHaptics
 import com.gios.lightcamera.ui.theme.LightIcons
 import com.gios.lightcamera.ui.theme.LightText

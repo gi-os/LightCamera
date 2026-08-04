@@ -35,7 +35,7 @@ android {
         targetSdk = 35
         // CI overwrites both from the workflow run number; see .github/workflows/build.yml
         versionCode = 1
-        versionName = "2.38.0"
+        versionName = "2.39.0"
 
         buildConfigField("String", "REPORT_TOKEN", "\"$reportToken\"")
         buildConfigField("String", "REPORT_REPO", "\"gi-os/light-reports\"")
@@ -73,6 +73,10 @@ android {
 }
 
 dependencies {
+    // The wheel and the LPIII key map. Was a vendored copy under the app's own hw/
+    // package until this version.
+    implementation("com.gios:light-common:1.1.0")
+
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(composeBom)
     implementation("androidx.core:core-ktx:1.15.0")

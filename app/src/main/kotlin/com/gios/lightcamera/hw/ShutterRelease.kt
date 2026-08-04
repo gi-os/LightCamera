@@ -102,3 +102,5 @@ class ShutterRelease(
         const val NEVER = Long.MIN_VALUE
     }
 }
+
+import com.gios.light.common.hw.LightKey
