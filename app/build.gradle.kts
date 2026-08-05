@@ -35,7 +35,7 @@ android {
         targetSdk = 35
         // CI overwrites both from the workflow run number; see .github/workflows/build.yml
         versionCode = 1
-        versionName = "2.38.0"
+        versionName = "2.39.0"
 
         buildConfigField("String", "REPORT_TOKEN", "\"$reportToken\"")
         buildConfigField("String", "REPORT_REPO", "\"gi-os/light-reports\"")
@@ -55,7 +55,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // Same committed key as debug, so either APK upgrades over the other.
             signingConfig = signingConfigs.getByName("debug")
@@ -75,6 +76,14 @@ android {
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(composeBom)
+
+    // The wheel, the LPIII key map and the LightSync backup provider, shared with every other
+    // Light* app rather than pasted into each of them.
+    implementation("com.gios:light-common:1.2.0")
+    // Installs the baseline profile that light-common ships in its AAR. Below API 31 nothing
+    // reads a profile on its own, so without this the profile is inert and the AOT warm-up it
+    // buys never happens.
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.compose.ui:ui")

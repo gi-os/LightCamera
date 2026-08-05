@@ -1,5 +1,7 @@
 package com.gios.lightcamera.hw
 
+import com.gios.light.common.hw.LightKey
+
 /**
  * A real two-stage shutter release, out of two ordinary key events.
  *

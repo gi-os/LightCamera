@@ -2,13 +2,13 @@ package com.gios.lightcamera.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Canvas as AndroidCanvas
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -38,46 +40,44 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.graphics.createBitmap
-import android.graphics.Canvas as AndroidCanvas
-import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.createBitmap
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.gios.light.common.hw.WheelTurns
 import com.gios.lightcamera.CaptureMode
 import com.gios.lightcamera.Chrome
 import com.gios.lightcamera.Colour
 import com.gios.lightcamera.camera.AfState
 import com.gios.lightcamera.camera.FaceMapper
 import com.gios.lightcamera.camera.FlashMode
-import com.gios.lightcamera.filter.FaceQuad
-import com.gios.lightcamera.filter.FaceQuads
 import com.gios.lightcamera.camera.PuriArt
 import com.gios.lightcamera.camera.PuriStrip
+import com.gios.lightcamera.filter.FaceQuad
+import com.gios.lightcamera.filter.FaceQuads
 import com.gios.lightcamera.filter.ShaderRuntime
 import com.gios.lightcamera.hw.CameraKeyAdvice
 import com.gios.lightcamera.qr.Codes
-import com.gios.lightcamera.hw.WheelTurns
 import com.gios.lightcamera.ui.theme.LightHaptics
 import com.gios.lightcamera.ui.theme.LightIcons
 import com.gios.lightcamera.ui.theme.LightText
 import com.gios.lightcamera.ui.theme.LightTextVariant
 import com.gios.lightcamera.ui.theme.LightThemeTokens
 import com.gios.lightcamera.ui.theme.lightClickable
-import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.random.Random
+import kotlinx.coroutines.delay
 
 /** How wide the strips of chrome down the left edge are. */
 private val BAND = 54.dp

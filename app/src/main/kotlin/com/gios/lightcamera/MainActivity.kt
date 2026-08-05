@@ -2,6 +2,7 @@ package com.gios.lightcamera
 
 import android.app.Activity
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
@@ -9,7 +10,6 @@ import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import android.graphics.Bitmap
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -19,20 +19,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.gios.lightcamera.ui.lightInset
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.gios.light.common.hw.LocalWheelBus
+import com.gios.light.common.hw.WheelBus
 import com.gios.lightcamera.hw.LightControls
-import com.gios.lightcamera.hw.LocalWheelBus
 import com.gios.lightcamera.hw.ShutterRelease
-import com.gios.lightcamera.hw.WheelBus
 import com.gios.lightcamera.report.ReportContext
 import com.gios.lightcamera.report.Reports
 import com.gios.lightcamera.report.Screenshot
@@ -40,12 +35,17 @@ import com.gios.lightcamera.report.ShakeDetector
 import com.gios.lightcamera.report.Symptom
 import com.gios.lightcamera.report.Trouble
 import com.gios.lightcamera.ui.CameraViewModel
+import com.gios.lightcamera.ui.ColorMode
 import com.gios.lightcamera.ui.ReportChip
 import com.gios.lightcamera.ui.ReportReason
 import com.gios.lightcamera.ui.ReportSheet
-import com.gios.lightcamera.ui.ColorMode
 import com.gios.lightcamera.ui.Shell
+import com.gios.lightcamera.ui.lightInset
 import com.gios.lightcamera.ui.theme.LightCameraTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * One activity, because a camera is one thing.

@@ -1,6 +1,6 @@
 package com.gios.lightcamera
 
-import com.gios.lightcamera.hw.LightKey
+import com.gios.light.common.hw.LightKey
 import com.gios.lightcamera.hw.ShutterRelease
 import org.junit.Assert.assertEquals
 import org.junit.Test

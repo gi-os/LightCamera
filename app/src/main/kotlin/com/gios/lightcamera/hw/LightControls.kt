@@ -2,6 +2,9 @@ package com.gios.lightcamera.hw
 
 import android.app.Activity
 import android.view.KeyEvent
+import com.gios.light.common.hw.LightKey
+import com.gios.light.common.hw.LightKeys
+import com.gios.light.common.hw.WheelBus
 
 /**
  * Every physical control on the phone, pointed at the camera.

@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  # light-common is pulled from GitHub Packages, which has no anonymous read.
+  packages: read
 
 jobs:
   build:
@@ -36,6 +38,10 @@ jobs:
           grep -E 'versionCode|versionName' app/build.gradle.kts
 
       - name: Unit tests
+        env:
+          GPR_USER: ${{ secrets.GPR_USER }}
+          GPR_TOKEN: ${{ secrets.GPR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./gradlew :app:testDebugUnitTest --stacktrace
 
       - name: Build APKs
@@ -44,6 +50,9 @@ jobs:
           # because it ends up inside a sideloaded APK anyone can unzip. A missing secret is
           # not a build failure: reports queue on the phone until a keyed build arrives.
           REPORT_TOKEN: ${{ secrets.REPORT_TOKEN }}
+          GPR_USER: ${{ secrets.GPR_USER }}
+          GPR_TOKEN: ${{ secrets.GPR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./gradlew :app:assembleDebug :app:assembleRelease --stacktrace
 
       - name: Collect APK
