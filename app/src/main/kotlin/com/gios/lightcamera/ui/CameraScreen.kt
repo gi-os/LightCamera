@@ -1412,7 +1412,7 @@ private fun BandSlotControl(
             ChromeIcon(
                 icon = LightIcons.Exposure,
                 lighten = open != Strip.Exposure && ev == 0,
-                onClick = { onPress(PressAction.Exposure) },
+                onClick = { onPress(PressAction.ExposureStrip) },
             )
         }
 
@@ -1421,7 +1421,7 @@ private fun BandSlotControl(
             // slot never changes width mid-pinch and shove the row along.
             text = if (zoom < 9.95f) String.format("%.1fx", zoom) else String.format("%.0fx", zoom),
             lighten = open != Strip.Zoom && zoom <= 1.02f,
-            onClick = { onPress(PressAction.Zoom) },
+            onClick = { onPress(PressAction.ZoomStrip) },
         )
 
         BandSlot.Flip -> ChromeIcon(

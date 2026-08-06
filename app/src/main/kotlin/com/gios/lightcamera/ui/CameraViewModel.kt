@@ -501,8 +501,8 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             PressAction.FlipLens -> flipLens()
             PressAction.NextMode -> nextMode()
             PressAction.Timer -> cycleTimer()
-            PressAction.Exposure -> openStripOrSayWhyNot(Strip.Exposure)
-            PressAction.Zoom -> openStripOrSayWhyNot(Strip.Zoom)
+            PressAction.ExposureStrip -> openStripOrSayWhyNot(Strip.Exposure)
+            PressAction.ZoomStrip -> openStripOrSayWhyNot(Strip.Zoom)
             PressAction.Nothing -> Unit
         }
     }

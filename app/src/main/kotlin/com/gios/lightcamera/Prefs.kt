@@ -8,7 +8,9 @@ import com.gios.lightcamera.camera.PuriArt
 import com.gios.lightcamera.filter.FaceTune
 import com.gios.lightcamera.filter.Filters
 import com.gios.lightcamera.camera.PuriStrip
+import com.gios.lightcamera.hw.Accepts
 import com.gios.lightcamera.hw.Binding
+import com.gios.lightcamera.hw.Controls
 import com.gios.lightcamera.hw.DialAction
 import com.gios.lightcamera.hw.PressAction
 import com.gios.lightcamera.media.RollScope
@@ -583,11 +585,19 @@ class Prefs(context: Context) {
      * unbound the volume keys would silently get the shutter back on them.
      */
     private fun storedBinding(binding: Binding): String? {
-        prefs.getString(bindKey(binding), null)?.let { return it }
+        prefs.getString(bindKey(binding), null)?.let { stored ->
+            // A press-only control's value is a press name, so it gets the v2.44 rename. A dial
+            // control's `Exposure` is a *dial* Exposure and must be left exactly as it is, which
+            // is why this is not a blanket string replace.
+            return if (binding.accepts == Accepts.Press) Controls.renamedPress(stored) else stored
+        }
         if (binding != Binding.VolumeKeys) return null
         // Up before down only because a value has to be picked; both defaulted to the shutter and
-        // anybody who changed one almost certainly changed both.
-        return prefs.getString("bind_VolumeUp", null) ?: prefs.getString("bind_VolumeDown", null)
+        // anybody who changed one almost certainly changed both. Whatever is there is a press, by
+        // definition — the old volume keys could not hold a dial — so the rename applies.
+        val legacy = prefs.getString("bind_VolumeUp", null)
+            ?: prefs.getString("bind_VolumeDown", null)
+        return legacy?.let { Controls.renamedPress(it) }
     }
 
     fun pressFor(binding: Binding): PressAction =

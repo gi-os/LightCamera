@@ -57,7 +57,7 @@ class ControlsTest {
     fun `anything goes while the camera key works`() {
         assertTrue(
             Controls.shutterSafe(
-                volume = PressAction.Zoom,
+                volume = PressAction.ZoomStrip,
                 wheelClick = PressAction.Torch,
                 cameraKeyWorks = true,
             ),
@@ -124,6 +124,36 @@ class ControlsTest {
                 cameraKeyWorks = false,
             ),
         )
+    }
+
+    /**
+     * **The two lists share a namespace now, so their names have to be disjoint.**
+     *
+     * A control that can be either kind stores one string. While `Exposure` existed in both
+     * enums, that string could not say which was meant — the list showed the option twice and
+     * reading it back always resolved to the dial, silently turning "open the exposure strip"
+     * into "nudge the exposure".
+     */
+    @Test
+    fun `no name means two different things`() {
+        val dials = DialAction.entries.map { it.name }.toSet()
+        val presses = PressAction.entries.map { it.name }.toSet()
+        // Nothing is deliberately in both: it means the same thing either way, and the Either
+        // list filters the duplicate out.
+        assertEquals(setOf("Nothing"), dials intersect presses)
+        assertEquals(Binding.VolumeKeys.options().size, Binding.VolumeKeys.options().toSet().size)
+    }
+
+    /**
+     * v2.44 stored `Exposure` and `Zoom` for the two strip presses. Left unmapped they now read as
+     * `Nothing`, so a wheel click that opened the exposure strip would quietly stop doing anything.
+     */
+    @Test
+    fun `the v2_44 press names are brought forward`() {
+        assertEquals(PressAction.ExposureStrip.name, Controls.renamedPress("Exposure"))
+        assertEquals(PressAction.ZoomStrip.name, Controls.renamedPress("Zoom"))
+        assertEquals(PressAction.Torch.name, Controls.renamedPress("Torch"))
+        assertEquals("Teleport", Controls.renamedPress("Teleport"))
     }
 
     @Test

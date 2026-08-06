@@ -76,8 +76,21 @@ enum class PressAction(val label: String) {
     FlipLens("Front / rear"),
     NextMode("Next mode"),
     Timer("Self timer"),
-    Exposure("Exposure strip"),
-    Zoom("Zoom strip"),
+
+    /**
+     * **`ExposureStrip`, not `Exposure`, and the suffix is load-bearing.**
+     *
+     * Since v2.45 a control can be offered both lists at once — the volume rocker can nudge the
+     * exposure like a dial *or* open the strip like a press, and those are different things
+     * somebody might genuinely want. The stored value is the constant's name, so while both
+     * enums had a member called `Exposure` the two were indistinguishable on the way back in:
+     * one list would show the option twice and reading it would always resolve to the dial.
+     *
+     * `Nothing` is still in both, deliberately. It means the same thing either way and resolves
+     * to the same behaviour, so the ambiguity costs nothing — the list filters the duplicate out.
+     */
+    ExposureStrip("Exposure strip"),
+    ZoomStrip("Zoom strip"),
     Nothing("Nothing"),
     ;
 
@@ -137,4 +150,21 @@ object Controls {
      */
     fun shutterSafe(volume: String?, wheelClick: String?, cameraKeyWorks: Boolean): Boolean =
         shutterSafe(PressAction.byName(volume), PressAction.byName(wheelClick), cameraKeyWorks)
+
+    /**
+     * A press action's name as v2.44 stored it, brought forward.
+     *
+     * `Exposure` and `Zoom` became `ExposureStrip` and `ZoomStrip` when the two action lists had
+     * to share a namespace — see [PressAction.ExposureStrip]. Anything already on disk under the
+     * old names would otherwise read as `Nothing`, which is the quiet kind of wrong: a wheel click
+     * that used to open the exposure strip would simply stop doing anything.
+     *
+     * Only ever applied to a value that is known to be a *press*. A dial's `Exposure` is still
+     * `Exposure` and must be left alone.
+     */
+    fun renamedPress(stored: String): String = when (stored) {
+        "Exposure" -> PressAction.ExposureStrip.name
+        "Zoom" -> PressAction.ZoomStrip.name
+        else -> stored
+    }
 }
