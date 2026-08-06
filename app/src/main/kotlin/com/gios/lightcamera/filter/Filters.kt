@@ -733,7 +733,21 @@ half4 main(float2 xy) {
         val source: String? get() = agsl?.let { PRELUDE + it }
     }
 
-    val none = Filter("none", "None", null)
+    /**
+     * No filter — called **Photo**, not None.
+     *
+     * The wheel is one track and the mode chip is its readout, so scrolling reads SIMPLE, PHOTO,
+     * FILM, MONO and on through the rest. Every other stop on that track names the thing you get;
+     * "None" named the absence of one, which is the only entry that described the mechanism
+     * rather than the picture. It also read as a fault — a chip saying NONE over a working
+     * viewfinder looks like something failed to load.
+     *
+     * "Photo" is what LightOS's own camera calls this, in the same slot, in the same word.
+     *
+     * The **id stays `none`**. It is what settings, the roll's saved filter and `byId` are keyed
+     * on, and renaming it would silently reset everybody's filter to the default on upgrade.
+     */
+    val none = Filter("none", "Photo", null)
 
     /**
      * Order matters: this is the order the wheel and a sideways swipe walk through, so it
