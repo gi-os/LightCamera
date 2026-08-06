@@ -23,7 +23,10 @@ import com.gios.lightcamera.filter.FaceQuads
 import com.gios.lightcamera.filter.Filters
 import com.gios.lightcamera.filter.ShaderRuntime
 import com.gios.lightcamera.hw.Beeps
+import com.gios.lightcamera.ocr.Found
 import com.gios.lightcamera.ocr.PageReader
+import com.gios.lightcamera.ocr.Reading
+import com.gios.lightcamera.ocr.TextScan
 import com.gios.lightcamera.qr.CodeHandoff
 import com.gios.lightcamera.qr.Codes
 import com.gios.lightcamera.qr.ScanGate
@@ -439,7 +442,9 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         // A reading belongs to the mode that produced it, the same as a scan. This also means a
         // stuck reader cannot outlive a trip through the mode strip, which is the first thing
         // anybody tries when a mode looks broken.
-        _pageText.value = null
+        _page.value = null
+        _pageFound.value = emptyList()
+        _pageSheet.value = null
         _held.value = null
         _reading.value = false
         prefs.setMode(next)
@@ -554,8 +559,34 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
      * it — and so it is cleared when it should be. A reading belongs to one photograph, and
      * showing the last one's words over this one's picture would be worse than showing nothing.
      */
-    private val _pageText = MutableStateFlow<String?>(null)
-    val pageText: StateFlow<String?> = _pageText.asStateFlow()
+    private val _page = MutableStateFlow<Reading?>(null)
+    val page: StateFlow<Reading?> = _page.asStateFlow()
+
+    /**
+     * The turn the frame was read at, kept beside the reading.
+     *
+     * The boxes come back in the upright image's coordinates and have to be put back into the
+     * frame's before they can be drawn. Recomputing the turn at draw time would read the *current*
+     * orientation, so tilting the phone while the sheet was up would slide every box off its
+     * words — the number that matters is the one at the moment of the press.
+     */
+    private val _pageTurn = MutableStateFlow(0)
+    val pageTurn: StateFlow<Int> = _pageTurn.asStateFlow()
+
+    /** What the page yielded that is worth pressing, and which line each came off. */
+    private val _pageFound = MutableStateFlow<List<Found>>(emptyList())
+    val pageFound: StateFlow<List<Found>> = _pageFound.asStateFlow()
+
+    /**
+     * The text the sheet is showing, or null while only the boxes are up.
+     *
+     * Two states rather than one, because they answer different questions. The boxes answer
+     * "which part of this said that", which is the one you have standing in front of a menu; the
+     * sheet answers "what does it say", which is the one you have afterwards. Going straight to
+     * the sheet — which is what v2.41 did — skipped the first question entirely.
+     */
+    private val _pageSheet = MutableStateFlow<String?>(null)
+    val pageSheet: StateFlow<String?> = _pageSheet.asStateFlow()
 
     private val _reading = MutableStateFlow(false)
     val reading: StateFlow<Boolean> = _reading.asStateFlow()
@@ -572,18 +603,18 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         if (!claimReader()) return
         viewModelScope.launch {
             try {
-                val text = withContext(Dispatchers.IO) {
+                val found = withContext(Dispatchers.IO) {
                     PageReader.read(getApplication(), photo.uri)
                 }
-                if (text == null) {
+                if (found == null) {
                     showNotice("No text in this one")
                     return@launch
                 }
-                _pageText.value = text
-                // The same two blips a scan gets. Finding the words is the same event as finding a
-                // code: the thing you pointed the phone at turned out to be there.
-                LightHaptics.click(getApplication<Application>())
-                if (prefs.sounds.value) beeps.focusLocked()
+                // A photograph from the roll arrives upright: `fromFilePath` has already applied
+                // the file's EXIF rotation, so there is no turn left to undo.
+                // The two blips a scan gets are raised by `showReading`: finding the words is the
+                // same event as finding a code — the thing you pointed the phone at was there.
+                showReading(found, turn = 0)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 Trouble.record("Reading a photograph failed", t)
@@ -630,24 +661,35 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 val turn = engine.previewRotationDegrees()
                 // The turn is passed rather than applied. ML Kit rotates internally and a manual
                 // rotate would mean allocating a second full-size bitmap to hand it the same thing.
-                var text = withContext(Dispatchers.Default) { PageReader.read(grabbed, turn) }
+                var reading = withContext(Dispatchers.Default) { PageReader.read(grabbed, turn) }
+                // The turn the boxes have to be undone by. A closer look comes back upright,
+                // because it went through a file with its own rotation on it.
+                var boxTurn = turn
 
-                if (thin(text) && engine.ready.value) {
+                if (thin(reading?.text) && engine.ready.value) {
                     showNotice("Looking closer")
                     val closer = withContext(Dispatchers.IO) { readExposure() }
                     // Only if it did better. A real exposure can also come back empty — pointed at
                     // a wall, it should say so rather than replacing a partial reading with none.
-                    if (!thin(closer)) text = closer
+                    if (!thin(closer?.text)) {
+                        // **The boxes are dropped when the closer look wins**, which is the honest
+                        // thing rather than the lazy one: those rectangles are in the *exposure's*
+                        // coordinates and the picture still on screen is the panel grab. Drawing
+                        // one on the other would put every box confidently in the wrong place,
+                        // which is worse than drawing none — so that reading goes straight to the
+                        // sheet, as it did before the boxes existed.
+                        reading = closer?.copy(lines = emptyList())
+                        boxTurn = 0
+                    }
                 }
 
-                if (text == null) {
+                val got = reading
+                if (got == null) {
                     _held.value = null
                     showNotice("No text in view")
                     return@launch
                 }
-                _pageText.value = text
-                LightHaptics.click(getApplication<Application>())
-                if (prefs.sounds.value) beeps.focusLocked()
+                showReading(got, boxTurn)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 _held.value = null
@@ -689,7 +731,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
      * street sign is two hundred megabytes to throw away. `inSampleSize` is powers of two, so this
      * lands between 2000 and 4000 rather than exactly on it, which is close enough.
      */
-    private suspend fun readExposure(): String? {
+    private suspend fun readExposure(): Reading? {
         val frame = runCatching { engine.capture() }.getOrNull() ?: return null
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(frame.jpeg, 0, frame.jpeg.size, bounds)
@@ -715,8 +757,50 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
      */
     private fun thin(text: String?): Boolean = (text?.count(Char::isLetterOrDigit) ?: 0) < 12
 
+    /**
+     * Put a reading on screen: boxes first, sheet on demand.
+     *
+     * The findings are worked out here rather than in the sheet because the overlay needs them
+     * too — a line is drawn as actionable or as plain, and that is the same question the sheet's
+     * list is answering. Computing it twice is how the two would come to disagree.
+     */
+    private fun showReading(reading: Reading, turn: Int) {
+        _page.value = reading
+        _pageTurn.value = turn
+        _pageFound.value = if (reading.lines.isEmpty()) {
+            // No boxes to attribute anything to — the closer-look path. Scan the page as one
+            // piece so the findings still exist; they simply have no line to point at.
+            TextScan.found(reading.text)
+        } else {
+            TextScan.found(reading.lines.map { it.text })
+        }
+        // A reading with no boxes has nothing to show over the frame, so it opens where it would
+        // have ended up anyway rather than putting up an empty overlay and asking for a tap.
+        _pageSheet.value = if (reading.lines.isEmpty()) reading.text else null
+        LightHaptics.click(getApplication<Application>())
+        if (prefs.sounds.value) beeps.focusLocked()
+    }
+
+    /** One line, opened from its box. */
+    fun openLine(index: Int) {
+        val line = _page.value?.lines?.getOrNull(index) ?: return
+        _pageSheet.value = line.text
+    }
+
+    /** The whole page, for when the boxes are not what you wanted. */
+    fun openWholePage() {
+        _pageSheet.value = _page.value?.text
+    }
+
+    /** Close the sheet but keep the boxes — going back a step, not all the way out. */
+    fun closePageSheet() {
+        _pageSheet.value = null
+    }
+
     fun dismissPage() {
-        _pageText.value = null
+        _page.value = null
+        _pageFound.value = emptyList()
+        _pageSheet.value = null
         // Text mode's frame lives only as long as the sheet. Clearing it here rather than in the
         // screen keeps the two in step: the held frame *is* the thing the words came from, and a
         // frozen viewfinder with no sheet over it looks like the camera has locked up.
@@ -853,7 +937,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         // point at a thing, press the button, get the thing — except that the thing is the words
         // and no file is made. See `readFrame`.
         if (prefs.mode.value.isText) {
-            if (_pageText.value != null) dismissPage() else readFrame()
+            if (_page.value != null) dismissPage() else readFrame()
             return
         }
         if (_shooting.value) return

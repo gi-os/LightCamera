@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.util.Log
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlin.coroutines.resume
@@ -56,11 +57,13 @@ object PageReader {
      * nothing at all rather than returning something wrong — which makes the bug look like the
      * feature simply not working.
      */
-    suspend fun read(context: Context, uri: Uri): String? {
+    suspend fun read(context: Context, uri: Uri): Reading? {
         val image = runCatching { InputImage.fromFilePath(context, uri) }
             .onFailure { Log.w(TAG, "cannot open $uri", it) }
             .getOrNull() ?: return null
-        return recognise(image)
+        // `fromFilePath` applies the file's EXIF rotation itself, so what it hands over is already
+        // upright and its width and height are the upright ones.
+        return recognise(image, image.width, image.height)
     }
 
     /**
@@ -72,8 +75,14 @@ object PageReader {
      * sideways page returns nothing at all rather than something wrong, which makes the bug look
      * like the feature simply not working.
      */
-    suspend fun read(bitmap: Bitmap, rotationDegrees: Int = 0): String? =
-        recognise(InputImage.fromBitmap(bitmap, rotationDegrees))
+    suspend fun read(bitmap: Bitmap, rotationDegrees: Int = 0): Reading? =
+        recognise(
+            image = InputImage.fromBitmap(bitmap, rotationDegrees),
+            uprightW = if (quarter(rotationDegrees)) bitmap.height else bitmap.width,
+            uprightH = if (quarter(rotationDegrees)) bitmap.width else bitmap.height,
+        )
+
+    private fun quarter(degrees: Int): Boolean = (((degrees / 90) % 4) + 4) % 4 % 2 == 1
 
     /**
      * How long a reading is allowed to take before it is treated as never having answered.
@@ -85,12 +94,47 @@ object PageReader {
      */
     private const val TIMEOUT_MS = 12_000L
 
-    private suspend fun recognise(image: InputImage): String? = withTimeoutOrNull(TIMEOUT_MS) {
+    /**
+     * The recogniser's blocks and lines, flattened to the lines and their rectangles.
+     *
+     * Lines, not blocks and not words — see [TextLine]. `result.text` is kept verbatim rather
+     * than rebuilt by joining the lines: the recogniser puts the blank lines between blocks in
+     * itself, and reassembling a page from its parts is a way to lose that for no gain.
+     *
+     * A line with no `boundingBox` is dropped from the boxes but keeps its words in the text. The
+     * field is nullable in the API and a box that defaults to the origin would draw a rectangle
+     * in the top-left corner of every page, which looks like a bug in the mapping.
+     */
+    private fun reading(result: Text, uprightW: Int, uprightH: Int) = Reading(
+        text = result.text,
+        lines = result.textBlocks
+            .flatMap { it.lines }
+            .mapNotNull { line ->
+                val box = line.boundingBox ?: return@mapNotNull null
+                TextLine(
+                    text = line.text,
+                    left = box.left.toFloat(),
+                    top = box.top.toFloat(),
+                    right = box.right.toFloat(),
+                    bottom = box.bottom.toFloat(),
+                )
+            },
+        width = uprightW,
+        height = uprightH,
+    )
+
+    private suspend fun recognise(
+        image: InputImage,
+        uprightW: Int,
+        uprightH: Int,
+    ): Reading? = withTimeoutOrNull(TIMEOUT_MS) {
         suspendCancellableCoroutine { cont ->
             runCatching {
                 recognizer.process(image)
                     .addOnSuccessListener { result ->
-                        cont.resume(result.text.takeIf { it.isNotBlank() })
+                        cont.resume(
+                            if (result.text.isBlank()) null else reading(result, uprightW, uprightH),
+                        )
                     }
                     .addOnFailureListener { t ->
                         // The documented failure — a model that will not load, most likely. Null

@@ -1,38 +1,46 @@
-## LightCamera v2.42 — Fixing the Text shutter, which could stop working and never say so
+## LightCamera v2.43 — The words are boxed where they were found
 
-**In Text mode the shutter did nothing.** Not sometimes — permanently, once it had happened, with
-no message and no way to tell what was wrong. Here is the whole of it, because the shape of this
-bug is worth more than the fix.
+A reading used to go straight to a sheet, and the sheet covers the picture. That answers "what
+does this page say" and not "which part of it said that" — and standing in front of a menu or a
+noticeboard, the second question is the one you actually have.
 
-Both ways of reading text — the TEXT button on a photograph in the roll, and the shutter in Text
-mode — share one "busy" flag, because they share one view model. The roll's version set the flag
-before starting and cleared it *after finishing*. On the happy path that is the same thing. On any
-other path it is not: a reading that threw, or that was cancelled, or that simply never came back,
-left the flag set.
+So a reading now shows its rectangles on the frozen frame first. Every line the recogniser found
+gets a box, and the boxes are the thing you press: tap one and the sheet opens on that line alone,
+close it and you are back on the picture with the boxes still up, so reading a second line is one
+press rather than four. **ALL TEXT** in the strip along the bottom opens the whole page as before.
 
-The view model is scoped to the activity, so that flag outlives the screen that set it. And the
-first line of the Text-mode shutter was `if (busy) return` — no message, no sound, nothing. So the
-sequence was: read a photograph on the roll once, have it fail in any way at all, and from then
-on, for as long as the app was running, the shutter in Text mode was dead and silent.
+### Two weights, not two colours
 
-Three things changed, and all three were needed.
+A line carrying something worth pressing — a number, an address, a link — is filled and outlined.
+A line that is just words gets a hairline. There is no colour on this panel to spend and no room
+for a legend, so the distinction is drawn the way LightOS draws every other piece of state.
 
-**The flag is now cleared in a `finally`**, on both paths, so no outcome can leave it set. That is
-the actual bug.
+The fill is deliberately not solid. A filled box hides the very words it is pointing at, and being
+able to see what was read is the whole promise.
 
-**The refusal is no longer silent.** A press that has decided not to do anything says "Still
-reading". A button that quietly declines is indistinguishable from a broken phone, and this cost
-more time than the bug did.
+At arm's length the marked boxes are the only thing you see, which is the right summary of a page:
+here are the four things on this poster you might want, and here is where each of them is.
 
-**The recogniser has a ceiling.** Twelve seconds, after which a reading is treated as never having
-answered. Not tuning — a guarantee. The underlying task has no cancel, so without a ceiling one
-call that never completes can still wedge everything behind it, and the `finally` would be waiting
-on a coroutine that never ends.
+### The part that is easy to get wrong
 
-Failures are also now caught rather than escaping into the void: a read that throws records itself
-the way any other failure in this app does, so it offers to send a report with the reason in it
-instead of looking like a photograph with no words on it.
+The recogniser is handed a rotation rather than a rotated picture, so it reports boxes in the
+upright page's coordinates while the thing on screen is the frame as taken. For a sign
+photographed with the phone on its side those two have their axes swapped — a box that is merely
+offset is a bug, and a box that is *transposed* is that step missing altogether.
 
-Switching modes clears a stuck reader too. That is belt and braces rather than a fix — but a trip
-through the mode strip is the first thing anybody tries when a mode looks broken, and it should
-work.
+That arithmetic lives in its own file with no Android in it and eleven tests beside it, the same
+arrangement as the face mapper for the same reason: it is impossible to check by reading, and
+trivial to check off the phone. The turn is captured at the moment of the press rather than read
+at draw time, so tilting the phone with the sheet up cannot slide every box off its words.
+
+**When the closer look wins, the boxes are dropped.** If the panel frame was too coarse and a real
+exposure was taken instead, those rectangles belong to the exposure and the picture still on
+screen is the panel grab. Drawing one on the other would put every box confidently in the wrong
+place, so that reading goes straight to the sheet, as it did before. Wrong boxes are worse than
+none.
+
+### Elsewhere
+
+The TEXT button on a photograph in the roll still goes straight to the sheet. The photograph there
+is zoomable and pannable, so the boxes would need to follow the zoom, and half-following it is the
+version that looks broken. Worth doing next, deliberately not done blind.

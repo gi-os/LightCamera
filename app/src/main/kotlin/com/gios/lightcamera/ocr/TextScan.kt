@@ -16,7 +16,19 @@ import com.gios.lightcamera.qr.Codes
  * [label] is what the page actually said, kept verbatim so the sheet can show the reading and
  * the interpretation side by side. They differ more often than you would like.
  */
-data class Found(val label: String, val payload: String, val kind: Codes.Kind)
+data class Found(
+    val label: String,
+    val payload: String,
+    val kind: Codes.Kind,
+    /**
+     * Which line of the reading it came from, or -1 when the caller had no lines to offer.
+     *
+     * This is what lets the overlay draw a number's box differently from a caption's: without
+     * it, a page has "things on it" and no way to say where any of them were, which was the
+     * complaint that produced the boxes in the first place.
+     */
+    val lineIndex: Int = -1,
+)
 
 /**
  * Turning a page of recognised text into a short list of things you might want.
@@ -45,6 +57,24 @@ object TextScan {
      * number at the bottom, and shuffling them into categories throws away the only layout
      * information the recogniser gave us.
      */
+    /**
+     * Everything found, kept per line, so each result knows where on the page it was.
+     *
+     * Scanning line by line rather than over the whole page is also slightly stricter, and in
+     * the right direction: a recogniser breaks lines where the page breaks them, so two halves
+     * of a sentence on separate lines were never one address. The one thing it gives up is an
+     * address that genuinely wrapped, which was already lost — the recogniser reports the break.
+     */
+    fun found(lines: List<String>): List<Found> {
+        val out = LinkedHashMap<String, Found>()
+        lines.forEachIndexed { index, line ->
+            found(line).forEach { item ->
+                out.putIfAbsent(item.payload, item.copy(lineIndex = index))
+            }
+        }
+        return out.values.toList()
+    }
+
     fun found(text: String): List<Found> {
         val out = LinkedHashMap<String, Found>()
         // Passes run most-specific first, and each one blanks the characters it claimed before

@@ -71,7 +71,7 @@ fun ViewerScreen(
     val scope = rememberCoroutineScope()
     val colours = LightThemeTokens.colors
     val roll by vm.photos.collectAsState()
-    val pageText by vm.pageText.collectAsState()
+    val pageSheet by vm.pageSheet.collectAsState()
     val reading by vm.reading.collectAsState()
 
     // **Opened out of a strip, the viewer shows its four frames instead of the roll.**
@@ -350,7 +350,7 @@ fun ViewerScreen(
                 //
                 // Absent while the sheet is up, so the row does not offer to do again the thing
                 // already on screen.
-                if (current != null && pageText == null) {
+                if (current != null && pageSheet == null) {
                     ChromeLabel(
                         text = if (reading) "Reading" else "Text",
                         lighten = reading,
@@ -377,7 +377,7 @@ fun ViewerScreen(
 
         // Over the photograph, inside the same Box as the chrome, so it covers the picture and
         // the controls both. Last in the Box because Compose paints in order and this has to win.
-        pageText?.let { text ->
+        pageSheet?.let { text ->
             TextSheet(
                 text = text,
                 onOpen = vm::openFromPage,

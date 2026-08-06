@@ -68,6 +68,7 @@ import com.gios.lightcamera.filter.FaceQuad
 import com.gios.lightcamera.filter.FaceQuads
 import com.gios.lightcamera.filter.ShaderRuntime
 import com.gios.lightcamera.hw.CameraKeyAdvice
+import com.gios.lightcamera.ocr.TextBoxes
 import com.gios.lightcamera.qr.Codes
 import com.gios.lightcamera.ui.theme.LightHaptics
 import com.gios.lightcamera.ui.theme.LightIcons
@@ -131,7 +132,10 @@ fun CameraScreen(
     val recording by engine.recording.collectAsState()
     val recordSeconds by vm.recordSeconds.collectAsState()
     val scanned by vm.scan.collectAsState()
-    val pageText by vm.pageText.collectAsState()
+    val page by vm.page.collectAsState()
+    val pageTurn by vm.pageTurn.collectAsState()
+    val pageFound by vm.pageFound.collectAsState()
+    val pageSheet by vm.pageSheet.collectAsState()
 
     var frameWidth by remember { mutableStateOf(0) }
     var frameHeight by remember { mutableStateOf(0) }
@@ -606,7 +610,7 @@ fun CameraScreen(
                 // The same marks in Text mode, because it is the same act: you are framing a thing
                 // rather than composing a picture, and the corners are what tell you so. Gone the
                 // moment there is a reading, so the sheet is the only thing on screen.
-                if (mode.isText && pageText == null) {
+                if (mode.isText && page == null) {
                     ScanWindow(Modifier.fillMaxSize())
                 }
 
@@ -737,15 +741,42 @@ fun CameraScreen(
                 modifier = Modifier.padding(start = BAND),
             )
         }
-        // Text mode's reading, over the frozen frame it came from. The same sheet a photograph on
-        // the roll gets, and the same one a QR code gets once `TextScan` has shaped the findings
-        // into payloads — three ways in, one screen out.
-        pageText?.let { text ->
+        // **The boxes, over the frozen frame, before any sheet.** Standing in front of a menu the
+        // question is which part of it said that, and the sheet cannot answer it — it covers the
+        // picture. So a reading shows its rectangles first and opens on a tap.
+        val reading = page
+        if (reading != null && pageSheet == null && reading.lines.isNotEmpty()) {
+            TextOverlay(
+                reading = reading,
+                found = pageFound,
+                rotationDegrees = pageTurn,
+                // The frame underneath is drawn `ContentScale.Crop` into the whole panel, so the
+                // boxes have to be laid out the same way or they are out by the overhang.
+                placement = { w, h ->
+                    val (srcW, srcH) = TextBoxes.sourceSize(reading.width, reading.height, pageTurn)
+                    TextBoxes.fill(srcW, srcH, w, h)
+                },
+                onTapLine = vm::openLine,
+            )
+            TextHint(
+                found = pageFound.size,
+                lines = reading.lines.size,
+                onAll = vm::openWholePage,
+                onClose = vm::dismissPage,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
+        // The sheet: one line if a box was tapped, the whole page otherwise. The same sheet a
+        // photograph on the roll gets, and the same one a QR code gets once `TextScan` has shaped
+        // the findings into payloads — three ways in, one screen out.
+        pageSheet?.let { text ->
             TextSheet(
                 text = text,
                 onOpen = vm::openFromPage,
                 onCopy = vm::copyFromPage,
-                onClose = vm::dismissPage,
+                // Back to the boxes rather than out of the reading, so tapping a second line is
+                // one press and not four.
+                onClose = { if (reading?.lines?.isNotEmpty() == true) vm.closePageSheet() else vm.dismissPage() },
             )
         }
         scanned?.let { payload ->
