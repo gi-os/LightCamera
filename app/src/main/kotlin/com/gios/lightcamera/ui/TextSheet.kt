@@ -24,6 +24,7 @@ import com.gios.lightcamera.ocr.Found
 import com.gios.lightcamera.ocr.TextScan
 import com.gios.lightcamera.qr.Codes
 import com.gios.lightcamera.ui.theme.LightIcons
+import com.gios.lightcamera.ui.theme.lightClickable
 import com.gios.lightcamera.ui.theme.LightText
 import com.gios.lightcamera.ui.theme.LightTextVariant
 import com.gios.lightcamera.ui.theme.LightThemeTokens
