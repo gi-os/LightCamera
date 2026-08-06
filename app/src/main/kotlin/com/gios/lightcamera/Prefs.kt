@@ -532,7 +532,7 @@ class Prefs(context: Context) {
      * Every binding is present at construction, so reads never have to consider a missing key.
      */
     private val _bindings = MutableStateFlow(
-        Binding.entries.associate { it to (prefs.getString(bindKey(it), null) ?: it.default) },
+        Binding.entries.associate { it to (storedBinding(it) ?: it.default) },
     )
     val bindings: StateFlow<Map<Binding, String>> = _bindings.asStateFlow()
 
@@ -573,6 +573,22 @@ class Prefs(context: Context) {
         ),
     )
     val bandSlots: StateFlow<List<BandSlot>> = _bandSlots.asStateFlow()
+
+    /**
+     * What is stored for a binding, honouring the one rename there has been.
+     *
+     * v2.45 folded `VolumeUp` and `VolumeDown` into a single `VolumeKeys`, so a phone that has
+     * been through the older build has two keys in its preferences and none under the new name.
+     * Reading the old up key across is not tidiness: without it, anybody who had deliberately
+     * unbound the volume keys would silently get the shutter back on them.
+     */
+    private fun storedBinding(binding: Binding): String? {
+        prefs.getString(bindKey(binding), null)?.let { return it }
+        if (binding != Binding.VolumeKeys) return null
+        // Up before down only because a value has to be picked; both defaulted to the shutter and
+        // anybody who changed one almost certainly changed both.
+        return prefs.getString("bind_VolumeUp", null) ?: prefs.getString("bind_VolumeDown", null)
+    }
 
     fun pressFor(binding: Binding): PressAction =
         PressAction.byName(_bindings.value[binding] ?: binding.default)

@@ -36,6 +36,8 @@ class LightControls(
      */
     private val pressFor: (Binding) -> PressAction,
     private val onPress: (PressAction) -> Unit,
+    private val dialFor: (Binding) -> DialAction,
+    private val onDial: (DialAction, Int) -> Unit,
 ) {
 
     private var clickHeld = false
@@ -100,12 +102,25 @@ class LightControls(
      * of the two readings of "nothing".
      */
     private fun volumeKey(event: KeyEvent): Boolean {
-        val binding = when (event.keyCode) {
-            KeyEvent.KEYCODE_VOLUME_UP -> Binding.VolumeUp
-            KeyEvent.KEYCODE_VOLUME_DOWN -> Binding.VolumeDown
+        val up = when (event.keyCode) {
+            KeyEvent.KEYCODE_VOLUME_UP -> true
+            KeyEvent.KEYCODE_VOLUME_DOWN -> false
             else -> return false
         }
-        val action = pressFor(binding)
+
+        // **A dial first, because a dial is what two keys either side of a phone are.** One means
+        // more and the other means less; that is the only reason there are two of them, and the
+        // old mapping — both pointed at the same press — threw it away.
+        val dial = dialFor(Binding.VolumeKeys)
+        if (dial != DialAction.Nothing) {
+            // Repeats are allowed here and nowhere else in this file. Holding the rocker to run
+            // through the filters is the gesture, and it is the one thing the wheel can do that a
+            // pair of keys otherwise cannot. Android's own repeat rate does the pacing.
+            if (event.action == KeyEvent.ACTION_DOWN) onDial(dial, if (up) 1 else -1)
+            return true
+        }
+
+        val action = pressFor(Binding.VolumeKeys)
         if (action == PressAction.Nothing) return false
         if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) onPress(action)
         return true

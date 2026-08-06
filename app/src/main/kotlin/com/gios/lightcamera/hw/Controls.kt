@@ -13,24 +13,56 @@ package com.gios.lightcamera.hw
  * mapping could not express at all. So the mapping is data, the defaults are the old
  * behaviour, and [Controls.shutterSafe] is the one rule the data has to obey.
  */
-enum class Binding(val label: String, val dial: Boolean) {
-    VolumeUp("Volume up", dial = false),
-    VolumeDown("Volume down", dial = false),
-    WheelTurn("Turn the wheel", dial = true),
-    WheelPressTurn("Press and turn", dial = true),
-    WheelClick("Click the wheel", dial = false),
+enum class Binding(val label: String, val accepts: Accepts) {
+    /**
+     * **The two volume keys, bound as one thing.**
+     *
+     * They were separate until v2.45, and separating them was the mistake. A pair of keys either
+     * side of a phone is a *dial* — the only reason to have two is that one means more and the
+     * other means less — and the fixed mapping wasted that by pointing both of them at the same
+     * press. Bound together they can carry a dial action, so the volume rocker walks the filters
+     * in both directions, which is what somebody who has given the wheel away to LightControl
+     * actually wants.
+     *
+     * They can still hold a press, and that is still the default: both keys fire it, exactly as
+     * before.
+     */
+    VolumeKeys("Volume keys", Accepts.Either),
+    WheelTurn("Turn the wheel", Accepts.Dial),
+    WheelPressTurn("Press and turn", Accepts.Dial),
+    WheelClick("Click the wheel", Accepts.Press),
     ;
 
     /** Which action this control has when nothing has been changed. */
     val default: String
         get() = when (this) {
-            VolumeUp -> PressAction.Shutter.name
-            VolumeDown -> PressAction.Shutter.name
+            VolumeKeys -> PressAction.Shutter.name
             WheelTurn -> DialAction.Filter.name
             WheelPressTurn -> DialAction.Exposure.name
             WheelClick -> PressAction.Torch.name
         }
+
+    /** Every action this control can be pointed at, in the order a list should show them. */
+    fun options(): List<String> = when (accepts) {
+        Accepts.Press -> PressAction.entries.map { it.name }
+        Accepts.Dial -> DialAction.entries.map { it.name }
+        // Dials first. A control that can be either is on this list because somebody wants the
+        // dial — the presses are the thing it could already do.
+        Accepts.Either ->
+            DialAction.entries.filter { it != DialAction.Nothing }.map { it.name } +
+                PressAction.entries.map { it.name }
+    }
+
+    /** How to name whatever is currently bound here. */
+    fun labelOf(action: String?): String {
+        val dial = DialAction.entries.firstOrNull { it.name == action }
+        if (dial != null && accepts != Accepts.Press) return dial.label
+        return PressAction.byName(action).label
+    }
 }
+
+/** Which kind of action a control can carry. */
+enum class Accepts { Press, Dial, Either }
 
 /**
  * Something a press can be pointed at.
@@ -88,12 +120,21 @@ object Controls {
      *   [CameraKeyAdvice], which answers it by looking for a service that binds the key.
      */
     fun shutterSafe(
-        volumeUp: PressAction,
-        volumeDown: PressAction,
+        volume: PressAction,
         wheelClick: PressAction,
         cameraKeyWorks: Boolean,
     ): Boolean = cameraKeyWorks ||
-        volumeUp == PressAction.Shutter ||
-        volumeDown == PressAction.Shutter ||
+        volume == PressAction.Shutter ||
         wheelClick == PressAction.Shutter
+
+    /**
+     * The same question asked of a stored value rather than a resolved action.
+     *
+     * A volume binding holding a *dial* action resolves to [PressAction.Nothing] through
+     * [PressAction.byName], which is the right answer here and worth stating: pointing the volume
+     * keys at the filters takes the shutter away from them just as surely as unbinding them does,
+     * and the guard has to see that.
+     */
+    fun shutterSafe(volume: String?, wheelClick: String?, cameraKeyWorks: Boolean): Boolean =
+        shutterSafe(PressAction.byName(volume), PressAction.byName(wheelClick), cameraKeyWorks)
 }

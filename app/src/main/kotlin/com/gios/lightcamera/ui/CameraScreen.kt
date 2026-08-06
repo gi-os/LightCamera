@@ -329,14 +329,14 @@ fun CameraScreen(
         active = active && wheelEnabled && !puriOpen && bareDial != DialAction.Nothing,
         armed = bareDial != DialAction.Filter,
     ) { notches ->
-        turnDial(vm, engine, bareDial, notches)
+        turnDial(vm, bareDial, notches)
     }
     WheelTurns(
         active = active && wheelEnabled && !puriOpen && heldDial != DialAction.Nothing,
         armed = heldDial != DialAction.Filter,
         pressed = true,
     ) { notches ->
-        turnDial(vm, engine, heldDial, notches)
+        turnDial(vm, heldDial, notches)
     }
 
     /* ---- the shutter blink ---- */
@@ -1465,26 +1465,11 @@ private fun BandWord(text: String, lighten: Boolean = false, onClick: () -> Unit
  * A function rather than a `when` at each of the two call sites, because the bare wheel and
  * press-and-turn have to mean the same thing by the same action or a mapping is not a mapping.
  */
-private fun turnDial(
-    vm: CameraViewModel,
-    engine: CameraEngine,
-    action: DialAction,
-    notches: Int,
-) {
-    when (action) {
-        // One filter per turn regardless of how many notches arrived: the track is a list of names
-        // and skipping two of them because the wheel was flicked is not what the gesture meant.
-        DialAction.Filter -> vm.stepFilter(if (notches > 0) 1 else -1)
-        DialAction.Exposure -> {
-            engine.stepEv(notches)
-            vm.showNotice("EV ${engine.evLabel()}")
-        }
-        DialAction.Zoom -> {
-            engine.stepZoom(notches)
-            vm.showNotice(engine.zoomLabel())
-        }
-        DialAction.Nothing -> Unit
-    }
+private fun turnDial(vm: CameraViewModel, action: DialAction, notches: Int) {
+    // Delegated rather than duplicated. The volume rocker can be a dial too since v2.45 and it is
+    // dispatched from the activity, which cannot reach into this file — so the meaning of an
+    // action lives on the view model and both callers ask it.
+    vm.turn(action, notches)
 }
 
 /**

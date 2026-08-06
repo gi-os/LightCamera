@@ -25,6 +25,7 @@ import com.gios.lightcamera.filter.FaceQuads
 import com.gios.lightcamera.filter.Filters
 import com.gios.lightcamera.filter.ShaderRuntime
 import com.gios.lightcamera.hw.Beeps
+import com.gios.lightcamera.hw.DialAction
 import com.gios.lightcamera.hw.PressAction
 import com.gios.lightcamera.ocr.Found
 import com.gios.lightcamera.ocr.PageReader
@@ -468,6 +469,31 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
      * arm of it is a view-model call, and the activity holding a lambda per action was five
      * closures that had to be kept in step with an enum.
      */
+    /**
+     * A dial action, from whatever reported the notches.
+     *
+     * Here rather than in the screen because there are now two things that produce notches — the
+     * wheel, collected in composition, and the volume rocker, dispatched from the activity — and
+     * a mapping is not a mapping if the same action means two different things depending on which
+     * control sent it.
+     */
+    fun turn(action: DialAction, notches: Int) {
+        when (action) {
+            // One filter per turn regardless of how many notches arrived: the track is a list of
+            // names and skipping two because the wheel was flicked is not what the gesture meant.
+            DialAction.Filter -> stepFilter(if (notches > 0) 1 else -1)
+            DialAction.Exposure -> {
+                engine.stepEv(notches)
+                showNotice("EV ${engine.evLabel()}")
+            }
+            DialAction.Zoom -> {
+                engine.stepZoom(notches)
+                showNotice(engine.zoomLabel())
+            }
+            DialAction.Nothing -> Unit
+        }
+    }
+
     fun press(action: PressAction) {
         when (action) {
             PressAction.Shutter -> shoot()

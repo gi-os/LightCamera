@@ -33,11 +33,14 @@ import com.gios.lightcamera.SelfTimer
 import com.gios.lightcamera.StampStyle
 import com.gios.lightcamera.camera.AfMode
 import com.gios.lightcamera.camera.FrameAspect
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
+import com.gios.lightcamera.hw.Accepts
 import com.gios.lightcamera.hw.Binding
 import com.gios.lightcamera.hw.CameraKeyAdvice
 import com.gios.lightcamera.hw.Controls
-import com.gios.lightcamera.hw.DialAction
-import com.gios.lightcamera.hw.PressAction
 import com.gios.lightcamera.send.Handoff
 import com.gios.lightcamera.ui.theme.LightIcons
 import com.gios.lightcamera.ui.theme.LightText
@@ -81,11 +84,20 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
     // **A scroll position per tab.** One `rememberScrollState` shared between them left the new tab
     // opened halfway down, at whatever offset the last one happened to be at.
     val scroll = rememberScrollState()
-    WheelScroll(scroll)
 
     val roll by vm.roll.collectAsState()
+    var pick by remember { mutableStateOf<Pick?>(null) }
+    // **The settings list gives the wheel up while a list is open.** Both are drawn in the same
+    // window, so without this a turn scrolls the options *and* the page underneath them.
+    WheelScroll(scroll, active = pick == null)
+    // Back closes the list before it closes settings, which is the order anybody expects and the
+    // only one that lets you look at the options and change your mind.
+    BackHandler(enabled = pick != null) { pick = null }
 
-    Column(
+    // The list is drawn over the settings rather than replacing them, so closing it puts you back
+    // exactly where you were — on a screen with five tabs and a scroll position, that matters.
+    Box(Modifier.fillMaxSize()) {
+        Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black),
@@ -114,6 +126,7 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
                 .verticalScroll(scroll)
                 .padding(start = 16.dp, end = 16.dp, bottom = 40.dp),
         ) {
+            CompositionLocalProvider(LocalOpenPick provides { asked: Pick -> pick = asked }) {
             when (tab) {
                 SettingsTab.Frame -> FrameTab(vm)
                 SettingsTab.Look -> LookTab(vm, context)
@@ -121,7 +134,10 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
                 SettingsTab.Film -> FilmTab(vm, context, onClose, roll != null)
                 SettingsTab.About -> AboutTab(vm, context, colours.rule)
             }
+            }
         }
+    }
+        pick?.let { PickSheet(it, onClose = { pick = null }) }
     }
 }
 
@@ -202,18 +218,9 @@ private fun FrameTab(vm: CameraViewModel) {
             "The viewfinder fills the screen and the sensor is 4:3, so the photograph keeps a little more than you saw — at the top and bottom of the frame.",
         )
     }
-    Setting("Size", photoSize.label) {
-        val all = PhotoSize.entries
-        vm.prefs.setPhotoSize(all[(all.indexOf(photoSize) + 1) % all.size])
-    }
-    Setting("Shape", aspect.label) {
-        val all = FrameAspect.entries
-        vm.prefs.setAspect(all[(all.indexOf(aspect) + 1) % all.size])
-    }
-    Setting("Grid", chrome.label) {
-        val all = Chrome.entries
-        vm.prefs.setChrome(all[(all.indexOf(chrome) + 1) % all.size])
-    }
+    Choice("Size", photoSize, PhotoSize.entries, { it.label }) { vm.prefs.setPhotoSize(it) }
+    Choice("Shape", aspect, FrameAspect.entries, { it.label }) { vm.prefs.setAspect(it) }
+    Choice("Grid", chrome, Chrome.entries, { it.label }) { vm.prefs.setChrome(it) }
     Setting("Level", if (level) "On" else "Off") { vm.prefs.setLevel(!level) }
     Setting("Simple mode", if (simpleMode) "On" else "Off") {
         vm.prefs.setSimpleMode(!simpleMode)
@@ -259,10 +266,7 @@ private fun FrameTab(vm: CameraViewModel) {
         )
     }
     val burst by vm.prefs.burst.collectAsState()
-    Setting("Self timer", timer.label) {
-        val all = SelfTimer.entries
-        vm.prefs.setTimer(all[(all.indexOf(timer) + 1) % all.size])
-    }
+    Choice("Self timer", timer, SelfTimer.entries, { it.label }) { vm.prefs.setTimer(it) }
     Setting("Sharpest of eight", if (burst) "On" else "Off") { vm.prefs.setBurst(!burst) }
     Setting("Sounds", if (sounds) "Focus beep" else "Off") { vm.prefs.setSounds(!sounds) }
 }
@@ -292,9 +296,8 @@ private fun LookTab(vm: CameraViewModel, context: android.content.Context) {
         vm.prefs.setStampCoarse(!stampCoarse)
     }
     if (stampPlain || stampFiltered || stampCoarse) {
-        Setting("Style", stampStyle.label) {
-            val all = StampStyle.entries
-            vm.prefs.setStampStyle(all[(all.indexOf(stampStyle) + 1) % all.size])
+        Choice("Style", stampStyle, StampStyle.entries, { it.label }) {
+            vm.prefs.setStampStyle(it)
         }
     }
 
@@ -313,10 +316,7 @@ private fun LookTab(vm: CameraViewModel, context: android.content.Context) {
             },
         )
     }
-    Setting("Show", colour.label) {
-        val all = Colour.entries
-        vm.prefs.setColour(all[(all.indexOf(colour) + 1) % all.size])
-    }
+    Choice("Show", colour, Colour.entries, { it.label }) { vm.prefs.setColour(it) }
 }
 
 /* -------------------------------- controls -------------------------------- */
@@ -379,22 +379,24 @@ private fun ControlsTab(
     Setting("Wheel", if (wheel) "On" else "Off") { vm.prefs.setWheelEnabled(!wheel) }
     Binding.entries.forEach { binding ->
         val current = bindings[binding] ?: binding.default
-        Setting(
+        Choice(
             label = binding.label,
-            value = if (binding.dial) {
-                DialAction.byName(current).label
-            } else {
-                PressAction.byName(current).label
+            value = current,
+            options = binding.options(),
+            labelOf = { binding.labelOf(it) },
+            // A wheel row is dead on a build that does not map the wheel keys. The volume row is
+            // not: those are AOSP keycodes and work everywhere, which is the whole reason it can
+            // be given the filters.
+            enabled = binding.accepts != Accepts.Dial || wheel,
+            disabled = { candidate ->
+                // **The rule is shown, not enforced after the fact.** Before v2.45 the row cycled
+                // past an unsafe option silently and said "Keep one shutter" only if every option
+                // was unsafe. In a list the option is visible, so it says why it cannot be picked
+                // — which also explains the rule the first time anybody meets it.
+                val unsafe = !safeWith(vm, binding, candidate, cameraKeyWorks)
+                if (unsafe) "Would leave no shutter" else null
             },
-            enabled = !binding.dial || wheel,
-        ) {
-            val next = nextBinding(vm, binding, current, cameraKeyWorks)
-            if (next == null) {
-                vm.showNotice("Keep one shutter")
-            } else {
-                vm.prefs.setBinding(binding, next)
-            }
-        }
+        ) { chosen -> vm.prefs.setBinding(binding, chosen) }
     }
     Action("Back to the defaults") {
         vm.prefs.resetBindings()
@@ -410,52 +412,37 @@ private fun ControlsTab(
         )
     }
     slots.forEachIndexed { index, slot ->
-        Setting("Slot ${index + 1}", slot.label) {
-            val all = BandSlot.entries
-            vm.prefs.setBandSlot(index, all[(all.indexOf(slot) + 1) % all.size])
+        Choice("Slot ${index + 1}", slot, BandSlot.entries, { it.label }) {
+            vm.prefs.setBandSlot(index, it)
         }
     }
 }
 
 /**
- * The next action for [binding], skipping any that would leave the camera with no shutter.
+ * Would the mapping still have a shutter in it, if [binding] were pointed at [candidate]?
  *
- * Null when every option is unsafe, which can only happen if this is the last shutter on a phone
- * whose camera key is being swallowed — in which case the row is a dead end by design and says so.
+ * The guard exists because there is no shutter button on Roll's screen — the phone has one on its
+ * side, and if an accessibility service is swallowing it the volume keys are the only one left.
+ * Taking the last one away leaves a camera that cannot take a photograph, with nothing on the
+ * panel to press.
+ *
+ * Note that pointing the volume keys at a *dial* trips this too, and should: `PressAction.byName`
+ * does not recognise `Filter`, so it resolves to `Nothing`, which is exactly what a volume key
+ * that now walks the filters is as far as the shutter is concerned.
  */
-private fun nextBinding(
+private fun safeWith(
     vm: CameraViewModel,
     binding: Binding,
-    current: String,
+    candidate: String,
     cameraKeyWorks: Boolean,
-): String? {
-    val options: List<String> = if (binding.dial) {
-        DialAction.entries.map { it.name }
-    } else {
-        PressAction.entries.map { it.name }
-    }
-    val at = options.indexOf(current).coerceAtLeast(0)
-    for (step in 1..options.size) {
-        val candidate = options[(at + step) % options.size]
-        if (binding.dial) return candidate
-        val up = if (binding == Binding.VolumeUp) {
-            PressAction.byName(candidate)
-        } else {
-            vm.prefs.pressFor(Binding.VolumeUp)
-        }
-        val down = if (binding == Binding.VolumeDown) {
-            PressAction.byName(candidate)
-        } else {
-            vm.prefs.pressFor(Binding.VolumeDown)
-        }
-        val click = if (binding == Binding.WheelClick) {
-            PressAction.byName(candidate)
-        } else {
-            vm.prefs.pressFor(Binding.WheelClick)
-        }
-        if (Controls.shutterSafe(up, down, click, cameraKeyWorks)) return candidate
-    }
-    return null
+): Boolean {
+    fun at(which: Binding): String =
+        if (which == binding) candidate else vm.prefs.bindings.value[which] ?: which.default
+    return Controls.shutterSafe(
+        volume = at(Binding.VolumeKeys),
+        wheelClick = at(Binding.WheelClick),
+        cameraKeyWorks = cameraKeyWorks,
+    )
 }
 
 /* ---------------------------------- film ---------------------------------- */
@@ -478,14 +465,8 @@ private fun FilmTab(
         )
     }
     if (!loaded) {
-        Setting("Frames per roll", "$rollLength") {
-            vm.prefs.setRollLength(
-                when (rollLength) {
-                    12 -> 24
-                    24 -> 36
-                    else -> 12
-                },
-            )
+        Choice("Frames per roll", rollLength, listOf(12, 24, 36), { "$it" }) {
+            vm.prefs.setRollLength(it)
         }
         Action("Load a roll") { vm.loadRoll(); onClose() }
     } else {
@@ -642,6 +623,148 @@ private fun Section(title: String, help: (@Composable () -> Unit)? = null) {
         }
     }
     if (open && help != null) help()
+}
+
+/**
+ * A list of options, waiting to be shown.
+ *
+ * @param disabled indices that cannot be chosen, with the reason on the row. Only the key
+ *   bindings use it, and only for the option that would leave the camera with no shutter.
+ */
+private data class Pick(
+    val title: String,
+    val options: List<String>,
+    val selected: Int,
+    val disabled: Map<Int, String> = emptyMap(),
+    val onPick: (Int) -> Unit,
+)
+
+/**
+ * How a row asks for the list to be opened.
+ *
+ * A composition local rather than a parameter threaded through all five tabs. It is genuinely
+ * ambient — every row in this screen wants it and none of them wants to know where it came from
+ * — and the alternative is the same lambda in five signatures and every call site, which is more
+ * places to get it wrong than the indirection costs.
+ */
+private val LocalOpenPick = staticCompositionLocalOf<(Pick) -> Unit> { {} }
+
+/**
+ * A setting whose value is one of several, chosen from a list.
+ *
+ * **This replaced tapping the row to cycle**, which was fine at two values and wrong at five: the
+ * old rows told you what the value *was* and never what it could be, so finding one option in a
+ * list you cannot see means pressing until it comes round again — and past it, and round once
+ * more. Photo size is five deep and the key bindings are eight; the wheel's own filter track is
+ * seventeen and has been a list since v1.6 for exactly this reason.
+ *
+ * Booleans deliberately stay a tap. A list of two, one of which is already showing on the row, is
+ * a worse On/Off switch than an On/Off switch.
+ */
+@Composable
+private fun <T> Choice(
+    label: String,
+    value: T,
+    options: List<T>,
+    labelOf: (T) -> String,
+    enabled: Boolean = true,
+    disabled: (T) -> String? = { null },
+    onPick: (T) -> Unit,
+) {
+    val open = LocalOpenPick.current
+    Setting(label = label, value = labelOf(value), enabled = enabled) {
+        open(
+            Pick(
+                title = label,
+                options = options.map(labelOf),
+                selected = options.indexOf(value),
+                disabled = options.mapIndexedNotNull { i, option ->
+                    disabled(option)?.let { i to it }
+                }.toMap(),
+                onPick = { onPick(options[it]) },
+            ),
+        )
+    }
+}
+
+/**
+ * The list itself, over the settings.
+ *
+ * Full screen rather than a dropdown: this panel is 3.92" and a menu anchored to a row would have
+ * to scroll inside a few hundred pixels. The same shape the filter grid and the Purikura menus
+ * already use, so it is not a new idea to learn.
+ *
+ * The current value is marked rather than highlighted — LightOS carries state by swapping
+ * foreground and background or by a glyph, never by a tint, and there is no tint to use here.
+ */
+@Composable
+private fun PickSheet(pick: Pick, onClose: () -> Unit) {
+    val colours = LightThemeTokens.colors
+    val scroll = rememberScrollState()
+    // Its own window as far as the wheel is concerned — see WheelInDialog's note. This is drawn
+    // in the same window, so a plain WheelScroll is right, but it has to take the wheel *back*
+    // from the settings list underneath or both would scroll at once.
+    WheelScroll(scroll)
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colours.background)
+            .swallowTaps(),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().height(46.dp).padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            LightText(
+                pick.title.uppercase(),
+                LightTextVariant.Detail,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+            Spacer(Modifier.weight(1f))
+            ChromeIcon(icon = LightIcons.Close, onClick = onClose)
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scroll)
+                .padding(start = 16.dp, end = 16.dp, bottom = 40.dp),
+        ) {
+            pick.options.forEachIndexed { index, option ->
+                val why = pick.disabled[index]
+                val here = index == pick.selected
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .lightClickable(enabled = why == null) {
+                            pick.onPick(index)
+                            onClose()
+                        }
+                        .padding(vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ChromeIcon(
+                        icon = if (here) LightIcons.SelectOn else LightIcons.SelectOff,
+                        lighten = !here,
+                        size = 18.dp,
+                        onClick = {
+                            if (why == null) {
+                                pick.onPick(index)
+                                onClose()
+                            }
+                        },
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        LightText(option, LightTextVariant.Copy, lighten = why != null)
+                        // The reason sits on the row rather than arriving as a notice after a
+                        // refused tap: an option you cannot choose should say so before you try.
+                        if (why != null) LightText(why, LightTextVariant.Detail, lighten = true)
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

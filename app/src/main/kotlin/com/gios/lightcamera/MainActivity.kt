@@ -172,6 +172,8 @@ class MainActivity : ComponentActivity() {
                         // press, so a binding changed in settings is live on the next press.
                         pressFor = { vm.prefs.pressFor(it) },
                         onPress = { vm.press(it) },
+                        dialFor = { vm.prefs.dialFor(it) },
+                        onDial = { action, notches -> vm.turn(action, notches) },
                     )
                 }
 
