@@ -12,14 +12,14 @@ import com.gios.light.common.hw.WheelBus
  * Lives in the activity because [Activity.dispatchKeyEvent] is the one place that sees a
  * key before the view hierarchy does, which is what makes it beat a focused view.
  *
- * The mapping, which is the whole argument for building this app rather than using the
- * stock one:
+ * The camera button is not remappable and never will be:
  *
  *  - **Camera button, half press** → autofocus, on the tracked face if there is one.
  *  - **Camera button, pressed through** → shutter. See [ShutterRelease].
- *  - **Turn the wheel** → zoom. The wheel is a lens ring.
- *  - **Hold the wheel in and turn** → exposure compensation, in thirds of a stop.
- *  - **Click the wheel** → torch, the phone's own behaviour for that press.
+ *
+ * Everything else is a [Binding] the user can point somewhere, defaulting to the mapping the
+ * app shipped with — wheel turns the filters, press-and-turn is exposure, click is the torch,
+ * either volume key is a shutter. See [Controls].
  *
  * The press-and-turn split works because a held `WHEEL_CLICK` produces no key repeat: DOWN
  * arrives, notches arrive, UP arrives. So the press is a modifier, and whether it was
@@ -29,8 +29,13 @@ class LightControls(
     private val activity: Activity,
     private val wheel: WheelBus,
     private val shutter: ShutterRelease,
-    private val onTorchToggle: () -> Unit,
-    private val onVolumeShutter: () -> Unit,
+    /**
+     * Read at the moment of the press, not captured once. Changing a binding in settings has to
+     * take effect on the next press without rebuilding this object, and settings is a screen
+     * inside the same activity that owns it.
+     */
+    private val pressFor: (Binding) -> PressAction,
+    private val onPress: (PressAction) -> Unit,
 ) {
 
     private var clickHeld = false
@@ -40,7 +45,7 @@ class LightControls(
 
     /** True if [event] was one of ours and has been dealt with. */
     fun dispatch(event: KeyEvent): Boolean {
-        if (volumeShutter(event)) return true
+        if (volumeKey(event)) return true
         val key = LightKeys.of(event) ?: return false
         val down = event.action == KeyEvent.ACTION_DOWN
 
@@ -53,9 +58,12 @@ class LightControls(
                     }
                 } else {
                     clickHeld = false
-                    // A press that moved the wheel was an exposure gesture; firing the
-                    // torch on the way out of it would blow the next frame.
-                    if (!clickSpent) onTorchToggle()
+                    // **A press that moved the wheel was a press-and-turn, not a click.** Spent
+                    // whether or not press-and-turn is pointed at anything: turning the wheel while
+                    // holding it in is physically not a click, and firing the click's action on the
+                    // way out of that gesture — the torch, by default, straight into the next frame
+                    // — is the bug this flag was added for.
+                    if (!clickSpent) onPress(pressFor(Binding.WheelClick))
                 }
             }
 
@@ -78,19 +86,28 @@ class LightControls(
     }
 
     /**
-     * Either volume key is also the shutter.
+     * The volume keys, pointed wherever they have been pointed.
      *
-     * A convention borrowed from every other camera, and here it earns its keep twice over:
-     * there is no shutter button on the screen, so if the camera key is being swallowed by
-     * something — an accessibility service that binds it, most likely LightControl — this is
-     * the difference between a camera and an ornament. Volume keys are AOSP keycodes, so no
-     * label resolution is needed and this works on any build.
+     * Both default to the shutter, a convention borrowed from every other camera, and here it
+     * earns its keep twice over: there is no shutter button on the screen, so if the camera key
+     * is being swallowed by something — an accessibility service that binds it, most likely
+     * LightControl — this is the difference between a camera and an ornament. Volume keys are
+     * AOSP keycodes, so no label resolution is needed and this works on any build.
+     *
+     * **`Nothing` gives the key back rather than eating it.** Returning false here lets the event
+     * carry on to the system, so a volume key that has been deliberately unbound adjusts the
+     * volume like it does everywhere else on the phone. Swallowing it silently would be the worse
+     * of the two readings of "nothing".
      */
-    private fun volumeShutter(event: KeyEvent): Boolean {
-        val volume = event.keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
-            event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
-        if (!volume) return false
-        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) onVolumeShutter()
+    private fun volumeKey(event: KeyEvent): Boolean {
+        val binding = when (event.keyCode) {
+            KeyEvent.KEYCODE_VOLUME_UP -> Binding.VolumeUp
+            KeyEvent.KEYCODE_VOLUME_DOWN -> Binding.VolumeDown
+            else -> return false
+        }
+        val action = pressFor(binding)
+        if (action == PressAction.Nothing) return false
+        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) onPress(action)
         return true
     }
 

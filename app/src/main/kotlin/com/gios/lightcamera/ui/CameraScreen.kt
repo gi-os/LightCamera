@@ -36,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -56,18 +57,26 @@ import androidx.core.content.ContextCompat
 import androidx.core.graphics.createBitmap
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.gios.light.common.hw.WheelTurns
+import com.gios.lightcamera.BandSlot
 import com.gios.lightcamera.CaptureMode
 import com.gios.lightcamera.Chrome
 import com.gios.lightcamera.Colour
+import com.gios.lightcamera.SelfTimer
 import com.gios.lightcamera.camera.AfState
+import com.gios.lightcamera.camera.CameraEngine
 import com.gios.lightcamera.camera.FaceMapper
 import com.gios.lightcamera.camera.FlashMode
+import com.gios.lightcamera.camera.FrameAspect
 import com.gios.lightcamera.camera.PuriArt
 import com.gios.lightcamera.camera.PuriStrip
+import com.gios.lightcamera.camera.Zooms
 import com.gios.lightcamera.filter.FaceQuad
 import com.gios.lightcamera.filter.FaceQuads
 import com.gios.lightcamera.filter.ShaderRuntime
+import com.gios.lightcamera.hw.Binding
 import com.gios.lightcamera.hw.CameraKeyAdvice
+import com.gios.lightcamera.hw.DialAction
+import com.gios.lightcamera.hw.PressAction
 import com.gios.lightcamera.ocr.TextBoxes
 import com.gios.lightcamera.qr.Codes
 import com.gios.lightcamera.ui.theme.LightHaptics
@@ -77,6 +86,8 @@ import com.gios.lightcamera.ui.theme.LightTextVariant
 import com.gios.lightcamera.ui.theme.LightThemeTokens
 import com.gios.lightcamera.ui.theme.lightClickable
 import kotlin.math.abs
+import kotlin.math.absoluteValue
+import kotlin.math.roundToInt
 import kotlin.random.Random
 import kotlinx.coroutines.delay
 
@@ -115,6 +126,7 @@ fun CameraScreen(
     val filter by vm.filter.collectAsState()
     val mode by vm.prefs.mode.collectAsState()
     val chrome by vm.prefs.chrome.collectAsState()
+    val aspect by vm.prefs.aspect.collectAsState()
     val flash by vm.prefs.flash.collectAsState()
     val timer by vm.prefs.timer.collectAsState()
     val facePriority by vm.prefs.facePriority.collectAsState()
@@ -127,6 +139,14 @@ fun CameraScreen(
     val zoom by engine.zoom.collectAsState()
     val ev by engine.ev.collectAsState()
     val evRange by engine.evRange.collectAsState()
+    val maxZoom by engine.maxZoom.collectAsState()
+    val bandSlots by vm.prefs.bandSlots.collectAsState()
+    val histogramOn by vm.prefs.histogram.collectAsState()
+    // Read up here rather than beside the overlay that draws it: the exposure meter below has to
+    // know a still is being held, and a `by` declared further down the function is not in scope.
+    val held by vm.held.collectAsState()
+    val clippingOn by vm.prefs.clipping.collectAsState()
+    val bindings by vm.prefs.bindings.collectAsState()
     val torch by engine.torch.collectAsState()
     val countdown by vm.countdown.collectAsState()
     val recording by engine.recording.collectAsState()
@@ -142,7 +162,9 @@ fun CameraScreen(
     var gridOpen by remember { mutableStateOf(false) }
     var modeOpen by remember { mutableStateOf(false) }
     var puriOpen by remember { mutableStateOf(false) }
-    var evOpen by remember { mutableStateOf(false) }
+    val openStrip by vm.strip.collectAsState()
+    val evOpen = openStrip == Strip.Exposure
+    val zoomOpen = openStrip == Strip.Zoom
 
     val previewView = remember {
         PreviewView(context).apply {
@@ -277,26 +299,44 @@ fun CameraScreen(
 
     /* ---- the wheel ---- */
 
-    // **A bare turn walks the filters**, grid open or not — that is what the wheel is for on this
-    // camera. The phone has no optical zoom and the stock app offers none, so a dial spent on
-    // digital crop was a dial spent on nothing; a dial that changes what the photograph looks
-    // like earns every notch. Unarmed, because each notch has to count, and None is three notches
-    // wide on the track so a stray one lands somewhere harmless.
+    // **A bare turn walks the filters by default**, grid open or not — a dial that changes what the
+    // photograph looks like earns every notch, and it is live in Simple too, where a turn steps up
+    // into Pro and on into the filters. It is a default rather than a law now: see [Binding].
+    //
+    // **An open strip takes the bare wheel, whatever the wheel is bound to.** A strip is a value
+    // you came here to set and the wheel is the best control on the phone for setting it; walking
+    // the filters underneath an open exposure strip was never what the turn meant.
+    //
+    // `bindings` is in the key so a change in settings re-arms these routes rather than waiting for
+    // the next recomposition to happen for some other reason.
+    val bareDial = remember(bindings, openStrip) {
+        when (openStrip) {
+            Strip.Exposure -> DialAction.Exposure
+            Strip.Zoom -> DialAction.Zoom
+            null -> vm.prefs.dialFor(Binding.WheelTurn)
+        }
+    }
+    val heldDial = remember(bindings) { vm.prefs.dialFor(Binding.WheelPressTurn) }
+
+    // **Unarmed for the filters, armed for a value.** Each filter notch has to count — None is
+    // three notches wide on the track so a stray one lands somewhere harmless — whereas exposure
+    // and zoom are values you rack through, where swallowing the overflow makes the dial feel
+    // stuck. So the arming follows the action rather than the control.
     // **Nothing scrolls while the Purikura menu is open.** The menu is a list of five things you are
     // reading; a wheel that walked the filters underneath it would change the picture behind the menu
     // and take Purikura away, closing the menu you were using.
-    // Live in Simple too: a turn there steps up into Pro and on into the filters, which is the one place
-    // the wheel is allowed to change the mode.
-    WheelTurns(active = active && wheelEnabled && !evOpen && !puriOpen, armed = false) { notches ->
-        vm.stepFilter(if (notches > 0) 1 else -1)
+    WheelTurns(
+        active = active && wheelEnabled && !puriOpen && bareDial != DialAction.Nothing,
+        armed = bareDial != DialAction.Filter,
+    ) { notches ->
+        turnDial(vm, engine, bareDial, notches)
     }
-    // Exposure keeps both of its routes: the strip while it is open, and hold-and-turn always.
-    WheelTurns(active = active && wheelEnabled && evOpen && !puriOpen, armed = true) { notches ->
-        engine.stepEv(notches)
-    }
-    WheelTurns(active = active && wheelEnabled && !puriOpen, armed = true, pressed = true) { notches ->
-        engine.stepEv(notches)
-        vm.showNotice("EV ${engine.evLabel()}")
+    WheelTurns(
+        active = active && wheelEnabled && !puriOpen && heldDial != DialAction.Nothing,
+        armed = heldDial != DialAction.Filter,
+        pressed = true,
+    ) { notches ->
+        turnDial(vm, engine, heldDial, notches)
     }
 
     /* ---- the shutter blink ---- */
@@ -424,17 +464,31 @@ fun CameraScreen(
                                 },
                             )
                         }
-                        if (!mode.isSimple) ChromeIcon(
-                            icon = LightIcons.Exposure,
-                            lighten = !evOpen && ev == 0,
-                            onClick = {
-                                if (evRange.first == evRange.last) {
-                                    vm.showNotice("No exposure control")
-                                } else {
-                                    evOpen = !evOpen
-                                }
-                            },
-                        )
+                        // **The two free slots.** Exposure and nothing by default, which is exactly
+                        // the row this replaced. Everything about which control goes here is in
+                        // [BandSlot]; this only places them.
+                        bandSlots.forEach { slot ->
+                            BandSlotControl(
+                                slot = slot,
+                                mode = mode,
+                                open = openStrip,
+                                ev = ev,
+                                zoom = zoom,
+                                timer = timer,
+                                aspect = aspect,
+                                chrome = chrome,
+                                onPress = { vm.press(it) },
+                                onCycleTimer = { vm.cycleTimer() },
+                                onCycleAspect = {
+                                    val all = FrameAspect.entries
+                                    vm.prefs.setAspect(all[(all.indexOf(aspect) + 1) % all.size])
+                                },
+                                onCycleGrid = {
+                                    val all = Chrome.entries
+                                    vm.prefs.setChrome(all[(all.indexOf(chrome) + 1) % all.size])
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -555,6 +609,17 @@ fun CameraScreen(
                     tilt = tilt,
                     levelVisible = levelVisible,
                     turn = turn,
+                    // **Metered only while the viewfinder is live and unobstructed.** The reading
+                    // costs a panel readback three times a second, and a frozen frame, an open menu
+                    // or a backgrounded camera all mean nobody is composing — so the loop stops
+                    // rather than measuring a still picture over and over.
+                    luma = rememberLuma(
+                        engine = engine,
+                        active = active && (histogramOn || clippingOn) &&
+                            !puriOpen && !gridOpen && !modeOpen && held == null,
+                    ),
+                    histogram = histogramOn,
+                    clipping = clippingOn,
                     modifier = Modifier.fillMaxSize(),
                 )
 
@@ -567,7 +632,6 @@ fun CameraScreen(
                 // Determinate on purpose: a bar that arrives at about the right moment feels far shorter than
                 // a spinner, and nothing feels longer than one that stalls near the end. It stops at nine
                 // tenths — the last tenth belongs to the photograph arriving.
-                val held by vm.held.collectAsState()
                 val stillMs by vm.stillMs.collectAsState()
                 val heldFrame = held
                 if (heldFrame != null) {
@@ -737,7 +801,18 @@ fun CameraScreen(
                 range = evRange,
                 label = engine.evLabel(),
                 onStep = { engine.stepEv(it) },
+                onSet = { engine.setEv(it) },
                 onReset = { engine.resetEv() },
+                modifier = Modifier.padding(start = BAND),
+            )
+        }
+        if (zoomOpen) {
+            ZoomStrip(
+                zoom = zoom,
+                maxZoom = maxZoom,
+                label = engine.zoomLabel(),
+                onSet = { engine.setZoom(it) },
+                onReset = { engine.setZoom(1f) },
                 modifier = Modifier.padding(start = BAND),
             )
         }
@@ -1303,11 +1378,125 @@ private fun PuriRow(label: String, value: String, onClick: () -> Unit) {
 }
 
 /**
+ * What one of the two free band slots draws.
+ *
+ * Two shapes only. Exposure keeps the SDK's brightness glyph because that icon is the one a Light
+ * Phone owner already knows; everything else is its own current value as a word — "1.8x", "10s",
+ * "3:2" — because the SDK has no glyph for any of them and a word that reads the value is worth
+ * more than a glyph that doesn't. The mode chip two slots along is already a word, so the row is
+ * consistent either way.
+ *
+ * Exposure hides itself in Simple, which is the one rule the old hardcoded slot had and the one
+ * worth keeping: Simple takes the frame off the panel and exposure compensation on the way to it
+ * is a control over a photograph that has already been taken.
+ */
+@Composable
+private fun BandSlotControl(
+    slot: BandSlot,
+    mode: CaptureMode,
+    open: Strip?,
+    ev: Int,
+    zoom: Float,
+    timer: SelfTimer,
+    aspect: FrameAspect,
+    chrome: Chrome,
+    onPress: (PressAction) -> Unit,
+    onCycleTimer: () -> Unit,
+    onCycleAspect: () -> Unit,
+    onCycleGrid: () -> Unit,
+) {
+    when (slot) {
+        BandSlot.None -> Unit
+
+        BandSlot.Exposure -> if (!mode.isSimple) {
+            ChromeIcon(
+                icon = LightIcons.Exposure,
+                lighten = open != Strip.Exposure && ev == 0,
+                onClick = { onPress(PressAction.Exposure) },
+            )
+        }
+
+        BandSlot.Zoom -> BandWord(
+            // One decimal below 10x and none above it, the same rule as the status readout, so the
+            // slot never changes width mid-pinch and shove the row along.
+            text = if (zoom < 9.95f) String.format("%.1fx", zoom) else String.format("%.0fx", zoom),
+            lighten = open != Strip.Zoom && zoom <= 1.02f,
+            onClick = { onPress(PressAction.Zoom) },
+        )
+
+        BandSlot.Flip -> ChromeIcon(
+            icon = LightIcons.FlipLens,
+            onClick = { onPress(PressAction.FlipLens) },
+        )
+
+        BandSlot.Timer -> BandWord(
+            text = if (timer.seconds == 0) "OFF" else "${timer.seconds}s",
+            lighten = timer.seconds == 0,
+            onClick = onCycleTimer,
+        )
+
+        BandSlot.Shape -> BandWord(text = aspect.label, onClick = onCycleAspect)
+
+        BandSlot.Grid -> BandWord(
+            text = chrome.label.uppercase(),
+            lighten = chrome == Chrome.Clean,
+            onClick = onCycleGrid,
+        )
+    }
+}
+
+/** A band slot that is a word rather than a glyph, set the way the mode chip beside it is. */
+@Composable
+private fun BandWord(text: String, lighten: Boolean = false, onClick: () -> Unit) {
+    LightText(
+        text = text,
+        variant = LightTextVariant.Button,
+        lighten = lighten,
+        align = TextAlign.Center,
+        modifier = Modifier
+            .lightClickable { onClick() }
+            .padding(horizontal = 6.dp, vertical = 10.dp),
+    )
+}
+
+/**
+ * Point a dial's notches at whatever it is bound to.
+ *
+ * A function rather than a `when` at each of the two call sites, because the bare wheel and
+ * press-and-turn have to mean the same thing by the same action or a mapping is not a mapping.
+ */
+private fun turnDial(
+    vm: CameraViewModel,
+    engine: CameraEngine,
+    action: DialAction,
+    notches: Int,
+) {
+    when (action) {
+        // One filter per turn regardless of how many notches arrived: the track is a list of names
+        // and skipping two of them because the wheel was flicked is not what the gesture meant.
+        DialAction.Filter -> vm.stepFilter(if (notches > 0) 1 else -1)
+        DialAction.Exposure -> {
+            engine.stepEv(notches)
+            vm.showNotice("EV ${engine.evLabel()}")
+        }
+        DialAction.Zoom -> {
+            engine.stepZoom(notches)
+            vm.showNotice(engine.zoomLabel())
+        }
+        DialAction.Nothing -> Unit
+    }
+}
+
+/**
  * Exposure compensation, as a row of stops.
  *
- * Opened from the brightness icon, and while it is open the bare wheel drives it — which is the
- * whole reason it is a mode rather than a slider. The wheel is a better exposure dial than a
- * thumb on a 3.92" screen will ever be.
+ * Opened from the band or from a key, and while it is open the bare wheel drives it — the wheel is
+ * a better exposure dial than a thumb on a 3.92" screen will ever be.
+ *
+ * **And now a thumb works too.** Twelve notches is the whole range on this camera, so getting from
+ * -2 to +2 by tapping `+` was twelve taps; a drag along the ticks is one gesture. The wheel is
+ * still the better control and this is the one you reach for when the phone is already in your
+ * hand and the wheel is bound to something else.
  */
 @Composable
 private fun ExposureStrip(
@@ -1315,6 +1504,7 @@ private fun ExposureStrip(
     range: IntRange,
     label: String,
     onStep: (Int) -> Unit,
+    onSet: (Int) -> Unit,
     onReset: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1333,7 +1523,7 @@ private fun ExposureStrip(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 LightText(
-                    "−",
+                    "\u2212",
                     LightTextVariant.Copy,
                     modifier = Modifier
                         .lightClickable { onStep(-1) }
@@ -1343,7 +1533,15 @@ private fun ExposureStrip(
                     modifier = Modifier
                         .weight(1f)
                         .height(18.dp)
-                        .lightClickable { onReset() },
+                        // **Taller than it looks.** The ticks are 18dp and a thumb is not; the extra
+                        // height is hit area either side of the drawing, which costs nothing in a
+                        // row that is already centred and is the difference between a strip you can
+                        // drag and one you keep missing.
+                        .stripDrag(
+                            steps = (range.last - range.first).coerceAtLeast(1),
+                            onPick = { step -> onSet(range.first + step) },
+                            onReset = onReset,
+                        ),
                 ) {
                     val span = (range.last - range.first).coerceAtLeast(1)
                     val pitch = size.width / span
@@ -1386,6 +1584,170 @@ private fun ExposureStrip(
         }
     }
 }
+
+/**
+ * Zoom, as a strip.
+ *
+ * **The control this app never had.** The lens is fixed and the crop is digital, which is why the
+ * wheel was spent on the filters instead — but a digital crop is still the difference between a
+ * photograph of a sign and a photograph of the wall it is on, and until now the only way to get one
+ * was a pinch on a 3.92" panel with the phone held sideways in one hand.
+ *
+ * **Logarithmic.** Half the travel takes you from 1x to the square root of the maximum and the
+ * other half covers the rest, so the low end — where every tenth is visible in the frame — is not
+ * crushed into the first few millimetres. Ticks at each whole doubling, so the scale reads.
+ */
+@Composable
+private fun ZoomStrip(
+    zoom: Float,
+    maxZoom: Float,
+    label: String,
+    onSet: (Float) -> Unit,
+    onReset: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colours = LightThemeTokens.colors
+    val top = maxZoom.coerceAtLeast(1.01f)
+    Box(
+        modifier = modifier
+            .width(BAND)
+            .fillMaxHeight()
+            .background(colours.background),
+    ) {
+        HeldSideways {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                LightText(
+                    "1x",
+                    LightTextVariant.Superfine,
+                    lighten = true,
+                    modifier = Modifier.padding(end = 8.dp),
+                )
+                Canvas(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(18.dp)
+                        .stripDrag(
+                            // A step per percent of the travel: finer than the panel can resolve, so
+                            // the drag is continuous as far as a thumb is concerned, and the maths
+                            // below stays in integers like the exposure strip's.
+                            steps = ZOOM_STEPS,
+                            onPick = { step -> onSet(Zooms.at(step.toFloat() / ZOOM_STEPS, top)) },
+                            onReset = onReset,
+                        ),
+                ) {
+                    // Ticks at every doubling the lens can reach — 1x, 2x, 4x — placed by the same
+                    // curve the drag reads, so a tick and the value under it agree.
+                    var mark = 1f
+                    while (mark <= top + 0.001f) {
+                        val x = Zooms.positionOf(mark, top) * size.width
+                        drawLine(
+                            color = colours.contentSecondary.copy(alpha = 0.55f),
+                            start = Offset(x, 0f),
+                            end = Offset(x, size.height),
+                            strokeWidth = 1.dp.toPx(),
+                        )
+                        mark *= 2f
+                    }
+                    val here = Zooms.positionOf(zoom, top) * size.width
+                    drawLine(
+                        color = colours.content,
+                        start = Offset(here, 0f),
+                        end = Offset(here, size.height),
+                        strokeWidth = 2.4.dp.toPx(),
+                        cap = StrokeCap.Square,
+                    )
+                }
+                LightText(
+                    text = label,
+                    variant = LightTextVariant.Superfine,
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .width(40.dp),
+                    align = TextAlign.End,
+                )
+            }
+        }
+    }
+}
+
+private const val ZOOM_STEPS = 100
+
+/**
+ * Drag, tap or long-press a value strip.
+ *
+ * Three gestures on one pointer, arbitrated by hand rather than by stacking `detectTapGestures` on
+ * `detectHorizontalDragGestures` — two detectors on the same node race for the first `down` and
+ * whichever wins eats it, which showed up as a strip that responded to drags only after a tap.
+ *
+ *  - **Drag** → the value follows your thumb, continuously.
+ *  - **Tap** → the value goes to where you tapped. Picked on the *up*, not the down, so a long
+ *    press is still available underneath it.
+ *  - **Long press without moving** → back to neutral. Which is the gesture the tap used to be, and
+ *    it had to move: a tap that reset the value made the strip unusable as a strip.
+ *
+ * @param steps how many intervals the strip is divided into. The caller converts a step index into
+ *   whatever it is measuring.
+ */
+private fun Modifier.stripDrag(
+    steps: Int,
+    onPick: (Int) -> Unit,
+    onReset: () -> Unit,
+): Modifier = composed {
+    val context = LocalContext.current
+    var width by remember { mutableStateOf(0) }
+    onSizeChanged { width = it.width }.pointerInput(steps) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            val startedAt = System.currentTimeMillis()
+            var moved = false
+            var reset = false
+
+            fun pick(x: Float) {
+                val span = width
+                if (span <= 0) return
+                val fraction = (x / span).coerceIn(0f, 1f)
+                onPick((fraction * steps).roundToInt())
+            }
+
+            while (true) {
+                val event = awaitPointerEvent()
+                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+
+                // **The long press is decided by the clock, not by an up.** Waiting for the release
+                // to measure it would mean a reset that only happens once you let go, which reads as
+                // a control that ignored you and then changed its mind.
+                if (!moved && !reset && System.currentTimeMillis() - startedAt > LONG_PRESS_MS) {
+                    reset = true
+                    LightHaptics.click(context)
+                    onReset()
+                }
+
+                if (!change.pressed) {
+                    // A short press that never moved is a tap: put the value where the thumb was.
+                    if (!moved && !reset) pick(change.position.x)
+                    break
+                }
+
+                if (!moved && (change.position.x - down.position.x).absoluteValue > SLOP_PX) {
+                    moved = true
+                }
+                if (moved) pick(change.position.x)
+                change.consume()
+            }
+        }
+    }
+}
+
+/** Long enough not to fire on a slow tap, short enough to feel deliberate. */
+private const val LONG_PRESS_MS = 420L
+
+/** A thumb never lands perfectly still; below this the press is a tap, not a drag. */
+private const val SLOP_PX = 5f
 
 /**
  * The little chevron next to the mode. Drawn rather than an icon: every arrow glyph in the SDK

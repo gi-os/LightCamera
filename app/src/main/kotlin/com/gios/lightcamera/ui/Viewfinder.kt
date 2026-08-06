@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import com.gios.lightcamera.Chrome
 import com.gios.lightcamera.camera.AfState
 import com.gios.lightcamera.camera.FaceBox
+import com.gios.lightcamera.camera.Luma
 import com.gios.lightcamera.roll.Roll
 import com.gios.lightcamera.ui.theme.LightText
 import com.gios.lightcamera.ui.theme.LightTextVariant
@@ -61,6 +62,10 @@ fun FrameOverlay(
     levelVisible: Boolean,
     /** Which way up the photograph will be, so the horizon can lie along it. */
     turn: Int = 0,
+    /** The exposure reading, or null when neither aid is switched on. See [rememberLuma]. */
+    luma: Luma.Reading? = null,
+    histogram: Boolean = false,
+    clipping: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val colours = LightThemeTokens.colors
@@ -117,6 +122,99 @@ fun FrameOverlay(
         if (levelVisible) {
             drawLevel(tilt, turn, colours.content, colours.contentSecondary, hair)
         }
+
+        // **The aids go on last, over everything, and only when asked for.** They are the one thing
+        // in this file that is deliberately in the way of the picture: a clipping mark that stayed
+        // politely out of the blown area would be marking the wrong place.
+        val reading = luma
+        if (reading != null) {
+            if (clipping) drawClipping(reading, colours.content)
+            if (histogram) {
+                drawHistogram(
+                    reading = reading,
+                    ink = colours.content,
+                    faint = colours.contentSecondary,
+                    stroke = hair,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Diagonal hatching over the cells that have gone to white.
+ *
+ * **Hatching rather than the animated stripes a video camera uses.** Zebras crawl because on a
+ * moving image a static pattern is hard to separate from the picture — but they crawl at the cost of
+ * an animation running permanently over the viewfinder, and on a greyscale panel a single hairline
+ * diagonal at 45 degrees is already unmistakably not part of the world. It also matches everything
+ * else in this file: a mark, drawn once, at one of two weights.
+ */
+private fun DrawScope.drawClipping(reading: Luma.Reading, colour: Color) {
+    val cellW = size.width / Luma.CELLS_X
+    val cellH = size.height / Luma.CELLS_Y
+    val ink = colour.copy(alpha = 0.85f)
+    val stroke = 1.dp.toPx()
+    for (row in 0 until Luma.CELLS_Y) {
+        for (col in 0 until Luma.CELLS_X) {
+            if (!reading.blown[row * Luma.CELLS_X + col]) continue
+            val left = col * cellW
+            val top = row * cellH
+            // One stroke corner to corner. Adjacent blown cells line up into a continuous 45°
+            // hatch across the whole area, which is what makes a region read as a region.
+            drawLine(
+                color = ink,
+                start = Offset(left, top + cellH),
+                end = Offset(left + cellW, top),
+                strokeWidth = stroke,
+            )
+        }
+    }
+}
+
+/**
+ * The histogram, bottom left, small.
+ *
+ * Bottom left because the frame counter and the sprockets are in the band and the status readout is
+ * bottom right, so this is the one corner with nothing in it. No axes, no numbers and no box: the
+ * shape is the entire message — piled at the left is under, piled at the right is blown, and a gap
+ * at one end is headroom. A baseline, because without one a histogram of a dark frame is a couple of
+ * disconnected marks that do not read as a graph.
+ */
+private fun DrawScope.drawHistogram(
+    reading: Luma.Reading,
+    ink: Color,
+    faint: Color,
+    stroke: Float,
+) {
+    val width = size.minDimension * 0.44f
+    val height = width * 0.42f
+    val left = 14.dp.toPx()
+    val bottom = size.height - 14.dp.toPx()
+    val peak = reading.peak
+    if (peak <= 0) return
+
+    drawLine(
+        color = faint.copy(alpha = 0.45f),
+        start = Offset(left, bottom),
+        end = Offset(left + width, bottom),
+        strokeWidth = stroke,
+    )
+    val pitch = width / Luma.BINS
+    reading.counts.forEachIndexed { bin, count ->
+        if (count <= 0) return@forEachIndexed
+        // **Square root, not linear.** A frame of sky is tens of thousands of pixels in three bins
+        // and a handful everywhere else; drawn linearly the shadows are a flat line and the one
+        // thing you wanted to know — whether there is anything down there at all — is invisible.
+        val tall = kotlin.math.sqrt(count.toFloat() / peak) * height
+        val x = left + bin * pitch + pitch / 2f
+        drawLine(
+            color = ink.copy(alpha = 0.8f),
+            start = Offset(x, bottom),
+            end = Offset(x, bottom - tall),
+            strokeWidth = pitch * 0.7f,
+            cap = StrokeCap.Butt,
+        )
     }
 }
 

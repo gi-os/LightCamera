@@ -143,11 +143,74 @@ object ShaderRuntime {
         tune: FaceTune = FaceTune(),
     ): Bitmap {
         if (filter.agsl == null) return source
-        val renderer = Offscreen(source.width, source.height) ?: return source
-        return try {
-            renderer.render(source, filter, seed, faces, tune) ?: source
-        } finally {
-            renderer.close()
+        // **The shader was never the expensive part.** An `Offscreen` is an ImageReader, a
+        // HardwareRenderer bound to its surface and a RenderNode — a GPU surface allocation and a
+        // renderer handshake — and this used to build one, draw a single rectangle through it and
+        // tear it all down again on *every photograph*. The draw is a fraction of a frame; the
+        // setup and teardown around it were most of the time the filtered path spent on the GPU.
+        synchronized(pool) {
+            val renderer = pooled(source.width, source.height) ?: return source
+            return runCatching { renderer.render(source, filter, seed, faces, tune) }
+                .onFailure { Log.e(TAG, "pooled render failed", it) }
+                .getOrNull() ?: source
+        }
+    }
+
+    /**
+     * Renderers kept between shots, newest last. Only ever touched inside `synchronized(pool)`.
+     *
+     * Two sizes, which is what the app actually asks for: the panel, for everything that comes off
+     * the viewfinder, and the capture size, for a filtered Pro still. A third request evicts the
+     * least recently used.
+     */
+    private val pool = LinkedHashMap<String, Held>()
+
+    /**
+     * **Thread affinity is why an entry remembers where it was built.** A `HardwareRenderer` is not
+     * documented as safe to use from a thread other than the one that made it, and captures run on
+     * whichever worker the dispatcher hands out. A request from the same thread reuses the renderer;
+     * one from a different thread rebuilds — which costs exactly what this function used to cost
+     * every single time, and only on the first shot after the pool moves threads.
+     */
+    private class Held(val offscreen: Offscreen, val thread: Long)
+
+    private const val POOL_MAX = 2
+
+    private fun pooled(width: Int, height: Int): Offscreen? {
+        if (width <= 0 || height <= 0) return null
+        val key = "${width}x$height"
+        val here = Thread.currentThread().id
+        val existing = pool[key]
+        if (existing != null) {
+            if (existing.thread == here) {
+                // Re-inserting moves it to the end, which is what makes the eviction below
+                // least-recently-used rather than arbitrary.
+                pool.remove(key)
+                pool[key] = existing
+                return existing.offscreen
+            }
+            pool.remove(key)
+            existing.offscreen.close()
+        }
+        val made = Offscreen(width, height) ?: return null
+        pool[key] = Held(made, here)
+        while (pool.size > POOL_MAX) {
+            val oldest = pool.keys.first()
+            pool.remove(oldest)?.offscreen?.close()
+        }
+        return made
+    }
+
+    /**
+     * Let the renderers go.
+     *
+     * A GPU surface held by a process that is no longer showing a viewfinder is a surface held for
+     * nothing, and there are only so many of them.
+     */
+    fun releasePool() {
+        synchronized(pool) {
+            pool.values.forEach { it.offscreen.close() }
+            pool.clear()
         }
     }
 

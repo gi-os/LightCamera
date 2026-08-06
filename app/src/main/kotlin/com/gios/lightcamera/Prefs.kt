@@ -8,6 +8,9 @@ import com.gios.lightcamera.camera.PuriArt
 import com.gios.lightcamera.filter.FaceTune
 import com.gios.lightcamera.filter.Filters
 import com.gios.lightcamera.camera.PuriStrip
+import com.gios.lightcamera.hw.Binding
+import com.gios.lightcamera.hw.DialAction
+import com.gios.lightcamera.hw.PressAction
 import com.gios.lightcamera.media.RollScope
 import kotlin.random.Random
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +30,34 @@ enum class Chrome(val label: String) {
 
     /** Rule-of-thirds lines. */
     Thirds("Thirds"),
+}
+
+/**
+ * What can go in one of the two free slots at the end of the band.
+ *
+ * The rest of the band is not negotiable — the album, the mode-and-filter chip and the flash are
+ * the stock camera's own bar, in the stock camera's own order, and an app that let you take the
+ * album out of the album slot would stop looking like it belongs on the phone. These two are the
+ * end of the row, where the exposure icon already was.
+ *
+ * Most of them are a word rather than a glyph, because the SDK has no icon for zoom or for a
+ * self timer and a word that reads "1.8x" tells you the value as well as the control. The mode
+ * chip beside them is already a word, so the row stays consistent.
+ */
+enum class BandSlot(val label: String) {
+    None("Nothing"),
+
+    /** The brightness icon, and the strip it opens. Where this used to be the only option. */
+    Exposure("Exposure"),
+
+    /** The current ratio as a word, and a strip that goes from 1x to the sensor's limit in one drag. */
+    Zoom("Zoom"),
+
+    /** Front or rear. Until now this was a double tap on the viewfinder and nothing else. */
+    Flip("Front / rear"),
+    Timer("Self timer"),
+    Shape("Shape"),
+    Grid("Grid"),
 }
 
 /**
@@ -492,6 +523,80 @@ class Prefs(context: Context) {
     private val _wheelEnabled = MutableStateFlow(prefs.getBoolean(WHEEL, true))
     val wheelEnabled: StateFlow<Boolean> = _wheelEnabled.asStateFlow()
 
+    /**
+     * What each physical control does, keyed by [Binding] name.
+     *
+     * One flow holding the whole map rather than five flows, because the safety rule in
+     * `Controls.shutterSafe` is a statement about the map and not about any one entry — a
+     * per-binding flow would let the UI check the rule against a map that was half updated.
+     * Every binding is present at construction, so reads never have to consider a missing key.
+     */
+    private val _bindings = MutableStateFlow(
+        Binding.entries.associate { it to (prefs.getString(bindKey(it), null) ?: it.default) },
+    )
+    val bindings: StateFlow<Map<Binding, String>> = _bindings.asStateFlow()
+
+    /**
+     * The exposure aids, both off by default.
+     *
+     * The stock Light camera puts nothing on the picture at all, and an unobstructed viewfinder is
+     * the single biggest thing this app got right — so a histogram nobody asked for would be a
+     * regression, and these are for the person who has gone looking for them.
+     */
+    private val _histogram = MutableStateFlow(prefs.getBoolean(HISTOGRAM, false))
+    val histogram: StateFlow<Boolean> = _histogram.asStateFlow()
+
+    private val _clipping = MutableStateFlow(prefs.getBoolean(CLIPPING, false))
+    val clipping: StateFlow<Boolean> = _clipping.asStateFlow()
+
+    /**
+     * Keep the sharpest of a short burst, where the photograph comes off the panel.
+     *
+     * Off by default because it changes *which* frame you get: press the button and the file is one
+     * of the last eight frames rather than the newest, which is what you want for a face and not
+     * what you want for timing a jump.
+     */
+    private val _burst = MutableStateFlow(prefs.getBoolean(BURST, false))
+    val burst: StateFlow<Boolean> = _burst.asStateFlow()
+
+    fun setHistogram(value: Boolean) = set(_histogram, value) { putBoolean(HISTOGRAM, value) }
+
+    fun setClipping(value: Boolean) = set(_clipping, value) { putBoolean(CLIPPING, value) }
+
+    fun setBurst(value: Boolean) = set(_burst, value) { putBoolean(BURST, value) }
+
+    /** The two free slots at the end of the band. Exposure then nothing is where the app started. */
+    private val _bandSlots = MutableStateFlow(
+        listOf(
+            slotOf(prefs.getString(BAND_ONE, null), BandSlot.Exposure),
+            slotOf(prefs.getString(BAND_TWO, null), BandSlot.None),
+        ),
+    )
+    val bandSlots: StateFlow<List<BandSlot>> = _bandSlots.asStateFlow()
+
+    fun pressFor(binding: Binding): PressAction =
+        PressAction.byName(_bindings.value[binding] ?: binding.default)
+
+    fun dialFor(binding: Binding): DialAction =
+        DialAction.byName(_bindings.value[binding] ?: binding.default)
+
+    fun setBinding(binding: Binding, action: String) {
+        _bindings.value = _bindings.value + (binding to action)
+        prefs.edit().putString(bindKey(binding), action).apply()
+    }
+
+    /** Back to the mapping the app shipped with, which is the one the documentation describes. */
+    fun resetBindings() {
+        _bindings.value = Binding.entries.associate { it to it.default }
+        prefs.edit().apply { Binding.entries.forEach { remove(bindKey(it)) } }.apply()
+    }
+
+    fun setBandSlot(index: Int, slot: BandSlot) {
+        if (index !in 0..1) return
+        _bandSlots.value = _bandSlots.value.toMutableList().also { it[index] = slot }
+        prefs.edit().putString(if (index == 0) BAND_ONE else BAND_TWO, slot.name).apply()
+    }
+
     fun setFilter(id: String) {
         _filterId.value = id
     }
@@ -611,6 +716,16 @@ class Prefs(context: Context) {
         const val COLOUR = "colour"
         const val SEND_LIGHTCHAT = "sendLightChat"
         const val RECENT_RECIPIENTS = "recentRecipients"
+        const val HISTOGRAM = "histogram"
+        const val CLIPPING = "clipping"
+        const val BURST = "burst"
+        const val BAND_ONE = "bandSlot1"
+        const val BAND_TWO = "bandSlot2"
+
+        fun bindKey(binding: Binding): String = "bind_${binding.name}"
+
+        fun slotOf(name: String?, fallback: BandSlot): BandSlot =
+            BandSlot.entries.firstOrNull { it.name == name } ?: fallback
     }
 }
 

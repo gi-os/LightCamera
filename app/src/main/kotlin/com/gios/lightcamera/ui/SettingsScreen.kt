@@ -1,6 +1,7 @@
 package com.gios.lightcamera.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.gios.light.common.hw.LightKeys
 import com.gios.light.common.hw.WheelScroll
+import com.gios.lightcamera.BandSlot
 import com.gios.lightcamera.Chrome
 import com.gios.lightcamera.Colour
 import com.gios.lightcamera.CrashLog
@@ -31,7 +33,11 @@ import com.gios.lightcamera.SelfTimer
 import com.gios.lightcamera.StampStyle
 import com.gios.lightcamera.camera.AfMode
 import com.gios.lightcamera.camera.FrameAspect
+import com.gios.lightcamera.hw.Binding
 import com.gios.lightcamera.hw.CameraKeyAdvice
+import com.gios.lightcamera.hw.Controls
+import com.gios.lightcamera.hw.DialAction
+import com.gios.lightcamera.hw.PressAction
 import com.gios.lightcamera.send.Handoff
 import com.gios.lightcamera.ui.theme.LightIcons
 import com.gios.lightcamera.ui.theme.LightText
@@ -40,42 +46,44 @@ import com.gios.lightcamera.ui.theme.LightThemeTokens
 import com.gios.lightcamera.ui.theme.lightClickable
 
 /**
- * Settings, and the roll.
+ * Which page of settings is showing.
+ *
+ * **Five pages because one list stopped working.** Every setting here is worth having and the
+ * prose next to them is worth reading, and together they were a single column about eleven screens
+ * long on a 3.92" panel — so finding the film roll meant scrolling past the date back, and the
+ * only way to know whether a setting existed was to read all of it. The tabs are the same rows in
+ * the same order, cut where the subject changes.
+ */
+enum class SettingsTab(val label: String) {
+    Frame("FRAME"),
+    Look("LOOK"),
+    Controls("KEYS"),
+    Film("FILM"),
+    About("ABOUT"),
+}
+
+/**
+ * Settings.
  *
  * Every row is a value you cycle by tapping it rather than a switch or a dialog, which is
- * how LightOS does settings and also the only shape that stays legible at this width. The
- * roll lives at the bottom because loading and developing are the two most consequential
- * things in the app and the top of a list is no place for them.
+ * how LightOS does settings and also the only shape that stays legible at this width.
+ *
+ * **The prose is folded away.** The notes under each section are the best documentation this app
+ * has — they say why a setting is the way it is, which is the thing nobody can work out from the
+ * row — but they were also most of the vertical, so a page of six settings read as a page of two.
+ * Each section now carries a `?`, and what is behind it is unchanged.
  */
 @Composable
 fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
     val colours = LightThemeTokens.colors
     val context = androidx.compose.ui.platform.LocalContext.current
+    var tab by remember { mutableStateOf(SettingsTab.Frame) }
+    // **A scroll position per tab.** One `rememberScrollState` shared between them left the new tab
+    // opened halfway down, at whatever offset the last one happened to be at.
     val scroll = rememberScrollState()
     WheelScroll(scroll)
 
-    val aspect by vm.prefs.aspect.collectAsState()
-    val photoSize by vm.prefs.photoSize.collectAsState()
-    val chrome by vm.prefs.chrome.collectAsState()
-    val afMode by vm.prefs.afMode.collectAsState()
-    val facePriority by vm.prefs.facePriority.collectAsState()
-    val timer by vm.prefs.timer.collectAsState()
-    val sounds by vm.prefs.sounds.collectAsState()
-    val stampPlain by vm.prefs.stampPlain.collectAsState()
-    val stampFiltered by vm.prefs.stampFiltered.collectAsState()
-    val stampCoarse by vm.prefs.stampCoarse.collectAsState()
-    val level by vm.prefs.level.collectAsState()
-    val timings by vm.prefs.timings.collectAsState()
-    val simpleMode by vm.prefs.simpleMode.collectAsState()
-    val stampStyle by vm.prefs.stampStyle.collectAsState()
-    val colour by vm.prefs.colour.collectAsState()
-    val recents by vm.prefs.recentRecipients.collectAsState()
-    val wheel by vm.prefs.wheelEnabled.collectAsState()
-    val rollLength by vm.prefs.rollLength.collectAsState()
     val roll by vm.roll.collectAsState()
-    val facesSupported by vm.engine.facesSupported.collectAsState()
-
-    var confirmDiscard by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -98,288 +106,542 @@ fun SettingsScreen(vm: CameraViewModel, onClose: () -> Unit) {
             ChromeIcon(icon = LightIcons.Close, onClick = onClose)
         }
 
+        TabRow(current = tab, onPick = { tab = it })
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(scroll)
                 .padding(start = 16.dp, end = 16.dp, bottom = 40.dp),
         ) {
-            Section("Frame")
-            Note(
-                "Size is a Pro setting and Simple ignores it. Simple always takes the frame already on the panel, which is the only immediate path this camera has; Pro takes a real still, which costs about 1.8 seconds here whatever it is asked for.",
-            )
-            Note(
-                "Half-pressing still helps Pro: half-press the camera button before pressing it home. That locks focus and exposure, so the shutter has nothing left to work out — and with the flash off it can hand back a frame the camera had already buffered, which is as close to instant as the hardware goes.",
-            )
-            Note(
-                "These are Pro settings. Simple always shoots 12MP with no filter and no crop, which is what lets it write the sensor's own JPEG without decoding it — the difference between a shutter that feels instant and one that thinks about it.",
-            )
-            Setting("Size", photoSize.label) {
-                val all = PhotoSize.entries
-                vm.prefs.setPhotoSize(all[(all.indexOf(photoSize) + 1) % all.size])
+            when (tab) {
+                SettingsTab.Frame -> FrameTab(vm)
+                SettingsTab.Look -> LookTab(vm, context)
+                SettingsTab.Controls -> ControlsTab(vm, context, colours.content, colours.background)
+                SettingsTab.Film -> FilmTab(vm, context, onClose, roll != null)
+                SettingsTab.About -> AboutTab(vm, context, colours.rule)
             }
-            Note(
-                when (photoSize) {
-                    PhotoSize.Full ->
-                        "Everything the sensor has, and slow with it — a 50MP frame is most of a second of readout and encoding before the shutter answers."
-                    PhotoSize.Screen ->
-                        "No capture at all: the frame already on the viewfinder, filtered by the same shader and saved. Instant, and with a filter on it is exactly the frame you were looking at."
-                    else ->
-                        "Each step down roughly halves the time between pressing the button and having a photograph."
-                },
-            )
-            Setting("Shape", aspect.label) {
-                val all = FrameAspect.entries
-                vm.prefs.setAspect(all[(all.indexOf(aspect) + 1) % all.size])
-            }
-            Setting("Grid", chrome.label) {
-                val all = Chrome.entries
-                vm.prefs.setChrome(all[(all.indexOf(chrome) + 1) % all.size])
-            }
-            Note(
-                "The viewfinder fills the screen and the sensor is 4:3, so the photograph keeps a little more than you saw — at the top and bottom of the frame.",
-            )
-
-            Section("Date")
-            Setting("On plain photos", if (stampPlain) "On" else "Off") {
-                vm.prefs.setStampPlain(!stampPlain)
-            }
-            Setting("On filters", if (stampFiltered) "On" else "Off") {
-                vm.prefs.setStampFiltered(!stampFiltered)
-            }
-            Setting("On coarse filters", if (stampCoarse) "On" else "Off") {
-                vm.prefs.setStampCoarse(!stampCoarse)
-            }
-            if (stampPlain || stampFiltered || stampCoarse) {
-                Setting("Style", stampStyle.label) {
-                    val all = StampStyle.entries
-                    vm.prefs.setStampStyle(all[(all.indexOf(stampStyle) + 1) % all.size])
-                }
-            }
-            Note(
-                "The date back off a 1990s compact: month, day, apostrophe-year, in leaning amber dots in the corner of the frame. Coarse filters are separate and start off — Dither 16, 1-Bit, Halftone and the two Game Boys quantise the picture onto a grid of a few hundred cells, and a date drawn at full precision over that reads as a caption pasted on rather than something the camera did. It is printed into the photograph, so it costs a decode and a re-encode on a shot that would otherwise be saved exactly as the camera made it — and there is no taking it off afterwards.",
-            )
-
-            Setting("Simple mode", if (simpleMode) "On" else "Off") {
-                vm.prefs.setSimpleMode(!simpleMode)
-            }
-            Note(
-                "Adds Simple to the mode picker. It takes the frame already on the panel, so the shutter is instant — but that is panel resolution, about 2.5MP, rather than the 12MP a real still gives. Off by default because it is a trade rather than a free win.",
-            )
-            Setting("Level", if (level) "On" else "Off") { vm.prefs.setLevel(!level) }
-            Note(
-                "The horizon line, which appears when the phone is crooked and lingers for a beat after you straighten up — so you see it close, which is the whole point of a level.",
-            )
-
-            Section("Purikura")
-            Note(
-                "Purikura has its own menu, in the viewfinder: choose Purikura on the wheel and tap PURI in the band. The frame, the two kinds of sticker, the date and the four-shot strip are all in there, next to the picture they change. Every one of them is rolled at random when the app starts — a booth does not remember what you chose last week — so nothing here is kept between launches.",
-            )
-
-            Section("Colour")
-            Setting("Show", colour.label) {
-                val all = Colour.entries
-                vm.prefs.setColour(all[(all.indexOf(colour) + 1) % all.size])
-            }
-            Note(
-                if (ColorMode.granted(context)) {
-                    "The panel is a full-colour AMOLED — Light's black and white is the accessibility daltonizer pinned to monochromacy. Roll lifts it while the camera is up and puts it back when you leave."
-                } else {
-                    "Needs one adb grant, then the viewfinder is in colour:\n\nadb shell pm grant com.gios.lightcamera android.permission.WRITE_SECURE_SETTINGS\n\nUntil then everything stays grey, which is harmless — the write is simply refused."
-                },
-            )
-
-            Section("Sending")
-            Setting("Recents", if (recents.isEmpty()) "None yet" else "${recents.size} kept", enabled = recents.isNotEmpty()) {
-                vm.prefs.clearRecentRecipients()
-                vm.showNotice("Recents cleared")
-            }
-            // Remembered: it's a PackageManager binder call, and inside composition it would run
-            // on every recomposition of the settings list.
-            val lightChatTakesPhotos = remember { Handoff.lightChatCanReceive(context) }
-            Note(
-                if (lightChatTakesPhotos) {
-                    "The send button opens your contacts and hands the photograph to LightChat, already addressed. The people you send to most recently sit at the top of that list; tap here to forget them."
-                } else {
-                    "The send button opens your contacts rather than a grid of apps. LightChat can't receive photographs on this build, so a send goes to whatever else can take one — and the person has to be chosen again inside it."
-                },
-            )
-
-            Section("Focus")
-            Setting("Mode", if (afMode == AfMode.Single) "Single" else "Continuous") {
-                vm.prefs.setAfMode(if (afMode == AfMode.Single) AfMode.Continuous else AfMode.Single)
-            }
-            Setting(
-                label = "Faces",
-                value = when {
-                    !facesSupported -> "Unavailable"
-                    facePriority -> "Priority"
-                    else -> "Ignore"
-                },
-                enabled = facesSupported,
-            ) {
-                vm.prefs.setFacePriority(!facePriority)
-            }
-            Note(
-                if (facesSupported) {
-                    "Half press the camera button to focus on the nearest face and hold it. Press through to take the photograph. The mark closes into a box, and beeps, when the lens has it."
-                } else {
-                    "This camera doesn't report faces, so the half press focuses on the centre of the frame."
-                },
-            )
-
-            Section("Shutter")
-            Setting("Self timer", timer.label) {
-                val all = SelfTimer.entries
-                vm.prefs.setTimer(all[(all.indexOf(timer) + 1) % all.size])
-            }
-            Setting("Sounds", if (sounds) "Focus beep" else "Off") {
-                vm.prefs.setSounds(!sounds)
-            }
-            Setting("Wheel", if (wheel) "Filters / EV" else "Off") {
-                vm.prefs.setWheelEnabled(!wheel)
-            }
-            Note(
-                if (LightKeys.wheelLabelsPresent()) {
-                    "Turn the wheel to change filter — it buzzes each notch, and catches on None for a moment so you can land on it. Hold it in and turn for exposure. Click it for the torch. Either volume key is a shutter."
-                } else {
-                    "This build doesn't map the wheel keys, so turning it may do nothing. Either volume key is a shutter."
-                },
-            )
-            val keyProblem = remember { CameraKeyAdvice.problem(context) }
-            if (keyProblem != null) {
-                // Inverted, because a dead shutter is not a footnote.
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp)
-                        .background(colours.content)
-                        .padding(10.dp),
-                ) {
-                    LightText(
-                        text = keyProblem,
-                        variant = LightTextVariant.Detail,
-                        color = colours.background,
-                    )
-                }
-            } else {
-                Note(
-                    "There is no shutter button on screen, because the phone has one on its side. If the camera button ever does nothing, an accessibility service is swallowing it.",
-                )
-            }
-
-            Section("Film")
-            if (roll == null) {
-                Setting("Frames per roll", "$rollLength") {
-                    vm.prefs.setRollLength(
-                        when (rollLength) {
-                            12 -> 24
-                            24 -> 36
-                            else -> 12
-                        },
-                    )
-                }
-                Action("Load a roll") { vm.loadRoll(); onClose() }
-                Note(
-                    "With a roll loaded, photographs go onto the roll instead of into the gallery. No preview, no review — just a counter — until you develop it.",
-                )
-            } else {
-                val loaded = roll
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    LightText("Roll ${loaded?.number}", LightTextVariant.Copy)
-                    Spacer(Modifier.weight(1f))
-                    LightText(
-                        "${loaded?.shot} of ${loaded?.length}",
-                        LightTextVariant.Copy,
-                        lighten = true,
-                    )
-                }
-                RollCounter(roll = loaded, modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp))
-                Action(if ((loaded?.shot ?: 0) == 0) "Unload" else "Develop") {
-                    vm.developRoll()
-                    onClose()
-                }
-                if ((loaded?.shot ?: 0) > 0) {
-                    Action(
-                        if (confirmDiscard) "Tap again to throw the roll away" else "Discard",
-                        lighten = true,
-                    ) {
-                        if (confirmDiscard) {
-                            vm.discardRoll()
-                            confirmDiscard = false
-                            onClose()
-                        } else {
-                            confirmDiscard = true
-                        }
-                    }
-                }
-                Note("Developing writes every frame into the camera roll, each keeping the time it was taken.")
-            }
-
-            Section("Developer")
-            Setting("Shutter timings", if (timings) "On" else "Off") { vm.prefs.setTimings(!timings) }
-            Note(
-                "After each photograph, how long it took in milliseconds — the capture, and in Simple the save as well. The capture number is the camera hardware answering; the save is this app writing the file. It is here rather than up with the camera settings because it is a measurement, not a preference: it answered its question already (1.8 s in the camera, 87 ms in the app) and what it is for now is checking whether a change did what it claimed.",
-            )
-
-            val crash = remember { CrashLog.last(context) }
-            if (crash != null) {
-                Section("Last crash")
-                Note(
-                    "Roll fell over. The trace is below — the first few lines are the ones that matter. Tap to clear it.",
-                )
-                var cleared by remember { mutableStateOf(false) }
-                if (!cleared) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 6.dp)
-                            .background(colours.rule)
-                            .lightClickable {
-                                CrashLog.clear(context)
-                                cleared = true
-                            }
-                            .padding(8.dp),
-                    ) {
-                        LightText(
-                            text = crash.lineSequence().take(14).joinToString("\n"),
-                            variant = LightTextVariant.Superfine,
-                        )
-                    }
-                }
-            }
-
-            Section("About")
-            Note(
-                "Roll — a camera for the Light Phone III. Filters are AGSL shaders applied to the live preview and to the photograph by the same code, so the file matches the frame.",
-            )
-            Box(Modifier.height(24.dp))
-            LightText(
-                "github.com/gi-os/LightCamera",
-                LightTextVariant.Superfine,
-                lighten = true,
-            )
-            Box(Modifier.height(8.dp))
-            LightText(
-                "Icons and design tokens from lightphone/light-sdk, MIT.",
-                LightTextVariant.Superfine,
-                color = colours.contentFaint,
-            )
         }
     }
 }
 
+/**
+ * The tabs, as words.
+ *
+ * Horizontally scrollable because five words at this tracking are wider than 3.92" and a row that
+ * shrank its own type to fit would be the one line on the screen you cannot read. In practice all
+ * five fit with the phone turned; upright you nudge it.
+ */
 @Composable
-private fun Section(title: String) {
-    LightText(
-        text = title.uppercase(),
-        variant = LightTextVariant.Detail,
-        lighten = true,
-        modifier = Modifier.padding(top = 22.dp, bottom = 6.dp),
+private fun TabRow(current: SettingsTab, onPick: (SettingsTab) -> Unit) {
+    val colours = LightThemeTokens.colors
+    val bar = rememberScrollState()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(bar)
+            .padding(start = 16.dp, end = 16.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SettingsTab.entries.forEach { entry ->
+            val here = entry == current
+            LightText(
+                text = entry.label,
+                variant = LightTextVariant.Detail,
+                // The selected tab is simply the bright one. An underline would be a second
+                // vocabulary for "this one" on a screen that already has brightness for it.
+                lighten = !here,
+                modifier = Modifier
+                    .lightClickable { onPick(entry) }
+                    .padding(end = 14.dp, top = 6.dp, bottom = 8.dp),
+            )
+        }
+        Spacer(Modifier.weight(1f))
+    }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(colours.rule),
     )
+}
+
+/* ---------------------------------- frame ---------------------------------- */
+
+@Composable
+private fun FrameTab(vm: CameraViewModel) {
+    val aspect by vm.prefs.aspect.collectAsState()
+    val photoSize by vm.prefs.photoSize.collectAsState()
+    val chrome by vm.prefs.chrome.collectAsState()
+    val afMode by vm.prefs.afMode.collectAsState()
+    val facePriority by vm.prefs.facePriority.collectAsState()
+    val timer by vm.prefs.timer.collectAsState()
+    val sounds by vm.prefs.sounds.collectAsState()
+    val level by vm.prefs.level.collectAsState()
+    val simpleMode by vm.prefs.simpleMode.collectAsState()
+    val facesSupported by vm.engine.facesSupported.collectAsState()
+
+    Section("Frame") {
+        Note(
+            "Size is a Pro setting and Simple ignores it. Simple always takes the frame already on the panel, which is the only immediate path this camera has; Pro takes a real still, which costs about 1.8 seconds here whatever it is asked for.",
+        )
+        Note(
+            "Half-pressing still helps Pro: half-press the camera button before pressing it home. That locks focus and exposure, so the shutter has nothing left to work out — and with the flash off it can hand back a frame the camera had already buffered, which is as close to instant as the hardware goes.",
+        )
+        Note(
+            when (photoSize) {
+                PhotoSize.Full ->
+                    "Everything the sensor has, and slow with it — a 50MP frame is most of a second of readout and encoding before the shutter answers."
+                PhotoSize.Screen ->
+                    "No capture at all: the frame already on the viewfinder, filtered by the same shader and saved. Instant, and with a filter on it is exactly the frame you were looking at."
+                else ->
+                    "Each step down roughly halves the time between pressing the button and having a photograph."
+            },
+        )
+        Note(
+            "The viewfinder fills the screen and the sensor is 4:3, so the photograph keeps a little more than you saw — at the top and bottom of the frame.",
+        )
+    }
+    Setting("Size", photoSize.label) {
+        val all = PhotoSize.entries
+        vm.prefs.setPhotoSize(all[(all.indexOf(photoSize) + 1) % all.size])
+    }
+    Setting("Shape", aspect.label) {
+        val all = FrameAspect.entries
+        vm.prefs.setAspect(all[(all.indexOf(aspect) + 1) % all.size])
+    }
+    Setting("Grid", chrome.label) {
+        val all = Chrome.entries
+        vm.prefs.setChrome(all[(all.indexOf(chrome) + 1) % all.size])
+    }
+    Setting("Level", if (level) "On" else "Off") { vm.prefs.setLevel(!level) }
+    Setting("Simple mode", if (simpleMode) "On" else "Off") {
+        vm.prefs.setSimpleMode(!simpleMode)
+    }
+
+    Section("Exposure aids") {
+        Note(
+            "Greyscale is the hard case for judging exposure: a face and a window can read as the same grey and there is no colour drifting to warn you. The histogram is the whole frame's brightness as a curve — piled at the left is under, piled at the right is blown. Clipping marks hatch the cells of the frame that have gone to pure white, which is the part no amount of editing gets back. Both are drawn from the preview stream, so neither costs the shutter anything, and neither appears in the photograph.",
+        )
+    }
+    val histogram by vm.prefs.histogram.collectAsState()
+    val clipping by vm.prefs.clipping.collectAsState()
+    Setting("Histogram", if (histogram) "On" else "Off") { vm.prefs.setHistogram(!histogram) }
+    Setting("Clipping marks", if (clipping) "On" else "Off") { vm.prefs.setClipping(!clipping) }
+
+    Section("Focus") {
+        Note(
+            if (facesSupported) {
+                "Half press the camera button to focus on the nearest face and hold it. Press through to take the photograph. The mark closes into a box, and beeps, when the lens has it."
+            } else {
+                "This camera doesn't report faces, so the half press focuses on the centre of the frame."
+            },
+        )
+    }
+    Setting("Mode", if (afMode == AfMode.Single) "Single" else "Continuous") {
+        vm.prefs.setAfMode(if (afMode == AfMode.Single) AfMode.Continuous else AfMode.Single)
+    }
+    Setting(
+        label = "Faces",
+        value = when {
+            !facesSupported -> "Unavailable"
+            facePriority -> "Priority"
+            else -> "Ignore"
+        },
+        enabled = facesSupported,
+    ) {
+        vm.prefs.setFacePriority(!facePriority)
+    }
+
+    Section("Shutter") {
+        Note(
+            "Keeping the sharpest of a short burst costs nothing at the shutter — the frames are already arriving for the viewfinder, so this picks between ones the camera had rather than asking it for more. It only applies where the photograph comes off the panel, which is Simple and every coarse filter.",
+        )
+    }
+    val burst by vm.prefs.burst.collectAsState()
+    Setting("Self timer", timer.label) {
+        val all = SelfTimer.entries
+        vm.prefs.setTimer(all[(all.indexOf(timer) + 1) % all.size])
+    }
+    Setting("Sharpest of eight", if (burst) "On" else "Off") { vm.prefs.setBurst(!burst) }
+    Setting("Sounds", if (sounds) "Focus beep" else "Off") { vm.prefs.setSounds(!sounds) }
+}
+
+/* ---------------------------------- look ---------------------------------- */
+
+@Composable
+private fun LookTab(vm: CameraViewModel, context: android.content.Context) {
+    val stampPlain by vm.prefs.stampPlain.collectAsState()
+    val stampFiltered by vm.prefs.stampFiltered.collectAsState()
+    val stampCoarse by vm.prefs.stampCoarse.collectAsState()
+    val stampStyle by vm.prefs.stampStyle.collectAsState()
+    val colour by vm.prefs.colour.collectAsState()
+
+    Section("Date") {
+        Note(
+            "The date back off a 1990s compact: month, day, apostrophe-year, in leaning amber dots in the corner of the frame. Coarse filters are separate and start off — Dither 16, 1-Bit, Halftone and the two Game Boys quantise the picture onto a grid of a few hundred cells, and a date drawn at full precision over that reads as a caption pasted on rather than something the camera did. It is printed into the photograph, so it costs a decode and a re-encode on a shot that would otherwise be saved exactly as the camera made it — and there is no taking it off afterwards.",
+        )
+    }
+    Setting("On plain photos", if (stampPlain) "On" else "Off") {
+        vm.prefs.setStampPlain(!stampPlain)
+    }
+    Setting("On filters", if (stampFiltered) "On" else "Off") {
+        vm.prefs.setStampFiltered(!stampFiltered)
+    }
+    Setting("On coarse filters", if (stampCoarse) "On" else "Off") {
+        vm.prefs.setStampCoarse(!stampCoarse)
+    }
+    if (stampPlain || stampFiltered || stampCoarse) {
+        Setting("Style", stampStyle.label) {
+            val all = StampStyle.entries
+            vm.prefs.setStampStyle(all[(all.indexOf(stampStyle) + 1) % all.size])
+        }
+    }
+
+    Section("Purikura") {
+        Note(
+            "Purikura has its own menu, in the viewfinder: choose Purikura on the wheel and tap OPTIONS in the band. The frame, the two kinds of sticker, the date and the four-shot strip are all in there, next to the picture they change. Every one of them is rolled at random when the app starts — a booth does not remember what you chose last week — so nothing here is kept between launches.",
+        )
+    }
+
+    Section("Colour") {
+        Note(
+            if (ColorMode.granted(context)) {
+                "The panel is a full-colour AMOLED — Light's black and white is the accessibility daltonizer pinned to monochromacy. Roll lifts it while the camera is up and puts it back when you leave."
+            } else {
+                "Needs one adb grant, then the viewfinder is in colour:\n\nadb shell pm grant com.gios.lightcamera android.permission.WRITE_SECURE_SETTINGS\n\nUntil then everything stays grey, which is harmless — the write is simply refused."
+            },
+        )
+    }
+    Setting("Show", colour.label) {
+        val all = Colour.entries
+        vm.prefs.setColour(all[(all.indexOf(colour) + 1) % all.size])
+    }
+}
+
+/* -------------------------------- controls -------------------------------- */
+
+/**
+ * The keys, and the two free slots in the band.
+ *
+ * **The one page in here that can lock you out of your own camera**, which is why every row goes
+ * through [Controls.shutterSafe] and why an option that would leave no shutter is skipped over
+ * rather than offered and refused. See the note in that function.
+ */
+@Composable
+private fun ControlsTab(
+    vm: CameraViewModel,
+    context: android.content.Context,
+    warnInk: Color,
+    warnPaper: Color,
+) {
+    val wheel by vm.prefs.wheelEnabled.collectAsState()
+    val bindings by vm.prefs.bindings.collectAsState()
+    val slots by vm.prefs.bandSlots.collectAsState()
+    val keyProblem = remember { CameraKeyAdvice.problem(context) }
+    val cameraKeyWorks = keyProblem == null
+
+    if (keyProblem != null) {
+        // Inverted, because a dead shutter is not a footnote.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp)
+                .background(warnInk)
+                .padding(10.dp),
+        ) {
+            LightText(
+                text = keyProblem,
+                variant = LightTextVariant.Detail,
+                color = warnPaper,
+            )
+        }
+    }
+
+    Section("Keys") {
+        Note(
+            "The camera button is not on this list and never will be: half press to focus, press through to shoot. Everything else can be pointed somewhere. The defaults are what the app has always done — the wheel walks the filters, holding it in and turning is exposure, clicking it is the torch, and either volume key is a shutter.",
+        )
+        Note(
+            "There is no shutter button on the screen, because the phone has one on its side. So one control has to remain a shutter: if the camera button is being swallowed by an accessibility service — LightControl, most likely — the volume keys are the only shutter left, and an option that would take the last one away is skipped rather than offered.",
+        )
+        Note(
+            if (LightKeys.wheelLabelsPresent()) {
+                "A filter dial is unarmed: each notch counts once and None is three notches wide, so a flick lands somewhere harmless. Exposure and zoom are armed, so a fast turn racks through them. Whichever way the wheel is pointed, an open strip takes it for as long as it is open."
+            } else {
+                "This build doesn't map the wheel keys, so the three wheel rows below may do nothing. The volume keys are AOSP keycodes and work on any build."
+            },
+        )
+        Note(
+            "A key set to Nothing is given back to the phone rather than eaten, so a volume key with no job here still changes the volume.",
+        )
+    }
+    Setting("Wheel", if (wheel) "On" else "Off") { vm.prefs.setWheelEnabled(!wheel) }
+    Binding.entries.forEach { binding ->
+        val current = bindings[binding] ?: binding.default
+        Setting(
+            label = binding.label,
+            value = if (binding.dial) {
+                DialAction.byName(current).label
+            } else {
+                PressAction.byName(current).label
+            },
+            enabled = !binding.dial || wheel,
+        ) {
+            val next = nextBinding(vm, binding, current, cameraKeyWorks)
+            if (next == null) {
+                vm.showNotice("Keep one shutter")
+            } else {
+                vm.prefs.setBinding(binding, next)
+            }
+        }
+    }
+    Action("Back to the defaults") {
+        vm.prefs.resetBindings()
+        vm.showNotice("Keys reset")
+    }
+
+    Section("Band") {
+        Note(
+            "The two slots at the end of the band, after the flash. The album, the mode chip and the flash are the stock camera's own bar in the stock camera's own order and they stay put; these two are yours. Exposure and nothing is where the app started.",
+        )
+        Note(
+            "Front / rear is worth a slot: until now the only way to turn the camera round was a double tap on the viewfinder, which is not a thing anybody finds. Zoom is worth one too — the lens is fixed and the crop is digital, but a digital crop is still the difference between a photograph of a sign and a photograph of the wall it is on, and a pinch on a 3.92\" panel held sideways in one hand is not a control.",
+        )
+    }
+    slots.forEachIndexed { index, slot ->
+        Setting("Slot ${index + 1}", slot.label) {
+            val all = BandSlot.entries
+            vm.prefs.setBandSlot(index, all[(all.indexOf(slot) + 1) % all.size])
+        }
+    }
+}
+
+/**
+ * The next action for [binding], skipping any that would leave the camera with no shutter.
+ *
+ * Null when every option is unsafe, which can only happen if this is the last shutter on a phone
+ * whose camera key is being swallowed — in which case the row is a dead end by design and says so.
+ */
+private fun nextBinding(
+    vm: CameraViewModel,
+    binding: Binding,
+    current: String,
+    cameraKeyWorks: Boolean,
+): String? {
+    val options: List<String> = if (binding.dial) {
+        DialAction.entries.map { it.name }
+    } else {
+        PressAction.entries.map { it.name }
+    }
+    val at = options.indexOf(current).coerceAtLeast(0)
+    for (step in 1..options.size) {
+        val candidate = options[(at + step) % options.size]
+        if (binding.dial) return candidate
+        val up = if (binding == Binding.VolumeUp) {
+            PressAction.byName(candidate)
+        } else {
+            vm.prefs.pressFor(Binding.VolumeUp)
+        }
+        val down = if (binding == Binding.VolumeDown) {
+            PressAction.byName(candidate)
+        } else {
+            vm.prefs.pressFor(Binding.VolumeDown)
+        }
+        val click = if (binding == Binding.WheelClick) {
+            PressAction.byName(candidate)
+        } else {
+            vm.prefs.pressFor(Binding.WheelClick)
+        }
+        if (Controls.shutterSafe(up, down, click, cameraKeyWorks)) return candidate
+    }
+    return null
+}
+
+/* ---------------------------------- film ---------------------------------- */
+
+@Composable
+private fun FilmTab(
+    vm: CameraViewModel,
+    context: android.content.Context,
+    onClose: () -> Unit,
+    loaded: Boolean,
+) {
+    val rollLength by vm.prefs.rollLength.collectAsState()
+    val roll by vm.roll.collectAsState()
+    val recents by vm.prefs.recentRecipients.collectAsState()
+    var confirmDiscard by remember { mutableStateOf(false) }
+
+    Section("Film") {
+        Note(
+            "With a roll loaded, photographs go onto the roll instead of into the gallery. No preview, no review — just a counter — until you develop it. Developing writes every frame into the camera roll, each keeping the time it was taken.",
+        )
+    }
+    if (!loaded) {
+        Setting("Frames per roll", "$rollLength") {
+            vm.prefs.setRollLength(
+                when (rollLength) {
+                    12 -> 24
+                    24 -> 36
+                    else -> 12
+                },
+            )
+        }
+        Action("Load a roll") { vm.loadRoll(); onClose() }
+    } else {
+        val current = roll
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            LightText("Roll ${current?.number}", LightTextVariant.Copy)
+            Spacer(Modifier.weight(1f))
+            LightText(
+                "${current?.shot} of ${current?.length}",
+                LightTextVariant.Copy,
+                lighten = true,
+            )
+        }
+        RollCounter(
+            roll = current,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+        )
+        Action(if ((current?.shot ?: 0) == 0) "Unload" else "Develop") {
+            vm.developRoll()
+            onClose()
+        }
+        if ((current?.shot ?: 0) > 0) {
+            Action(
+                if (confirmDiscard) "Tap again to throw the roll away" else "Discard",
+                lighten = true,
+            ) {
+                if (confirmDiscard) {
+                    vm.discardRoll()
+                    confirmDiscard = false
+                    onClose()
+                } else {
+                    confirmDiscard = true
+                }
+            }
+        }
+    }
+
+    // Remembered: it's a PackageManager binder call, and inside composition it would run
+    // on every recomposition of the settings list.
+    val lightChatTakesPhotos = remember { Handoff.lightChatCanReceive(context) }
+    Section("Sending") {
+        Note(
+            if (lightChatTakesPhotos) {
+                "The send button opens your contacts and hands the photograph to LightChat, already addressed. The people you send to most recently sit at the top of that list; tap here to forget them."
+            } else {
+                "The send button opens your contacts rather than a grid of apps. LightChat can't receive photographs on this build, so a send goes to whatever else can take one — and the person has to be chosen again inside it."
+            },
+        )
+    }
+    Setting(
+        label = "Recents",
+        value = if (recents.isEmpty()) "None yet" else "${recents.size} kept",
+        enabled = recents.isNotEmpty(),
+    ) {
+        vm.prefs.clearRecentRecipients()
+        vm.showNotice("Recents cleared")
+    }
+}
+
+/* --------------------------------- about --------------------------------- */
+
+@Composable
+private fun AboutTab(vm: CameraViewModel, context: android.content.Context, rule: Color) {
+    val colours = LightThemeTokens.colors
+    val timings by vm.prefs.timings.collectAsState()
+
+    Section("Developer") {
+        Note(
+            "After each photograph, how long it took in milliseconds — the capture, and in Simple the save as well. The capture number is the camera hardware answering; the save is this app writing the file. It is here rather than up with the camera settings because it is a measurement, not a preference: it answered its question already (1.8 s in the camera, 87 ms in the app) and what it is for now is checking whether a change did what it claimed.",
+        )
+    }
+    Setting("Shutter timings", if (timings) "On" else "Off") { vm.prefs.setTimings(!timings) }
+
+    val crash = remember { CrashLog.last(context) }
+    if (crash != null) {
+        Section("Last crash") {
+            Note("Roll fell over. The trace is below — the first few lines are the ones that matter. Tap to clear it.")
+        }
+        var cleared by remember { mutableStateOf(false) }
+        if (!cleared) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp)
+                    .background(rule)
+                    .lightClickable {
+                        CrashLog.clear(context)
+                        cleared = true
+                    }
+                    .padding(8.dp),
+            ) {
+                LightText(
+                    text = crash.lineSequence().take(14).joinToString("\n"),
+                    variant = LightTextVariant.Superfine,
+                )
+            }
+        }
+    }
+
+    Section("About")
+    Note(
+        "Roll — a camera for the Light Phone III. Filters are AGSL shaders applied to the live preview and to the photograph by the same code, so the file matches the frame.",
+    )
+    Box(Modifier.height(24.dp))
+    LightText(
+        "github.com/gi-os/LightCamera",
+        LightTextVariant.Superfine,
+        lighten = true,
+    )
+    Box(Modifier.height(8.dp))
+    LightText(
+        "Icons and design tokens from lightphone/light-sdk, MIT.",
+        LightTextVariant.Superfine,
+        color = colours.contentFaint,
+    )
+}
+
+/* --------------------------------- pieces --------------------------------- */
+
+/**
+ * A section heading, and the prose behind it.
+ *
+ * The `?` is only drawn when there is something under it, so a heading with no notes is exactly the
+ * heading it was before. Collapsed by default: the notes are for the once you wonder, not for every
+ * time you come in to change the timer.
+ */
+@Composable
+private fun Section(title: String, help: (@Composable () -> Unit)? = null) {
+    var open by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 22.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        LightText(
+            text = title.uppercase(),
+            variant = LightTextVariant.Detail,
+            lighten = true,
+        )
+        if (help != null) {
+            Spacer(Modifier.weight(1f))
+            LightText(
+                text = if (open) "×" else "?",
+                variant = LightTextVariant.Detail,
+                lighten = !open,
+                modifier = Modifier
+                    .lightClickable { open = !open }
+                    .padding(horizontal = 10.dp, vertical = 2.dp),
+            )
+        }
+    }
+    if (open && help != null) help()
 }
 
 @Composable

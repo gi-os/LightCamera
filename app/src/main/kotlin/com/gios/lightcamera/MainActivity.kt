@@ -168,8 +168,10 @@ class MainActivity : ComponentActivity() {
                             onFullPress = { vm.shoot() },
                             onRelease = { vm.engine.releaseFocus() },
                         ),
-                        onTorchToggle = { vm.engine.toggleTorch() },
-                        onVolumeShutter = { vm.shoot() },
+                        // The map is read through the view model's prefs at the moment of the
+                        // press, so a binding changed in settings is live on the next press.
+                        pressFor = { vm.prefs.pressFor(it) },
+                        onPress = { vm.press(it) },
                     )
                 }
 

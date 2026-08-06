@@ -907,6 +907,23 @@ class CameraEngine(private val context: Context) {
         runCatching { control.setExposureCompensationIndex(next) }
     }
 
+    /**
+     * Exposure straight to an index, for a thumb dragged along the strip.
+     *
+     * The strip's whole reason for existing is that walking from -2 to +2 EV is twelve notches, and
+     * twelve taps on a 3.92" screen is not a control. So this sets rather than accumulates, and
+     * clamps to the range the camera reported rather than to a guess.
+     */
+    fun setEv(index: Int) {
+        val control = camera?.cameraControl ?: return
+        val range = _evRange.value
+        if (range.first == range.last) return
+        val next = index.coerceIn(range.first, range.last)
+        if (next == _ev.value) return
+        _ev.value = next
+        runCatching { control.setExposureCompensationIndex(next) }
+    }
+
     fun resetEv() {
         _ev.value = 0
         runCatching { camera?.cameraControl?.setExposureCompensationIndex(0) }

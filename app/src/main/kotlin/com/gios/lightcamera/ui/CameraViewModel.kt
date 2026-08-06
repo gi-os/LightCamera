@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.gios.lightcamera.CaptureMode
 import com.gios.lightcamera.PhotoSize
 import com.gios.lightcamera.Prefs
+import com.gios.lightcamera.SelfTimer
 import com.gios.lightcamera.camera.CameraEngine
 import com.gios.lightcamera.camera.CapturedFrame
 import com.gios.lightcamera.camera.DateStamp
@@ -19,10 +20,12 @@ import com.gios.lightcamera.camera.FrameAspect
 import com.gios.lightcamera.camera.Frames
 import com.gios.lightcamera.camera.PuriArt
 import com.gios.lightcamera.camera.PuriStrip
+import com.gios.lightcamera.camera.Sharpness
 import com.gios.lightcamera.filter.FaceQuads
 import com.gios.lightcamera.filter.Filters
 import com.gios.lightcamera.filter.ShaderRuntime
 import com.gios.lightcamera.hw.Beeps
+import com.gios.lightcamera.hw.PressAction
 import com.gios.lightcamera.ocr.Found
 import com.gios.lightcamera.ocr.PageReader
 import com.gios.lightcamera.ocr.Reading
@@ -54,6 +57,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlin.random.Random
+
+/**
+ * A value strip that opens over the band.
+ *
+ * Both are a row of ticks and a marker, both take the full width of the band while open, and both
+ * take the bare wheel for as long as they are up. Two members rather than a boolean because a
+ * second one arrived and `evOpen` had no room for it.
+ */
+enum class Strip(val label: String) {
+    Exposure("Exposure"),
+    Zoom("Zoom"),
+}
 
 /**
  * Everything the two screens share.
@@ -201,6 +216,19 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _filter = MutableStateFlow(Filters.byId(prefs.filterId.value))
     val filter: StateFlow<Filters.Filter> = _filter.asStateFlow()
+
+    /**
+     * Which value strip is open over the band, if any.
+     *
+     * **On the view model rather than in the composable**, which is where the exposure one used
+     * to live, because three separate things now open a strip: the band slot, a remapped hardware
+     * key dispatched from the activity, and the strip itself closing when a mode change makes it
+     * meaningless. A `remember` inside `CameraScreen` is reachable by exactly one of those.
+     *
+     * One at a time: they occupy the same width, and both of them steal the bare wheel while open.
+     */
+    private val _strip = MutableStateFlow<Strip?>(null)
+    val strip: StateFlow<Strip?> = _strip.asStateFlow()
 
     /**
      * Locked to None while taking a photograph *for another app*.
@@ -354,6 +382,15 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
      * discarded.
      */
     fun stepFilter(by: Int) {
+        if (shotInFlight()) {
+            // **The dial is closed while the shutter is open.** In Pro the filter is applied to the
+            // bytes *after* the sensor answers, about 1.8 seconds after your finger — so a notch
+            // turned inside that window would bake a look you were not framing into the file, and
+            // the held frame on the panel would be showing you the old one while it happened. No
+            // haptic, for the same reason as below: nothing here is broken.
+            showNotice("Taking the photograph")
+            return
+        }
         if (filterLocked) {
             // No haptic: a notch that buzzes and does nothing reads as a broken dial, and here
             // nothing is broken — the filter is deliberately not this photograph's to choose.
@@ -403,11 +440,89 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setFilter(id: String) {
+        // Same rule as the wheel, and it has to be here as well rather than only in the grid:
+        // the grid is one caller of this and a capture request is another.
+        if (shotInFlight()) {
+            showNotice("Taking the photograph")
+            return
+        }
         if (filterLocked) return
         // Chosen deliberately from the grid, so the dial has no business holding on to it.
         dialHeldUntil = 0L
         prefs.setFilter(id)
     }
+
+    fun toggleStrip(kind: Strip) {
+        _strip.value = if (_strip.value == kind) null else kind
+    }
+
+    fun closeStrip() {
+        _strip.value = null
+    }
+
+    /**
+     * Do whatever a remapped press is pointed at.
+     *
+     * One place, so the volume keys, the wheel click and any button that ends up in the band all
+     * agree about what "front / rear" means. Lives here rather than in the activity because every
+     * arm of it is a view-model call, and the activity holding a lambda per action was five
+     * closures that had to be kept in step with an enum.
+     */
+    fun press(action: PressAction) {
+        when (action) {
+            PressAction.Shutter -> shoot()
+            PressAction.Torch -> engine.toggleTorch()
+            PressAction.FlipLens -> flipLens()
+            PressAction.NextMode -> nextMode()
+            PressAction.Timer -> cycleTimer()
+            PressAction.Exposure -> openStripOrSayWhyNot(Strip.Exposure)
+            PressAction.Zoom -> openStripOrSayWhyNot(Strip.Zoom)
+            PressAction.Nothing -> Unit
+        }
+    }
+
+    /**
+     * The mode chip's list, one step along.
+     *
+     * The same filter the picker uses, so a key and the chip can never disagree about which modes
+     * exist — Simple is only in the list when it is switched on.
+     */
+    fun nextMode() {
+        val offered = CaptureMode.entries.filter { !it.isSimple || prefs.simpleMode.value }
+        val at = offered.indexOf(prefs.mode.value)
+        setMode(offered[(at + 1) % offered.size])
+    }
+
+    fun cycleTimer() {
+        val all = SelfTimer.entries
+        val next = all[(all.indexOf(prefs.timer.value) + 1) % all.size]
+        prefs.setTimer(next)
+        showNotice(if (next.seconds == 0) "Timer off" else "Timer ${next.seconds}s")
+    }
+
+    /**
+     * A strip that cannot do anything is worse than no strip: it is a panel of ticks with the
+     * marker pinned to the middle, and nothing on it to explain itself. Say so instead.
+     */
+    private fun openStripOrSayWhyNot(kind: Strip) {
+        when {
+            kind == Strip.Exposure && engine.evRange.value.let { it.first == it.last } ->
+                showNotice("No exposure control")
+            kind == Strip.Zoom && engine.maxZoom.value <= 1.01f ->
+                showNotice("No zoom on this lens")
+            else -> toggleStrip(kind)
+        }
+    }
+
+    /**
+     * True from the press until the file is written.
+     *
+     * Both halves matter. `shooting` is latched across the capture and the save; `held` is the
+     * frozen composition sitting over the live preview, which outlives the capture by the length
+     * of its own fade. Between them there is no moment where the viewfinder is showing a
+     * photograph being made and the dial is still live.
+     */
+    private fun shotInFlight(): Boolean = _shooting.value || _held.value != null
 
     /**
      * Serve this capture request plain, whatever the dial says.
@@ -1098,7 +1213,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
      * already sounded at the press and a second one would claim a second photograph.
      */
     private suspend fun shootPanelFrame(click: Boolean): Boolean {
-        val grabbed = engine.previewFrame() ?: return false
+        val grabbed = grabBestFrame() ?: return false
         if (click) _shutterTick.tryEmit(Unit)
         val activeFilter = filter.value
         val seed = Random.nextFloat() * 1000f
@@ -1142,6 +1257,55 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         // print with a different face in it.
         if (puri != null) reshufflePuri()
         return true
+    }
+
+    /**
+     * The frame to make the photograph out of — the newest, or the sharpest of a short burst.
+     *
+     * **Why the burst happens after the press and not before it.** The textbook version keeps a ring
+     * buffer of the last few frames and picks from ones that had already arrived, which costs nothing
+     * at the press. That needs a frame source running continuously, and in photo mode this app
+     * deliberately has none: `CameraEngine` binds an `ImageAnalysis` only in QR, because a second
+     * full-rate consumer of the ISP costs power on every frame whether or not anything reads it. The
+     * only frame source here is the panel, one readback at a time.
+     *
+     * So the trade is stated rather than hidden: this spends about a quarter of a second grabbing
+     * eight frames and keeps the sharpest. That is the cost of hand shake being chosen against
+     * instead of frozen into the file, it is off by default, and Simple without it is exactly as
+     * quick as it ever was.
+     */
+    private suspend fun grabBestFrame(): Bitmap? {
+        if (!prefs.burst.value) return engine.previewFrame()
+        var best: Bitmap? = null
+        var bestScore = -1f
+        repeat(BURST_FRAMES) { index ->
+            // No wait before the first: if the burst is going to be abandoned for any reason, the
+            // frame it starts from should still be the one that was on the panel at the press.
+            if (index > 0) delay(BURST_GAP_MS)
+            val frame = engine.previewFrame() ?: return@repeat
+            val score = withContext(Dispatchers.Default) {
+                runCatching {
+                    val small = Bitmap.createScaledBitmap(frame, SCORE_W, SCORE_H, true)
+                    val pixels = IntArray(SCORE_W * SCORE_H)
+                    small.getPixels(pixels, 0, SCORE_W, 0, 0, SCORE_W, SCORE_H)
+                    if (small != frame) small.recycle()
+                    Sharpness.of(pixels, SCORE_W, SCORE_H)
+                }.getOrDefault(-1f)
+            }
+            if (score > bestScore) {
+                // The loser is released here rather than left to the collector: these are
+                // panel-sized bitmaps and eight of them is most of a hundred megabytes.
+                val previous = best
+                best = frame
+                bestScore = score
+                if (previous != null && previous != frame) runCatching { previous.recycle() }
+            } else {
+                runCatching { frame.recycle() }
+            }
+        }
+        // Every grab failing is a viewfinder with nothing on it, which the caller reports. One last
+        // try, because a single failed readback mid-burst should not lose the photograph.
+        return best ?: engine.previewFrame()
     }
 
     /**
@@ -1502,12 +1666,23 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         observer?.let { runCatching { it.close() } }
         observer = null
         engine.shutdown()
+        ShaderRuntime.releasePool()
         beeps.release()
         thumbs.clear()
         super.onCleared()
     }
 
     private companion object {
+        /** Eight, which is the number in the setting's name and about a quarter of a second of them. */
+        const val BURST_FRAMES = 8
+
+        /** A little over one frame at 30fps, so each grab is a different frame rather than the same one. */
+        const val BURST_GAP_MS = 34L
+
+        /** Small enough that eight Laplacian passes are free, large enough to still contain the edges. */
+        const val SCORE_W = 96
+        const val SCORE_H = 128
+
         const val TAG = "CameraViewModel"
 
         /** The count-in before each frame of a strip. Long enough to change your face, not your mind. */
