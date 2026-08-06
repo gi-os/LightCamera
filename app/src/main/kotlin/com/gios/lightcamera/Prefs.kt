@@ -89,6 +89,26 @@ enum class CaptureMode(val label: String) {
      * [com.gios.lightcamera.ui.CameraViewModel.shoot].
      */
     Scan("QR"),
+
+    /**
+     * **The camera pointed at a page.**
+     *
+     * The same argument as [Scan] — point, press, get the thing — for the case QR does not
+     * cover, which is most printed matter. A menu, a receipt, a serial number on the back of a
+     * router, a paragraph you want to keep. Roll could already read a photograph on the roll;
+     * this is that without the photograph, because standing in front of a noticeboard and then
+     * going to look for the picture you just took is two steps too many.
+     *
+     * **Nothing lands on the roll.** The frame is grabbed off the panel, read, and dropped when
+     * you close the sheet. It is a reading, not a photograph, and a roll filling up with pictures
+     * of car park signs would be the wrong outcome.
+     *
+     * Unlike [Scan] there is no live analyzer. A code is a small target you sweep for and want
+     * acted on within a second; a page is a thing you frame and press. Running a recogniser on
+     * every preview frame would cost far more than the viewfinder can spare here, and would be
+     * answering a question nobody asked — see [com.gios.lightcamera.ocr.PageReader].
+     */
+    Text("Text"),
     ;
 
     /** What the mode slot in the band reads. */
@@ -99,13 +119,26 @@ enum class CaptureMode(val label: String) {
             Video -> "VIDEO"
             Selfie -> "SELFIE"
             Scan -> "QR"
+            Text -> "TEXT"
         }
 
     /** True where the app gets out of the way: no filter, no crop, no stamp, no timer. */
     val isSimple: Boolean get() = this == Simple
 
-    /** True in the one mode that takes no photograph at all. */
+    /** True in the one mode that scans continuously. */
     val isScan: Boolean get() = this == Scan
+
+    /** True while the camera is being used to read something rather than to photograph it. */
+    val isText: Boolean get() = this == Text
+
+    /**
+     * True in the two modes that produce a result instead of a file.
+     *
+     * Most of the places that used to ask `isScan` meant this: no filter dial, no film counter,
+     * no roll, clean chrome. Kept separate from [isScan] because the two differ in the one place
+     * it matters — whether an analyzer is bound to the stream.
+     */
+    val isReader: Boolean get() = isScan || isText
 }
 
 /**

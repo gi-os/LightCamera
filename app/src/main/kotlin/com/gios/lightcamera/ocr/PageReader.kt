@@ -1,6 +1,7 @@
 package com.gios.lightcamera.ocr
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import android.util.Log
 import com.google.mlkit.vision.common.InputImage
@@ -58,7 +59,22 @@ object PageReader {
         val image = runCatching { InputImage.fromFilePath(context, uri) }
             .onFailure { Log.w(TAG, "cannot open $uri", it) }
             .getOrNull() ?: return null
+        return recognise(image)
+    }
 
+    /**
+     * Read a bitmap already in hand.
+     *
+     * Text mode's route. The frame comes off the panel rather than off the sensor, so there is no
+     * file and no EXIF — hence [rotationDegrees], which the caller knows from the preview and this
+     * has no way to work out. Pass the frame **upright**, or pass the turn; a recogniser given a
+     * sideways page returns nothing at all rather than something wrong, which makes the bug look
+     * like the feature simply not working.
+     */
+    suspend fun read(bitmap: Bitmap, rotationDegrees: Int = 0): String? =
+        recognise(InputImage.fromBitmap(bitmap, rotationDegrees))
+
+    private suspend fun recognise(image: InputImage): String? {
         return suspendCancellableCoroutine { cont ->
             recognizer.process(image)
                 .addOnSuccessListener { result -> cont.resume(result.text.takeIf { it.isNotBlank() }) }

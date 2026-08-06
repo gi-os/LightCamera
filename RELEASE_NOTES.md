@@ -1,63 +1,54 @@
-## LightCamera v2.40 — Reading the words in a photograph
+## LightCamera v2.41 — Text is a mode now, next to QR
 
-Open a photograph on the roll and there is a **TEXT** button in the chrome next to the star. Press
-it and the words in the picture come up in a sheet: a business card, a menu, a receipt, a poster,
-a page of a book you do not want to type out.
+Turn the dial past QR and there is **TEXT**. Point it at a menu, a noticeboard, a receipt, the
+serial number on the back of a router, and press the shutter. The words come up in the same sheet
+a QR code gets, with the same verbs — call the number, open the link, copy the lot.
 
-### It is the QR sheet, and that is the point
+v2.40 could already read a photograph on the roll. This is that without the photograph, because
+standing in front of a sign, taking a picture, swiping up to the roll and finding it again is
+three steps more than the job deserves.
 
-The addresses, phone numbers and links found on the page arrive in the same sheet a scanned QR
-code arrives in, with the same verbs. That is not a resemblance — it is the same code. Everything
-that decides what a payload *is* already lives in `qr/Codes.kt`, and everything that opens or
-copies one already lives in `qr/Handoff.kt`, both written and tested for QR mode. The new part
-only has to lift the scraps off the page and hand them over in the shape a code would have had: a
-photographed number becomes `tel:`, an address becomes `mailto:`, a bare host becomes `https://`.
-After that one line, a number off a business card and a number inside a QR code are the same
-thing, so they should not land in two different screens.
+### It does not take a photograph
 
-Several things usually come off one page, so the top of the sheet is a short list and the actions
-follow whichever row is selected. OPEN reads CALL for a number and WRITE for an address, because
-it is worth saying what a button will do before it does it. Beneath the list is the whole page,
-with the line breaks exactly where the recogniser found them — a receipt's line breaks are its
-only structure, and re-flowing them into prose throws away the thing that makes the copy useful.
+The frame comes off the panel rather than off the sensor — the same `Screen` route the coarse
+filters have always used. No `takePicture`, no readout, no encode. A still on this hardware is
+most of a second and a 50MP one is nearer two, and a reading that took that long would be slower
+than typing the thing out. This is instant, and what gets read is literally the frame you were
+looking at when you pressed.
 
-### Nothing is spell-corrected, deliberately
+**Nothing lands on the roll.** The frame is held on screen so you can see what was read, and it is
+dropped when you close the sheet. A reading is not a photograph, and a roll filling up with
+pictures of car park signs would be the wrong outcome. Press the shutter again to dismiss.
 
-Recognisers confuse `O` with `0` and `l` with `1`, and those two substitutions are most of the
-difference between a company's website and a domain somebody bought to catch the typo. Guessing
-would make this most dangerous in exactly the case where it looks most useful — a printed URL. So
-the sheet shows the reading rather than a tidied version of it, and a selected row displays the
-characters as they came off the page, not the address they were turned into. Check it against the
-thing in your other hand.
+### The catch, and what happens about it
 
-Two things the tests caught before the phone did: a number written `(555) 013-4567` was losing its
-opening bracket, and `2019-2024` was being offered as a phone number. Eight digits in two groups
-is also a real local number, so length cannot separate them — there is now a narrow guard for the
-one collision that turns up on printed pages, and it does not touch numbers in general.
+The panel has far fewer pixels than the sensor. That is fine for a sign, a menu or a business
+card, and marginal for small print. So when the panel frame comes back with nothing — or with the
+two or three characters a recogniser returns when the print is too small, which is worse than
+nothing because it looks like an answer — it says **Looking closer**, takes one real exposure, and
+reads that instead.
 
-### Why ML Kit here and ZXing for QR
+The slow path is only paid by the shots that need it, and only after the fast one has already been
+tried. Most readings never reach it. The exposure is decoded sampled-down on the way in, because
+the recogniser gains nothing above about two thousand pixels and decoding a 12MP frame to read a
+street sign is two hundred megabytes to throw away.
 
-`qr/QrAnalyzer` says plainly that ML Kit is unusable on this phone, and for the reader it names,
-that is still true: the unbundled models come through Play Services, which LightOS does not have,
-so they bind and never answer. Text recognition has a second artifact where the model ships inside
-the APK, and that is what this uses. QR stays on ZXing because ZXing is 500 kB and already worked;
-there is no comparable pure-Java text recogniser worth shipping. **The APK is a few megabytes
-larger for it**, which is the honest cost of the feature.
+### Three ways in, one screen out
 
-### Not on the live viewfinder
+A QR code, a photograph on the roll, and now the viewfinder all end at the same sheet. That is not
+tidiness — after `TextScan` has shaped a finding into a payload, a phone number photographed off a
+card and one inside a QR code are the same value with the same actions, and they should not arrive
+in two different screens.
 
-Reading is a button you press on a photograph you already took, not something that happens to
-every frame. Most pictures have no writing in them, the recogniser costs a few hundred
-milliseconds, and a viewfinder running one continuously would be spending the battery answering a
-question nobody asked. A QR code is the opposite — you point at it and want it acted on within a
-second — which is why that one is live and this one is not.
-
-The reading is thrown away when you turn to the next photograph. Words from the last picture over
-this one would be worse than nothing, because they would look correct.
+Text mode borrows QR's framing corners for the same reason: you are framing a thing rather than
+composing a picture, and the marks are what say so. They come off the moment there is a reading.
 
 ### Known
 
-Full mode is on in this app, and ML Kit finds its own implementation by class name through a
-registrar that nothing in our code refers to. There are new keep rules for it. If **TEXT** answers
-"No text in this one" on a photograph that plainly has words in it, that is a missing keep rule
-rather than a bad photograph — shake the phone and the class name will be in the report.
+There is no live recogniser, unlike QR. A code is a small target you sweep for and want acted on
+within a second; a page is a thing you frame and press. Running text recognition on every preview
+frame would cost far more than the viewfinder can spare on this phone.
+
+Nothing is spell-corrected here either — `O` and `0`, `l` and `1` are shown as they were read. On a
+printed URL that is the difference between a company's site and a domain someone bought to catch
+the typo, so the guess is yours to make.

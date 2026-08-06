@@ -131,6 +131,7 @@ fun CameraScreen(
     val recording by engine.recording.collectAsState()
     val recordSeconds by vm.recordSeconds.collectAsState()
     val scanned by vm.scan.collectAsState()
+    val pageText by vm.pageText.collectAsState()
 
     var frameWidth by remember { mutableStateOf(0) }
     var frameHeight by remember { mutableStateOf(0) }
@@ -214,7 +215,7 @@ fun CameraScreen(
     // `RenderEffect` never touches, so a dithered viewfinder would be showing you a picture the
     // decoder is not looking at — and half the filters here would make a code unreadable to a person
     // while it carried on scanning perfectly, which is a viewfinder that lies about why it failed.
-    val liveFilter = if (mode == CaptureMode.Video || mode.isSimple || mode.isScan) {
+    val liveFilter = if (mode == CaptureMode.Video || mode.isSimple || mode.isReader) {
         com.gios.lightcamera.filter.Filters.none
     } else {
         filter
@@ -542,7 +543,7 @@ fun CameraScreen(
                     // Simple draws no grid, and neither does QR: a rule-of-thirds grid is for
                     // composing, and in QR the only thing on screen that should draw the eye is the
                     // window you are meant to put the code in.
-                    chrome = if (mode.isSimple || mode.isScan) Chrome.Clean else chrome,
+                    chrome = if (mode.isSimple || mode.isReader) Chrome.Clean else chrome,
                     faces = faces,
                     priority = priority,
                     afState = afState,
@@ -599,6 +600,13 @@ fun CameraScreen(
                 // The scanning window. Drawn only while nothing has been found, so the moment a code
                 // lands the marks come off and the sheet is the only thing on screen.
                 if (mode.isScan && scanned == null) {
+                    ScanWindow(Modifier.fillMaxSize())
+                }
+
+                // The same marks in Text mode, because it is the same act: you are framing a thing
+                // rather than composing a picture, and the corners are what tell you so. Gone the
+                // moment there is a reading, so the sheet is the only thing on screen.
+                if (mode.isText && pageText == null) {
                     ScanWindow(Modifier.fillMaxSize())
                 }
 
@@ -729,6 +737,17 @@ fun CameraScreen(
                 modifier = Modifier.padding(start = BAND),
             )
         }
+        // Text mode's reading, over the frozen frame it came from. The same sheet a photograph on
+        // the roll gets, and the same one a QR code gets once `TextScan` has shaped the findings
+        // into payloads — three ways in, one screen out.
+        pageText?.let { text ->
+            TextSheet(
+                text = text,
+                onOpen = vm::openFromPage,
+                onCopy = vm::copyFromPage,
+                onClose = vm::dismissPage,
+            )
+        }
         scanned?.let { payload ->
             ScanSheet(
                 raw = payload,
@@ -740,7 +759,7 @@ fun CameraScreen(
         }
         // No counter in Video or QR: neither one spends a frame, and a film counter beside a mode
         // that cannot advance it is a number that looks stuck.
-        if (roll != null && mode != CaptureMode.Video && !mode.isScan) {
+        if (roll != null && mode != CaptureMode.Video && !mode.isReader) {
             // The film counter down the far edge, opposite the band: it belongs to the
             // photograph rather than to the controls.
             Box(

@@ -180,6 +180,9 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     /** Decides which decoded frames are news; see [ScanGate]. */
     private val scanGate = ScanGate()
 
+    /** Long edge, in pixels, above which the recogniser gains nothing. See [readExposure]. */
+    private val READ_LONG_EDGE = 2000
+
     /** The most recent developed roll, so the contact sheet can be shown. */
     private val _developed = MutableStateFlow<FilmRoll.DevelopedRoll?>(null)
     val developed: StateFlow<FilmRoll.DevelopedRoll?> = _developed.asStateFlow()
@@ -360,7 +363,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         // The wheel is a filter dial and QR has no filters, but it also must not silently walk the
         // dial underneath a mode that isn't showing it — coming back to Pro to find a different
         // filter on than the one you left is worse than the wheel doing nothing here.
-        if (prefs.mode.value.isScan) {
+        if (prefs.mode.value.isReader) {
             showNotice("Filters are photo only")
             return
         }
@@ -576,8 +579,107 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Text mode's shutter: read what the viewfinder is looking at, without taking a photograph.
+     *
+     * **The frame comes off the panel, not off the sensor**, which is the `Screen` route the
+     * coarse filters already use — `previewView.bitmap`, no `takePicture`, no readout, no encode.
+     * On this hardware a still is most of a second and a 50MP one is nearer two; a reading that
+     * took that long would be slower than typing the thing out. This is instant, and the frame is
+     * literally what you were looking at when you pressed.
+     *
+     * **Nothing is written to the roll.** The frame is held on screen so you can see what was
+     * read, and dropped when the sheet closes. A roll filling up with pictures of car park signs
+     * is the wrong outcome; this is a reading, not a photograph.
+     *
+     * The panel is the catch, and it is handled rather than hidden. A page at panel resolution is
+     * fine for a sign, a menu or a business card, and marginal for small print — so when the panel
+     * frame comes back with nothing or with almost nothing, this takes one real exposure and reads
+     * that instead. The slow path is paid only by the shots that need it, and only after the fast
+     * path has already been tried, which is the right way round: most readings never reach it.
+     */
+    fun readFrame() {
+        if (_reading.value) return
+        val grabbed = engine.previewFrame()
+        if (grabbed == null) {
+            showNotice("Nothing on the viewfinder yet")
+            return
+        }
+        _reading.value = true
+        // Freeze the panel on the frame that was read. Without this the live preview carries on
+        // moving under the sheet, and the words on screen stop matching the picture behind them.
+        _held.value = grabbed
+        _shutterTick.tryEmit(Unit)
+
+        viewModelScope.launch {
+            try {
+                val turn = engine.previewRotationDegrees()
+                // The turn is passed rather than applied. ML Kit rotates internally and a manual
+                // rotate would mean allocating a second full-size bitmap to hand it the same thing.
+                var text = withContext(Dispatchers.Default) { PageReader.read(grabbed, turn) }
+
+                if (thin(text) && engine.ready.value) {
+                    showNotice("Looking closer")
+                    val closer = withContext(Dispatchers.IO) { readExposure() }
+                    // Only if it did better. A real exposure can also come back empty — pointed at
+                    // a wall, it should say so rather than replacing a partial reading with none.
+                    if (!thin(closer)) text = closer
+                }
+
+                if (text == null) {
+                    _held.value = null
+                    showNotice("No text in view")
+                    return@launch
+                }
+                _pageText.value = text
+                LightHaptics.click(getApplication<Application>())
+                if (prefs.sounds.value) beeps.focusLocked()
+            } finally {
+                _reading.value = false
+            }
+        }
+    }
+
+    /**
+     * One real exposure, decoded small, read.
+     *
+     * Sampled down on the way in rather than decoded whole: the recogniser gains nothing above
+     * roughly two thousand pixels on the long edge, and decoding a 12MP JPEG to ARGB to read a
+     * street sign is two hundred megabytes to throw away. `inSampleSize` is powers of two, so this
+     * lands between 2000 and 4000 rather than exactly on it, which is close enough.
+     */
+    private suspend fun readExposure(): String? {
+        val frame = runCatching { engine.capture() }.getOrNull() ?: return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(frame.jpeg, 0, frame.jpeg.size, bounds)
+        val longEdge = maxOf(bounds.outWidth, bounds.outHeight)
+        var sample = 1
+        while (longEdge / (sample * 2) >= READ_LONG_EDGE) sample *= 2
+        val bitmap = BitmapFactory.decodeByteArray(
+            frame.jpeg,
+            0,
+            frame.jpeg.size,
+            BitmapFactory.Options().apply { inSampleSize = sample },
+        ) ?: return null
+        return PageReader.read(bitmap, frame.rotationDegrees)
+    }
+
+    /**
+     * Whether a reading is worth keeping, or worth spending an exposure to improve on.
+     *
+     * Not just null. A recogniser handed a frame too coarse for the print does not fail — it
+     * returns two or three characters it half-saw, which is worse than nothing because it looks
+     * like an answer. A dozen characters is the line: below it there is nothing anyone
+     * photographed a page to get.
+     */
+    private fun thin(text: String?): Boolean = (text?.count(Char::isLetterOrDigit) ?: 0) < 12
+
     fun dismissPage() {
         _pageText.value = null
+        // Text mode's frame lives only as long as the sheet. Clearing it here rather than in the
+        // screen keeps the two in step: the held frame *is* the thing the words came from, and a
+        // frozen viewfinder with no sheet over it looks like the camera has locked up.
+        _held.value = null
     }
 
     /**
@@ -704,6 +806,13 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         // exactly what the hardware key is best at: your eyes are on the payload, not on the panel.
         if (prefs.mode.value.isScan) {
             openScan()
+            return
+        }
+        // **In Text the shutter reads rather than shoots.** Same sentence as every other mode —
+        // point at a thing, press the button, get the thing — except that the thing is the words
+        // and no file is made. See `readFrame`.
+        if (prefs.mode.value.isText) {
+            if (_pageText.value != null) dismissPage() else readFrame()
             return
         }
         if (_shooting.value) return
