@@ -445,9 +445,11 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         when (prefs.mode.value) {
             CaptureMode.Simple, CaptureMode.Photo -> setMode(CaptureMode.Selfie)
             CaptureMode.Selfie -> setMode(CaptureMode.Photo)
-            // Nothing to flip to: QR is the back lens by definition, and a double tap that quietly
-            // moved you into Selfie would be the camera changing mode behind your back.
+            // Nothing to flip to: both readers are the back lens by definition, and a double tap
+            // that quietly moved you into Selfie would be the camera changing mode behind your
+            // back — while you are holding it over the thing you were trying to read.
             CaptureMode.Scan -> showNotice("QR uses the back camera")
+            CaptureMode.Text -> showNotice("Text uses the back camera")
             CaptureMode.Video -> {
                 if (engine.recording.value) return
                 val front = engine.lensFacing.value ==

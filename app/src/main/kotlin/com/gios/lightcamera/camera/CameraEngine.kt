@@ -352,9 +352,11 @@ class CameraEngine(private val context: Context) {
         if (_recording.value) return
         val lens = when (next) {
             CaptureMode.Selfie -> CameraSelector.LENS_FACING_FRONT
-            // QR is the back lens and cannot be talked out of it: the front camera on this phone is
-            // fixed focus and lower resolution, and a code held up to it is a code you cannot read.
-            CaptureMode.Simple, CaptureMode.Photo, CaptureMode.Scan -> CameraSelector.LENS_FACING_BACK
+            // QR and Text are the back lens and cannot be talked out of it: the front camera on
+            // this phone is fixed focus and lower resolution, and neither a code nor a page held
+            // up to it is one you can read.
+            CaptureMode.Simple, CaptureMode.Photo, CaptureMode.Scan, CaptureMode.Text ->
+                CameraSelector.LENS_FACING_BACK
             // Video keeps whichever lens you were using; it is a mode, not a camera.
             CaptureMode.Video -> _lensFacing.value
         }
