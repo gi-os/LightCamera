@@ -9,6 +9,7 @@ import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * The characters in a photograph you already took.
@@ -74,16 +75,36 @@ object PageReader {
     suspend fun read(bitmap: Bitmap, rotationDegrees: Int = 0): String? =
         recognise(InputImage.fromBitmap(bitmap, rotationDegrees))
 
-    private suspend fun recognise(image: InputImage): String? {
-        return suspendCancellableCoroutine { cont ->
-            recognizer.process(image)
-                .addOnSuccessListener { result -> cont.resume(result.text.takeIf { it.isNotBlank() }) }
-                .addOnFailureListener { t ->
-                    Log.w(TAG, "recognition failed", t)
-                    cont.resume(null)
-                }
-            // Task has no cancel, so a cancelled scan simply lets the result be dropped. The work
-            // is a few hundred milliseconds on one photograph, not something worth plumbing.
+    /**
+     * How long a reading is allowed to take before it is treated as never having answered.
+     *
+     * A recogniser normally takes a few hundred milliseconds. This is not tuning, it is a
+     * guarantee: `Task` has no cancel, so without a ceiling a single call that never completes
+     * leaves the caller's "busy" flag set for the life of the process — which is exactly the bug
+     * that made Text mode's shutter silently stop working.
+     */
+    private const val TIMEOUT_MS = 12_000L
+
+    private suspend fun recognise(image: InputImage): String? = withTimeoutOrNull(TIMEOUT_MS) {
+        suspendCancellableCoroutine { cont ->
+            runCatching {
+                recognizer.process(image)
+                    .addOnSuccessListener { result ->
+                        cont.resume(result.text.takeIf { it.isNotBlank() })
+                    }
+                    .addOnFailureListener { t ->
+                        // The documented failure — a model that will not load, most likely. Null
+                        // rather than a throw, because to the caller "could not read it" and
+                        // "there was nothing to read" are the same outcome.
+                        Log.w(TAG, "recognition failed", t)
+                        cont.resume(null)
+                    }
+            }.onFailure { t ->
+                // `process` itself throwing, which is not in its contract but has to land
+                // somewhere: an unresumed continuation is a coroutine that never finishes.
+                Log.w(TAG, "recogniser refused the image", t)
+                cont.resume(null)
+            }
         }
     }
 }

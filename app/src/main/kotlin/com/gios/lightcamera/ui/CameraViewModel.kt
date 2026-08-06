@@ -31,6 +31,7 @@ import com.gios.lightcamera.media.MediaStoreRepo
 import com.gios.lightcamera.media.Photo
 import com.gios.lightcamera.media.RollScope
 import com.gios.lightcamera.media.Thumbs
+import com.gios.lightcamera.report.Trouble
 import com.gios.lightcamera.roll.FilmRoll
 import com.gios.lightcamera.roll.Roll
 import com.gios.lightcamera.ui.theme.LightHaptics
@@ -435,6 +436,12 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         // stale payload back into Pro, where the shutter would then try to open it.
         _scan.value = null
         scanGate.reset()
+        // A reading belongs to the mode that produced it, the same as a scan. This also means a
+        // stuck reader cannot outlive a trip through the mode strip, which is the first thing
+        // anybody tries when a mode looks broken.
+        _pageText.value = null
+        _held.value = null
+        _reading.value = false
         prefs.setMode(next)
         engine.setMode(next, prefs.flash.value)
         showNotice(next.bandLabel)
@@ -562,22 +569,28 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
      * spending the battery on a question nobody asked.
      */
     fun readPage(photo: Photo) {
-        if (_reading.value) return
-        _reading.value = true
+        if (!claimReader()) return
         viewModelScope.launch {
-            val text = withContext(Dispatchers.IO) {
-                PageReader.read(getApplication(), photo.uri)
+            try {
+                val text = withContext(Dispatchers.IO) {
+                    PageReader.read(getApplication(), photo.uri)
+                }
+                if (text == null) {
+                    showNotice("No text in this one")
+                    return@launch
+                }
+                _pageText.value = text
+                // The same two blips a scan gets. Finding the words is the same event as finding a
+                // code: the thing you pointed the phone at turned out to be there.
+                LightHaptics.click(getApplication<Application>())
+                if (prefs.sounds.value) beeps.focusLocked()
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                Trouble.record("Reading a photograph failed", t)
+                showNotice("Could not read that one")
+            } finally {
+                _reading.value = false
             }
-            _reading.value = false
-            if (text == null) {
-                showNotice("No text in this one")
-                return@launch
-            }
-            _pageText.value = text
-            // The same two blips a scan gets. Finding the words is the same event as finding a
-            // code: the thing you pointed the phone at turned out to be there.
-            LightHaptics.click(getApplication<Application>())
-            if (prefs.sounds.value) beeps.focusLocked()
         }
     }
 
@@ -601,13 +614,12 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
      * path has already been tried, which is the right way round: most readings never reach it.
      */
     fun readFrame() {
-        if (_reading.value) return
         val grabbed = engine.previewFrame()
         if (grabbed == null) {
             showNotice("Nothing on the viewfinder yet")
             return
         }
-        _reading.value = true
+        if (!claimReader()) return
         // Freeze the panel on the frame that was read. Without this the live preview carries on
         // moving under the sheet, and the words on screen stop matching the picture behind them.
         _held.value = grabbed
@@ -636,10 +648,37 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 _pageText.value = text
                 LightHaptics.click(getApplication<Application>())
                 if (prefs.sounds.value) beeps.focusLocked()
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _held.value = null
+                Trouble.record("Reading the viewfinder failed", t)
+                showNotice("Could not read that")
             } finally {
                 _reading.value = false
             }
         }
+    }
+
+    /**
+     * Take the reader, or say why not.
+     *
+     * **The silent version of this was a real bug and worth the comment.** `readPage` used to set
+     * the flag and clear it on the happy path only, so one reading that threw — or was cancelled
+     * — left it set for the life of the process. The view model is activity-scoped and shared
+     * between the roll and the viewfinder, so the next thing to notice was Text mode's shutter,
+     * doing nothing at all, with no message, forever.
+     *
+     * Two fixes, and both are needed. Every caller now clears the flag in a `finally`, and the
+     * refusal is no longer silent: a button that has decided not to work has to say so, or the
+     * only symptom is a phone that seems broken.
+     */
+    private fun claimReader(): Boolean {
+        if (_reading.value) {
+            showNotice("Still reading")
+            return false
+        }
+        _reading.value = true
+        return true
     }
 
     /**

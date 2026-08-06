@@ -1,54 +1,38 @@
-## LightCamera v2.41 — Text is a mode now, next to QR
+## LightCamera v2.42 — Fixing the Text shutter, which could stop working and never say so
 
-Turn the dial past QR and there is **TEXT**. Point it at a menu, a noticeboard, a receipt, the
-serial number on the back of a router, and press the shutter. The words come up in the same sheet
-a QR code gets, with the same verbs — call the number, open the link, copy the lot.
+**In Text mode the shutter did nothing.** Not sometimes — permanently, once it had happened, with
+no message and no way to tell what was wrong. Here is the whole of it, because the shape of this
+bug is worth more than the fix.
 
-v2.40 could already read a photograph on the roll. This is that without the photograph, because
-standing in front of a sign, taking a picture, swiping up to the roll and finding it again is
-three steps more than the job deserves.
+Both ways of reading text — the TEXT button on a photograph in the roll, and the shutter in Text
+mode — share one "busy" flag, because they share one view model. The roll's version set the flag
+before starting and cleared it *after finishing*. On the happy path that is the same thing. On any
+other path it is not: a reading that threw, or that was cancelled, or that simply never came back,
+left the flag set.
 
-### It does not take a photograph
+The view model is scoped to the activity, so that flag outlives the screen that set it. And the
+first line of the Text-mode shutter was `if (busy) return` — no message, no sound, nothing. So the
+sequence was: read a photograph on the roll once, have it fail in any way at all, and from then
+on, for as long as the app was running, the shutter in Text mode was dead and silent.
 
-The frame comes off the panel rather than off the sensor — the same `Screen` route the coarse
-filters have always used. No `takePicture`, no readout, no encode. A still on this hardware is
-most of a second and a 50MP one is nearer two, and a reading that took that long would be slower
-than typing the thing out. This is instant, and what gets read is literally the frame you were
-looking at when you pressed.
+Three things changed, and all three were needed.
 
-**Nothing lands on the roll.** The frame is held on screen so you can see what was read, and it is
-dropped when you close the sheet. A reading is not a photograph, and a roll filling up with
-pictures of car park signs would be the wrong outcome. Press the shutter again to dismiss.
+**The flag is now cleared in a `finally`**, on both paths, so no outcome can leave it set. That is
+the actual bug.
 
-### The catch, and what happens about it
+**The refusal is no longer silent.** A press that has decided not to do anything says "Still
+reading". A button that quietly declines is indistinguishable from a broken phone, and this cost
+more time than the bug did.
 
-The panel has far fewer pixels than the sensor. That is fine for a sign, a menu or a business
-card, and marginal for small print. So when the panel frame comes back with nothing — or with the
-two or three characters a recogniser returns when the print is too small, which is worse than
-nothing because it looks like an answer — it says **Looking closer**, takes one real exposure, and
-reads that instead.
+**The recogniser has a ceiling.** Twelve seconds, after which a reading is treated as never having
+answered. Not tuning — a guarantee. The underlying task has no cancel, so without a ceiling one
+call that never completes can still wedge everything behind it, and the `finally` would be waiting
+on a coroutine that never ends.
 
-The slow path is only paid by the shots that need it, and only after the fast one has already been
-tried. Most readings never reach it. The exposure is decoded sampled-down on the way in, because
-the recogniser gains nothing above about two thousand pixels and decoding a 12MP frame to read a
-street sign is two hundred megabytes to throw away.
+Failures are also now caught rather than escaping into the void: a read that throws records itself
+the way any other failure in this app does, so it offers to send a report with the reason in it
+instead of looking like a photograph with no words on it.
 
-### Three ways in, one screen out
-
-A QR code, a photograph on the roll, and now the viewfinder all end at the same sheet. That is not
-tidiness — after `TextScan` has shaped a finding into a payload, a phone number photographed off a
-card and one inside a QR code are the same value with the same actions, and they should not arrive
-in two different screens.
-
-Text mode borrows QR's framing corners for the same reason: you are framing a thing rather than
-composing a picture, and the marks are what say so. They come off the moment there is a reading.
-
-### Known
-
-There is no live recogniser, unlike QR. A code is a small target you sweep for and want acted on
-within a second; a page is a thing you frame and press. Running text recognition on every preview
-frame would cost far more than the viewfinder can spare on this phone.
-
-Nothing is spell-corrected here either — `O` and `0`, `l` and `1` are shown as they were read. On a
-printed URL that is the difference between a company's site and a domain someone bought to catch
-the typo, so the guess is yours to make.
+Switching modes clears a stuck reader too. That is belt and braces rather than a fix — but a trip
+through the mode strip is the first thing anybody tries when a mode looks broken, and it should
+work.
