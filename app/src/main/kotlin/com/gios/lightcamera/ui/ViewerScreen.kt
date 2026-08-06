@@ -71,6 +71,8 @@ fun ViewerScreen(
     val scope = rememberCoroutineScope()
     val colours = LightThemeTokens.colors
     val roll by vm.photos.collectAsState()
+    val pageText by vm.pageText.collectAsState()
+    val reading by vm.reading.collectAsState()
 
     // **Opened out of a strip, the viewer shows its four frames instead of the roll.**
     // They are deliberately absent from the grid — a booth hands you one print — so this is the only
@@ -116,6 +118,9 @@ fun ViewerScreen(
     LaunchedEffect(pager.currentPage) {
         scale = 1f
         pan = Offset.Zero
+        // A reading belongs to one photograph. Swiping to the next one with the last one's words
+        // still on screen would be worse than showing nothing, because it would look correct.
+        vm.dismissPage()
     }
     val zoomed = scale > 1.01f
 
@@ -339,6 +344,20 @@ fun ViewerScreen(
                     )
                     Spacer(Modifier.weight(1f))
                 }
+                // Reading the words off a photograph. A label rather than an icon because
+                // there is no glyph in the set that means "text in a picture", and on this panel
+                // a word is more legible than an invented mark.
+                //
+                // Absent while the sheet is up, so the row does not offer to do again the thing
+                // already on screen.
+                if (current != null && pageText == null) {
+                    ChromeLabel(
+                        text = if (reading) "Reading" else "Text",
+                        lighten = reading,
+                        onClick = { if (!reading) vm.readPage(current) },
+                    )
+                    Spacer(Modifier.weight(1f))
+                }
                 // **The share button asks who, not which app.**
                 //
                 // It used to open the system chooser: a colour Material sheet listing every app
@@ -354,6 +373,17 @@ fun ViewerScreen(
                     },
                 )
             }
+        }
+
+        // Over the photograph, inside the same Box as the chrome, so it covers the picture and
+        // the controls both. Last in the Box because Compose paints in order and this has to win.
+        pageText?.let { text ->
+            TextSheet(
+                text = text,
+                onOpen = vm::openFromPage,
+                onCopy = vm::copyFromPage,
+                onClose = vm::dismissPage,
+            )
         }
     }
 }

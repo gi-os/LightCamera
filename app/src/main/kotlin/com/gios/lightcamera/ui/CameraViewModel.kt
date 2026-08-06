@@ -23,6 +23,7 @@ import com.gios.lightcamera.filter.FaceQuads
 import com.gios.lightcamera.filter.Filters
 import com.gios.lightcamera.filter.ShaderRuntime
 import com.gios.lightcamera.hw.Beeps
+import com.gios.lightcamera.ocr.PageReader
 import com.gios.lightcamera.qr.CodeHandoff
 import com.gios.lightcamera.qr.Codes
 import com.gios.lightcamera.qr.ScanGate
@@ -530,6 +531,72 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         CodeHandoff.copy(getApplication<Application>(), raw)
         showNotice("Copied")
         dismissScan()
+    }
+
+    // ------------------------------------------------------------------ reading a photograph
+
+    /**
+     * The text found in the photograph currently open, or null when the sheet is closed.
+     *
+     * Held here rather than in the viewer so it survives the viewer's page changing underneath
+     * it — and so it is cleared when it should be. A reading belongs to one photograph, and
+     * showing the last one's words over this one's picture would be worse than showing nothing.
+     */
+    private val _pageText = MutableStateFlow<String?>(null)
+    val pageText: StateFlow<String?> = _pageText.asStateFlow()
+
+    private val _reading = MutableStateFlow(false)
+    val reading: StateFlow<Boolean> = _reading.asStateFlow()
+
+    /**
+     * Read the words off a photograph already on the roll.
+     *
+     * Deliberately a verb you press rather than something that happens to every picture. The
+     * recogniser costs a few hundred milliseconds and several megabytes of model, most
+     * photographs have no writing in them, and a roll that quietly indexed itself would be
+     * spending the battery on a question nobody asked.
+     */
+    fun readPage(photo: Photo) {
+        if (_reading.value) return
+        _reading.value = true
+        viewModelScope.launch {
+            val text = withContext(Dispatchers.IO) {
+                PageReader.read(getApplication(), photo.uri)
+            }
+            _reading.value = false
+            if (text == null) {
+                showNotice("No text in this one")
+                return@launch
+            }
+            _pageText.value = text
+            // The same two blips a scan gets. Finding the words is the same event as finding a
+            // code: the thing you pointed the phone at turned out to be there.
+            LightHaptics.click(getApplication<Application>())
+            if (prefs.sounds.value) beeps.focusLocked()
+        }
+    }
+
+    fun dismissPage() {
+        _pageText.value = null
+    }
+
+    /**
+     * Open something lifted off a page.
+     *
+     * The payload arrives already shaped like a QR code's contents — see `ocr/TextScan` — so this
+     * is the same call `openScan` makes, against the same handoff. That equivalence is the point
+     * of the feature and not a coincidence worth abstracting away.
+     */
+    fun openFromPage(target: String) {
+        if (!CodeHandoff.open(getApplication<Application>(), target)) {
+            showNotice("Nothing here opens that")
+        }
+    }
+
+    /** Something off a page on the clipboard, verbatim — the reading, never the completion. */
+    fun copyFromPage(text: String) {
+        CodeHandoff.copy(getApplication<Application>(), text)
+        showNotice("Copied")
     }
 
     /** Just the password out of a `WIFI:` payload — the only part of one anybody retypes. */

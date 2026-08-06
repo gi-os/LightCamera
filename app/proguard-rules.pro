@@ -59,6 +59,29 @@
 # smoke test of the viewfinder does not exercise it, so a release build has to be tried there
 # by hand.
 
+# ---------------------------------------------------------------- ML Kit text recognition
+#
+# The notes below used to say there was no ML Kit in this app. There is now, for reading the
+# words off a photograph on the roll — the *bundled* text recogniser, whose model is in the APK
+# rather than behind Play Services. (QR is still ZXing, and `ocr/PageReader.kt` says why.)
+#
+# ML Kit finds its own implementation the way Firebase does: each artifact declares a
+# `ComponentRegistrar` in its manifest and the runtime instantiates it by class name. Nothing in
+# our code refers to those classes, so full mode removes them and `TextRecognition.getClient`
+# throws at the first press of TEXT — on a photograph already taken, which is the worst place to
+# discover it, and it fails looking like "this picture has no words in it".
+-keep class * implements com.google.firebase.components.ComponentRegistrar { *; }
+-keep class com.google.mlkit.common.internal.** { *; }
+-keep class com.google.mlkit.vision.text.internal.** { *; }
+-keep class com.google.mlkit.vision.text.latin.** { *; }
+
+# The recogniser is native underneath and the JNI lookup is by name, so the bridge classes cannot
+# be renamed even though nothing Java-side would notice.
+-keepclasseswithmembernames class com.google.mlkit.** {
+    native <methods>;
+}
+-dontwarn com.google.mlkit.**
+
 # ---------------------------------------------------------------- notes, so nobody adds a rule
 
 # Face detection needs nothing. It is the *hardware* detector, read through Camera2Interop and
@@ -75,6 +98,9 @@
 #
 # `KeyEvent.keyCodeFromString` in light-common resolves Light's key labels through a native
 # platform table. That is not reflection into any kept code.
+#
+# `ocr/TextScan` is plain string work with no reflection, and `TextSheet` reaches it by ordinary
+# calls. The extraction patterns are Kotlin `Regex` literals, not class names.
 
 # ---------------------------------------------------------------- third party
 

@@ -35,7 +35,7 @@ android {
         targetSdk = 35
         // CI overwrites both from the workflow run number; see .github/workflows/build.yml
         versionCode = 1
-        versionName = "2.39.0"
+        versionName = "2.40.0"
 
         buildConfigField("String", "REPORT_TOKEN", "\"$reportToken\"")
         buildConfigField("String", "REPORT_REPO", "\"gi-os/light-reports\"")
@@ -111,6 +111,13 @@ dependencies {
     // delivered through Play Services, which LightOS does not have — it would bind and never
     // answer. This is pure Java, 500 kB, and needs nothing from the platform. See qr/QrAnalyzer.kt.
     implementation("com.google.zxing:core:3.5.3")
+
+    // Reading the words off a photograph on the roll. This is the *bundled* ML Kit artifact —
+    // the model is inside the APK. The unbundled one (play-services-mlkit-text-recognition) is
+    // delivered through Play Services, which LightOS does not have, so it would bind and never
+    // answer, which is exactly why QR above uses ZXing. Costs a few MB; there is no pure-Java
+    // text recogniser worth shipping the way there is for barcodes. See ocr/PageReader.kt.
+    implementation("com.google.mlkit:text-recognition:16.0.1")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
