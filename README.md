@@ -6,13 +6,13 @@ Filters, film-roll mode, QR scanning, hardware face detection, and the wheel as 
 ## Install via BrightMarket
 
 <p align="center">
-  <img src="https://gi-os.github.io/brightmarket-index/assets/brightmarket-qr.png" alt="Scan to open BrightMarket" width="180" />
+  <img src="https://gi-os.github.io/brightmarket-index/assets/qr/Roll.png" alt="Scan to open Roll in BrightMarket" width="180" />
 </p>
 
-Scan the code above, or visit
-**[gi-os.github.io/brightmarket-index/browse.html](https://gi-os.github.io/brightmarket-index/browse.html)**, to install
-and keep this app updated through **BrightMarket** — no Play Store, no PC
-required.
+Scan the code above with **BrightMarket** installed to open Roll there and
+install or update it directly. Don't have BrightMarket yet? Get it, and browse
+every Bright app, at
+**[gi-os.github.io/brightmarket-index/browse.html](https://gi-os.github.io/brightmarket-index/browse.html)**.
 
 [**⬇ Download the latest APK**](https://github.com/gi-os/LightCamera/releases/latest) · free,
 open source, no account. The app opens a network connection only when you send a bug report.
